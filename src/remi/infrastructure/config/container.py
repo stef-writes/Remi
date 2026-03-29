@@ -204,39 +204,45 @@ class InclineContainer:
             return InMemoryStateStore()
         raise ValueError(f"Unsupported state store backend: {backend}")
 
-    @staticmethod
-    def _build_embedder() -> Embedder:
-        import os
-
-        if os.environ.get("OPENAI_API_KEY"):
+    def _build_embedder(self) -> Embedder:
+        api_key = self.settings.secrets.openai_api_key
+        if api_key:
             try:
                 from remi.infrastructure.vectors.embedder import OpenAIEmbedder
-                return OpenAIEmbedder()
+                return OpenAIEmbedder(api_key=api_key)
             except Exception:
                 pass
         from remi.infrastructure.vectors.embedder import NoopEmbedder
         return NoopEmbedder()
 
-    @staticmethod
-    def _build_provider_factory() -> LLMProviderFactory:
+    def _build_provider_factory(self) -> LLMProviderFactory:
         factory = LLMProviderFactory()
+        secrets = self.settings.secrets
 
         try:
             from remi.infrastructure.llm.openai_provider import OpenAIProvider
-            factory.register("openai", OpenAIProvider)
-            factory.register("openai_compatible", OpenAIProvider)
+            factory.register("openai", lambda **kw: OpenAIProvider(
+                api_key=kw.pop("api_key", None) or secrets.openai_api_key, **kw,
+            ))
+            factory.register("openai_compatible", lambda **kw: OpenAIProvider(
+                api_key=kw.pop("api_key", None) or secrets.openai_api_key, **kw,
+            ))
         except ImportError:
             pass
 
         try:
             from remi.infrastructure.llm.anthropic_provider import AnthropicProvider
-            factory.register("anthropic", AnthropicProvider)
+            factory.register("anthropic", lambda **kw: AnthropicProvider(
+                api_key=kw.pop("api_key", None) or secrets.anthropic_api_key, **kw,
+            ))
         except ImportError:
             pass
 
         try:
             from remi.infrastructure.llm.gemini_provider import GeminiProvider
-            factory.register("gemini", GeminiProvider)
+            factory.register("gemini", lambda **kw: GeminiProvider(
+                api_key=kw.pop("api_key", None) or secrets.google_api_key, **kw,
+            ))
         except ImportError:
             pass
 

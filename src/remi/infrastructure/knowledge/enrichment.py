@@ -8,7 +8,6 @@ Gracefully degrades when no LLM API key is available.
 from __future__ import annotations
 
 import json
-import os
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -22,13 +21,10 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-def _llm_available() -> bool:
-    """Check if any LLM API key is configured."""
-    return bool(
-        os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("GEMINI_API_KEY")
-    )
+def _llm_available(container: InclineContainer) -> bool:
+    """Check if any LLM API key is configured via settings."""
+    s = container.settings.secrets
+    return bool(s.openai_api_key or s.anthropic_api_key or s.google_api_key)
 
 
 async def enrich_ambiguous_rows(
@@ -44,7 +40,7 @@ async def enrich_ambiguous_rows(
     if not rows:
         return 0, 0
 
-    if not _llm_available():
+    if not _llm_available(container):
         logger.info(
             "enrichment_skipped_no_api_key",
             doc_id=doc.id,
