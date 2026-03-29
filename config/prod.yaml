@@ -1,0 +1,20 @@
+environment: production
+
+state_store:
+  backend: postgres
+  dsn: ${APPOS_DATABASE_URL}
+
+logging:
+  level: INFO
+  format: structured
+
+execution:
+  max_retries: 3
+  retry_delay_seconds: 2
+  concurrency_limit: 50
+  idempotency: true
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins: []
