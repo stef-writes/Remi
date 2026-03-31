@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends
 
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_lease_query, get_property_store
 from remi.api.leases.schemas import (
     ExpiringLeaseItem,
     ExpiringLeasesResponse,
     LeaseListItem,
     LeaseListResponse,
 )
-from remi.models.properties import LeaseStatus
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.models.properties import LeaseStatus, PropertyStore
+from remi.services.lease_queries import LeaseQueryService
 
 router = APIRouter(prefix="/leases", tags=["leases"])
 
@@ -25,16 +21,16 @@ router = APIRouter(prefix="/leases", tags=["leases"])
 async def list_leases(
     property_id: str | None = None,
     status: str | None = None,
-    container: Container = Depends(get_container),
+    ps: PropertyStore = Depends(get_property_store),
 ) -> LeaseListResponse:
     lease_status = LeaseStatus(status) if status else None
-    leases = await container.property_store.list_leases(
+    leases = await ps.list_leases(
         property_id=property_id,
         status=lease_status,
     )
     items = []
     for le in leases:
-        tenant = await container.property_store.get_tenant(le.tenant_id)
+        tenant = await ps.get_tenant(le.tenant_id)
         items.append(
             LeaseListItem(
                 id=le.id,
@@ -53,9 +49,9 @@ async def list_leases(
 @router.get("/expiring", response_model=ExpiringLeasesResponse)
 async def expiring_leases(
     days: int = 60,
-    container: Container = Depends(get_container),
+    svc: LeaseQueryService = Depends(get_lease_query),
 ) -> ExpiringLeasesResponse:
-    result = await container.lease_query.expiring_leases(days=days)
+    result = await svc.expiring_leases(days=days)
     return ExpiringLeasesResponse(
         days_window=result.days_window,
         count=result.count,

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends, HTTPException
 
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_portfolio_query, get_property_store
 from remi.api.portfolios.schemas import (
     PortfolioDetail,
     PortfolioListItem,
@@ -14,9 +12,8 @@ from remi.api.portfolios.schemas import (
     PortfolioSummary,
     PropertyInPortfolio,
 )
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.models.properties import PropertyStore
+from remi.services.portfolio_queries import PortfolioQueryService
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 
@@ -24,9 +21,9 @@ router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 @router.get("", response_model=PortfolioListResponse)
 async def list_portfolios(
     manager_id: str | None = None,
-    container: Container = Depends(get_container),
+    svc: PortfolioQueryService = Depends(get_portfolio_query),
 ) -> PortfolioListResponse:
-    items = await container.portfolio_query.list_portfolios(manager_id=manager_id)
+    items = await svc.list_portfolios(manager_id=manager_id)
     return PortfolioListResponse(
         portfolios=[PortfolioListItem(**item.model_dump()) for item in items]
     )
@@ -35,9 +32,9 @@ async def list_portfolios(
 @router.get("/{portfolio_id}", response_model=PortfolioDetail)
 async def get_portfolio(
     portfolio_id: str,
-    container: Container = Depends(get_container),
+    ps: PropertyStore = Depends(get_property_store),
 ) -> PortfolioDetail:
-    portfolio = await container.property_store.get_portfolio(portfolio_id)
+    portfolio = await ps.get_portfolio(portfolio_id)
     if not portfolio:
         raise HTTPException(404, f"Portfolio '{portfolio_id}' not found")
     return PortfolioDetail(
@@ -53,9 +50,9 @@ async def get_portfolio(
 @router.get("/{portfolio_id}/summary", response_model=PortfolioSummary)
 async def portfolio_summary(
     portfolio_id: str,
-    container: Container = Depends(get_container),
+    svc: PortfolioQueryService = Depends(get_portfolio_query),
 ) -> PortfolioSummary:
-    result = await container.portfolio_query.portfolio_summary(portfolio_id)
+    result = await svc.portfolio_summary(portfolio_id)
     if not result:
         raise HTTPException(404, f"Portfolio '{portfolio_id}' not found")
     return PortfolioSummary(

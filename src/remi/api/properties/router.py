@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends, HTTPException
 
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_property_query, get_property_store, get_rent_roll_service
 from remi.api.properties.schemas import (
     PropertyDetail,
     PropertyListItem,
@@ -15,10 +13,9 @@ from remi.api.properties.schemas import (
     UnitListResponse,
     UnitSummary,
 )
-from remi.models.properties import UnitStatus
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.models.properties import PropertyStore, UnitStatus
+from remi.services.property_queries import PropertyQueryService
+from remi.services.rent_roll import RentRollService
 
 router = APIRouter(prefix="/properties", tags=["properties"])
 
@@ -26,9 +23,9 @@ router = APIRouter(prefix="/properties", tags=["properties"])
 @router.get("", response_model=PropertyListResponse)
 async def list_properties(
     portfolio_id: str | None = None,
-    container: Container = Depends(get_container),
+    svc: PropertyQueryService = Depends(get_property_query),
 ) -> PropertyListResponse:
-    items = await container.property_query.list_properties(portfolio_id=portfolio_id)
+    items = await svc.list_properties(portfolio_id=portfolio_id)
     return PropertyListResponse(
         properties=[PropertyListItem(**item.model_dump()) for item in items]
     )
@@ -37,9 +34,9 @@ async def list_properties(
 @router.get("/{property_id}", response_model=PropertyDetail)
 async def get_property(
     property_id: str,
-    container: Container = Depends(get_container),
+    svc: PropertyQueryService = Depends(get_property_query),
 ) -> PropertyDetail:
-    detail = await container.property_query.get_property_detail(property_id)
+    detail = await svc.get_property_detail(property_id)
     if not detail:
         raise HTTPException(404, f"Property '{property_id}' not found")
     return PropertyDetail(
@@ -62,13 +59,13 @@ async def get_property(
 async def list_units(
     property_id: str,
     status: str | None = None,
-    container: Container = Depends(get_container),
+    ps: PropertyStore = Depends(get_property_store),
 ) -> UnitListResponse:
-    prop = await container.property_store.get_property(property_id)
+    prop = await ps.get_property(property_id)
     if not prop:
         raise HTTPException(404, f"Property '{property_id}' not found")
     unit_status = UnitStatus(status) if status else None
-    units = await container.property_store.list_units(property_id=property_id, status=unit_status)
+    units = await ps.list_units(property_id=property_id, status=unit_status)
     return UnitListResponse(
         property_id=property_id,
         count=len(units),
@@ -79,9 +76,9 @@ async def list_units(
 @router.get("/{property_id}/rent-roll", response_model=RentRollResponse)
 async def rent_roll(
     property_id: str,
-    container: Container = Depends(get_container),
+    svc: RentRollService = Depends(get_rent_roll_service),
 ) -> RentRollResponse:
-    result = await container.rent_roll_service.build_rent_roll(property_id)
+    result = await svc.build_rent_roll(property_id)
     if result is None:
         raise HTTPException(404, f"Property '{property_id}' not found")
     return RentRollResponse(**result.model_dump())

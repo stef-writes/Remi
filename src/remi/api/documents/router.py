@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_document_ingest, get_document_store
 from remi.api.documents.schemas import (
     DeleteResponse,
     DocumentDetail,
@@ -16,9 +14,8 @@ from remi.api.documents.schemas import (
     KnowledgeInfo,
     UploadResponse,
 )
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.models.documents import DocumentStore
+from remi.services.document_ingest import DocumentIngestService
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -27,7 +24,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 async def upload_document(
     file: UploadFile = File(...),
     manager: str | None = Form(default=None),
-    container: Container = Depends(get_container),
+    ingest: DocumentIngestService = Depends(get_document_ingest),
 ) -> UploadResponse:
     """Upload a report.
 
@@ -42,7 +39,7 @@ async def upload_document(
     content_type = (file.content_type or "").lower()
 
     try:
-        result = await container.document_ingest.ingest_upload(
+        result = await ingest.ingest_upload(
             filename,
             content,
             content_type,
@@ -68,9 +65,9 @@ async def upload_document(
 
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
-    container: Container = Depends(get_container),
+    ds: DocumentStore = Depends(get_document_store),
 ) -> DocumentListResponse:
-    docs = await container.document_store.list_documents()
+    docs = await ds.list_documents()
     return DocumentListResponse(
         documents=[
             DocumentListItem(
@@ -90,9 +87,9 @@ async def list_documents(
 @router.get("/{document_id}", response_model=DocumentDetail)
 async def get_document(
     document_id: str,
-    container: Container = Depends(get_container),
+    ds: DocumentStore = Depends(get_document_store),
 ) -> DocumentDetail:
-    doc = await container.document_store.get(document_id)
+    doc = await ds.get(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
     return DocumentDetail(
@@ -111,21 +108,21 @@ async def get_document(
 async def query_rows(
     document_id: str,
     limit: int = 100,
-    container: Container = Depends(get_container),
+    ds: DocumentStore = Depends(get_document_store),
 ) -> DocumentRowsResponse:
-    doc = await container.document_store.get(document_id)
+    doc = await ds.get(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    rows = await container.document_store.query_rows(document_id, limit=limit)
+    rows = await ds.query_rows(document_id, limit=limit)
     return DocumentRowsResponse(document_id=document_id, rows=rows, count=len(rows))
 
 
 @router.delete("/{document_id}", response_model=DeleteResponse)
 async def delete_document(
     document_id: str,
-    container: Container = Depends(get_container),
+    ds: DocumentStore = Depends(get_document_store),
 ) -> DeleteResponse:
-    deleted = await container.document_store.delete(document_id)
+    deleted = await ds.delete(document_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Document not found")
     return DeleteResponse(deleted=True, id=document_id)

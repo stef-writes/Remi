@@ -53,6 +53,7 @@ class Container:
     def __init__(self, settings: RemiSettings | None = None) -> None:
         from remi.knowledge.entailment import EntailmentEngine
         from remi.knowledge.ingestion import IngestionService
+        from remi.services.auto_assign import AutoAssignService
         from remi.services.dashboard import DashboardQueryService
         from remi.services.document_ingest import DocumentIngestService, _parse_and_store
         from remi.services.lease_queries import LeaseQueryService
@@ -175,6 +176,11 @@ class Container:
         self.maintenance_query = MaintenanceQueryService(property_store=self.property_store)
         self.manager_review = ManagerReviewService(property_store=self.property_store)
         self.rent_roll_service = RentRollService(property_store=self.property_store)
+        self.auto_assign_service = AutoAssignService(
+            property_store=self.property_store,
+            knowledge_store=self.knowledge_store,
+            snapshot_service=self.snapshot_service,
+        )
 
         # -- Entailment engine -------------------------------------------------
 
@@ -238,7 +244,8 @@ class Container:
                         default=str,
                     )
                     answer, _run_id = await self.chat_agent.ask(
-                        "knowledge_enricher", payload,
+                        "knowledge_enricher",
+                        payload,
                     )
                     if answer:
                         e, r = await _parse_and_store(answer, namespace, knowledge_store)

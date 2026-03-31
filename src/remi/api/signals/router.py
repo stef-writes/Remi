@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends, HTTPException
 
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_feedback_store, get_signal_pipeline, get_signal_store
 from remi.api.signals.schemas import (
     EntailmentResponse,
     FeedbackListResponse,
@@ -18,9 +16,8 @@ from remi.api.signals.schemas import (
     SignalSummary,
     SourceResult,
 )
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.knowledge.composite import CompositeProducer
+from remi.models.signals import FeedbackStore, SignalStore
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -44,9 +41,9 @@ async def list_signals(
     property_id: str | None = None,
     severity: str | None = None,
     signal_type: str | None = None,
-    container: Container = Depends(get_container),
+    ss: SignalStore = Depends(get_signal_store),
 ) -> SignalListResponse:
-    signals = await container.signal_store.list_signals(
+    signals = await ss.list_signals(
         manager_id=manager_id,
         property_id=property_id,
         severity=severity,
@@ -61,9 +58,9 @@ async def list_signals(
 @router.get("/{signal_id}")
 async def get_signal(
     signal_id: str,
-    container: Container = Depends(get_container),
+    ss: SignalStore = Depends(get_signal_store),
 ) -> SignalDetailResponse:
-    signal = await container.signal_store.get_signal(signal_id)
+    signal = await ss.get_signal(signal_id)
     if signal is None:
         raise HTTPException(404, f"Signal '{signal_id}' not found")
     return SignalDetailResponse(
@@ -74,9 +71,9 @@ async def get_signal(
 @router.get("/{signal_id}/explain")
 async def explain_signal(
     signal_id: str,
-    container: Container = Depends(get_container),
+    ss: SignalStore = Depends(get_signal_store),
 ) -> SignalExplainResponse:
-    signal = await container.signal_store.get_signal(signal_id)
+    signal = await ss.get_signal(signal_id)
     if signal is None:
         raise HTTPException(404, f"Signal '{signal_id}' not found")
     return SignalExplainResponse(
@@ -88,9 +85,9 @@ async def explain_signal(
 
 @router.post("/infer")
 async def run_entailment(
-    container: Container = Depends(get_container),
+    pipeline: CompositeProducer = Depends(get_signal_pipeline),
 ) -> EntailmentResponse:
-    result = await container.signal_pipeline.run_all()
+    result = await pipeline.run_all()
     sources = {
         name: SourceResult(
             produced=pr.produced,
@@ -110,14 +107,15 @@ async def run_entailment(
 async def record_feedback(
     signal_id: str,
     body: FeedbackRequest,
-    container: Container = Depends(get_container),
+    ss: SignalStore = Depends(get_signal_store),
+    fs: FeedbackStore = Depends(get_feedback_store),
 ) -> FeedbackResponse:
     """Record feedback on a signal."""
     import uuid
 
     from remi.models.signals import SignalFeedback, SignalOutcome
 
-    signal = await container.signal_store.get_signal(signal_id)
+    signal = await ss.get_signal(signal_id)
     if signal is None:
         raise HTTPException(404, f"Signal '{signal_id}' not found")
 
@@ -131,7 +129,7 @@ async def record_feedback(
         notes=body.notes,
         context=body.context,
     )
-    await container.feedback_store.record_feedback(feedback)
+    await fs.record_feedback(feedback)
     return FeedbackResponse(
         feedback_id=feedback.feedback_id,
         signal_id=signal_id,
@@ -142,10 +140,10 @@ async def record_feedback(
 @router.get("/{signal_id}/feedback")
 async def list_signal_feedback(
     signal_id: str,
-    container: Container = Depends(get_container),
+    fs: FeedbackStore = Depends(get_feedback_store),
 ) -> FeedbackListResponse:
     """List feedback events for a specific signal."""
-    entries = await container.feedback_store.list_feedback(
+    entries = await fs.list_feedback(
         signal_id=signal_id,
     )
     return FeedbackListResponse(
@@ -158,8 +156,8 @@ async def list_signal_feedback(
 @router.get("/feedback/summary/{signal_type}")
 async def feedback_summary(
     signal_type: str,
-    container: Container = Depends(get_container),
+    fs: FeedbackStore = Depends(get_feedback_store),
 ) -> dict:
     """Aggregated feedback stats for a signal type."""
-    summary = await container.feedback_store.summarize(signal_type)
+    summary = await fs.summarize(signal_type)
     return summary.model_dump(mode="json")

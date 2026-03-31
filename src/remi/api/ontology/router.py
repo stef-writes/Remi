@@ -6,11 +6,9 @@ Maps 1:1 to the CLI ``remi onto`` subcommands.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_ontology_store
 from remi.api.ontology.schemas import (
     AggregateRequest,
     AggregateResponse,
@@ -26,10 +24,8 @@ from remi.api.ontology.schemas import (
     SearchResponse,
     TimelineResponse,
 )
+from remi.knowledge.ontology_bridge import BridgedOntologyStore
 from remi.models.ontology import ObjectTypeDef, PropertyDef
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
 
 router = APIRouter(prefix="/ontology", tags=["ontology"])
 
@@ -42,13 +38,13 @@ async def search_objects(
     type_name: str,
     order_by: str | None = Query(None, description="Sort field (prefix with - for desc)"),
     limit: int = Query(50, ge=1, le=1000),
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> SearchResponse:
     """Search objects of any type with optional field filters.
 
     Filters are passed as arbitrary query params beyond the declared ones.
     """
-    results = await container.ontology_store.search_objects(
+    results = await store.search_objects(
         type_name,
         order_by=order_by,
         limit=limit,
@@ -60,10 +56,10 @@ async def search_objects(
 async def search_objects_post(
     type_name: str,
     body: SearchRequest,
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> SearchResponse:
     """Search with filters in the request body (for complex filter objects)."""
-    results = await container.ontology_store.search_objects(
+    results = await store.search_objects(
         type_name,
         filters=body.filters,
         order_by=body.order_by,
@@ -79,10 +75,10 @@ async def search_objects_post(
 async def get_object(
     type_name: str,
     object_id: str,
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> ObjectResponse:
     """Get a single object by type and ID."""
-    obj = await container.ontology_store.get_object(type_name, object_id)
+    obj = await store.get_object(type_name, object_id)
     if obj is None:
         raise HTTPException(404, f"{type_name} '{object_id}' not found")
     return ObjectResponse(object=obj)
@@ -100,12 +96,12 @@ async def get_related(
     link_type: str | None = Query(None, description="Filter by link type"),
     direction: str = Query("both", description="both|outgoing|incoming"),
     max_depth: int = Query(1, ge=1, le=10, description="Traversal depth"),
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> RelatedResponse:
     """Find related objects via link traversal."""
     if max_depth > 1:
         link_types = [link_type] if link_type else None
-        nodes = await container.ontology_store.traverse(
+        nodes = await store.traverse(
             object_id,
             link_types=link_types,
             max_depth=max_depth,
@@ -117,7 +113,7 @@ async def get_related(
             depth=max_depth,
         )
 
-    links = await container.ontology_store.get_links(
+    links = await store.get_links(
         object_id,
         link_type=link_type,
         direction=direction,
@@ -136,10 +132,10 @@ async def get_related(
 async def aggregate(
     type_name: str,
     body: AggregateRequest,
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> AggregateResponse:
     """Compute aggregate metrics (count, sum, avg, min, max) across objects."""
-    result = await container.ontology_store.aggregate(
+    result = await store.aggregate(
         type_name,
         body.metric,
         body.field,
@@ -165,10 +161,10 @@ async def get_timeline(
     type_name: str,
     object_id: str,
     limit: int = Query(50, ge=1, le=1000),
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> TimelineResponse:
     """Show event history for an object."""
-    events = await container.ontology_store.get_timeline(
+    events = await store.get_timeline(
         type_name,
         object_id,
         limit=limit,
@@ -186,11 +182,11 @@ async def get_timeline(
 
 @router.get("/schema", response_model=SchemaListResponse)
 async def list_schema(
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> SchemaListResponse:
     """List all defined object types and link types."""
-    types = await container.ontology_store.list_object_types()
-    links = await container.ontology_store.list_link_types()
+    types = await store.list_object_types()
+    links = await store.list_link_types()
     return SchemaListResponse(
         types=[t.model_dump(mode="json") for t in types],
         link_types=[lt.model_dump(mode="json") for lt in links],
@@ -200,13 +196,13 @@ async def list_schema(
 @router.get("/schema/{type_name}", response_model=SchemaTypeResponse)
 async def get_schema_type(
     type_name: str,
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> SchemaTypeResponse:
     """Describe a specific object type and its related link types."""
-    ot = await container.ontology_store.get_object_type(type_name)
+    ot = await store.get_object_type(type_name)
     if ot is None:
         raise HTTPException(404, f"Unknown type '{type_name}'")
-    links = await container.ontology_store.list_link_types()
+    links = await store.list_link_types()
     related = [
         lt.model_dump(mode="json")
         for lt in links
@@ -221,10 +217,10 @@ async def get_schema_type(
 @router.post("/codify", response_model=CodifyResponse)
 async def codify(
     body: CodifyRequest,
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> CodifyResponse:
     """Codify operational knowledge into the ontology."""
-    entity_id = await container.ontology_store.codify(
+    entity_id = await store.codify(
         body.knowledge_type,
         body.data,
         provenance=body.provenance,
@@ -232,7 +228,7 @@ async def codify(
 
     if body.source_id and body.target_id:
         link_type = "CAUSES" if body.knowledge_type == "causal_link" else "RELATED_TO"
-        await container.ontology_store.put_link(
+        await store.put_link(
             body.source_id,
             link_type,
             body.target_id,
@@ -248,7 +244,7 @@ async def codify(
 @router.post("/define", response_model=DefineTypeResponse)
 async def define_type(
     body: DefineTypeRequest,
-    container: Container = Depends(get_container),
+    store: BridgedOntologyStore = Depends(get_ontology_store),
 ) -> DefineTypeResponse:
     """Define a new object type in the ontology."""
     props = tuple(
@@ -266,5 +262,5 @@ async def define_type(
         properties=props,
         provenance=body.provenance,
     )
-    await container.ontology_store.define_object_type(type_def)
+    await store.define_object_type(type_def)
     return DefineTypeResponse(type=type_def.model_dump(mode="json"))

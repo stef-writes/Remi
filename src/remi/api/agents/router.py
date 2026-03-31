@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
 
+from remi.agent.runner import ChatAgentService
 from remi.api.agents.schemas import AskRequest, AskResponse
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_chat_agent, get_provider_factory, get_settings
+from remi.config.settings import RemiSettings
+from remi.llm.factory import LLMProviderFactory
 from remi.shared.paths import APPS_DIR as AGENTS_DIR
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
 
 router = APIRouter(prefix="/agents", tags=["ai"])
 
@@ -20,10 +20,10 @@ router = APIRouter(prefix="/agents", tags=["ai"])
 @router.post("/ask", response_model=AskResponse)
 async def ask(
     req: AskRequest,
-    container: Container = Depends(get_container),
+    agent: ChatAgentService = Depends(get_chat_agent),
 ) -> AskResponse:
     try:
-        answer, run_id = await container.chat_agent.ask(req.agent, req.question)
+        answer, run_id = await agent.ask(req.agent, req.question)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
@@ -39,11 +39,11 @@ async def ask(
 
 @router.get("/models")
 async def list_models(
-    container: Container = Depends(get_container),
+    settings: RemiSettings = Depends(get_settings),
+    factory: LLMProviderFactory = Depends(get_provider_factory),
 ) -> dict[str, Any]:
     """Return available LLM providers/models and current defaults."""
-    settings = container.settings
-    available = container.provider_factory.available()
+    available = factory.available()
 
     provider_models: dict[str, list[str]] = {
         "openai": [

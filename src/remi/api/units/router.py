@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from remi.api.dependencies import get_container
-from remi.models.properties import UnitStatus
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.api.dependencies import get_property_store
+from remi.models.properties import PropertyStore, UnitStatus
 
 router = APIRouter(prefix="/units", tags=["units"])
 
@@ -37,16 +32,16 @@ class UnitListResponse(BaseModel, frozen=True):
 async def list_all_units(
     property_id: str | None = None,
     status: str | None = None,
-    container: Container = Depends(get_container),
+    ps: PropertyStore = Depends(get_property_store),
 ) -> UnitListResponse:
     unit_status = UnitStatus(status) if status else None
-    units = await container.property_store.list_units(
+    units = await ps.list_units(
         property_id=property_id,
         status=unit_status,
     )
     items: list[UnitItem] = []
     for u in units:
-        prop = await container.property_store.get_property(u.property_id)
+        prop = await ps.get_property(u.property_id)
         items.append(
             UnitItem(
                 id=u.id,

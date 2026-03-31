@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from remi.api.dependencies import get_container
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.api.dependencies import get_property_store
+from remi.models.properties import PropertyStore
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
@@ -36,15 +32,15 @@ class TenantDetailResponse(BaseModel, frozen=True):
 @router.get("/{tenant_id}", response_model=TenantDetailResponse)
 async def get_tenant(
     tenant_id: str,
-    container: Container = Depends(get_container),
+    ps: PropertyStore = Depends(get_property_store),
 ) -> TenantDetailResponse:
-    tenant = await container.property_store.get_tenant(tenant_id)
+    tenant = await ps.get_tenant(tenant_id)
     if not tenant:
         raise HTTPException(404, f"Tenant '{tenant_id}' not found")
-    leases = await container.property_store.list_leases(tenant_id=tenant_id)
+    leases = await ps.list_leases(tenant_id=tenant_id)
     lease_info: list[LeaseInfo] = []
     for le in leases:
-        unit = await container.property_store.get_unit(le.unit_id)
+        unit = await ps.get_unit(le.unit_id)
         lease_info.append(
             LeaseInfo(
                 lease_id=le.id,

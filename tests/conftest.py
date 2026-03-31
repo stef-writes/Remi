@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 
-from remi.domain.properties.enums import (
+from remi.models.properties import (
     LeaseStatus,
     MaintenanceStatus,
     OccupancyStatus,
@@ -16,7 +16,7 @@ from remi.domain.properties.enums import (
     TenantStatus,
     UnitStatus,
 )
-from remi.domain.properties.models import (
+from remi.models.properties import (
     Address,
     Lease,
     MaintenanceRequest,
@@ -26,11 +26,11 @@ from remi.domain.properties.models import (
     Tenant,
     Unit,
 )
-from remi.domain.signals.types import DomainOntology
-from remi.infrastructure.entailment.engine import EntailmentEngine
-from remi.infrastructure.entailment.in_memory_signal_store import InMemorySignalStore
-from remi.infrastructure.ontology.bootstrap import load_domain_yaml
-from remi.infrastructure.properties.in_memory import InMemoryPropertyStore
+from remi.models.signals import DomainOntology
+from remi.knowledge.entailment import EntailmentEngine
+from remi.stores.signals import InMemorySignalStore
+from remi.knowledge.ontology_bootstrap import load_domain_yaml
+from remi.stores.properties import InMemoryPropertyStore
 
 
 @pytest.fixture

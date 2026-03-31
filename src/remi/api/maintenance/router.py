@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from fastapi import APIRouter, Depends
 
-from remi.api.dependencies import get_container
+from remi.api.dependencies import get_maintenance_query
 from remi.api.maintenance.schemas import (
     MaintenanceItem,
     MaintenanceListResponse,
     MaintenanceSummaryResponse,
 )
-
-if TYPE_CHECKING:
-    from remi.config.container import Container
+from remi.services.maintenance_queries import MaintenanceQueryService
 
 router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 
@@ -23,9 +19,9 @@ router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 async def list_requests(
     property_id: str | None = None,
     status: str | None = None,
-    container: Container = Depends(get_container),
+    svc: MaintenanceQueryService = Depends(get_maintenance_query),
 ) -> MaintenanceListResponse:
-    result = await container.maintenance_query.list_requests(property_id=property_id, status=status)
+    result = await svc.list_requests(property_id=property_id, status=status)
     return MaintenanceListResponse(
         count=result.count,
         requests=[MaintenanceItem(**r.model_dump()) for r in result.requests],
@@ -35,7 +31,7 @@ async def list_requests(
 @router.get("/summary", response_model=MaintenanceSummaryResponse)
 async def maintenance_summary(
     property_id: str | None = None,
-    container: Container = Depends(get_container),
+    svc: MaintenanceQueryService = Depends(get_maintenance_query),
 ) -> MaintenanceSummaryResponse:
-    result = await container.maintenance_query.maintenance_summary(property_id=property_id)
+    result = await svc.maintenance_summary(property_id=property_id)
     return MaintenanceSummaryResponse(**result.model_dump())
