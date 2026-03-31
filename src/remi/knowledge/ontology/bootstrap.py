@@ -6,7 +6,8 @@ Called once during container initialization.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -18,9 +19,6 @@ from remi.models.ontology import (
     PropertyDef,
 )
 from remi.shared.paths import DOMAIN_YAML_PATH
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Core object type definitions (matching domain models)

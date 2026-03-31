@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import abc
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, Field
 
+from remi.agent.context import RuntimeContext
 from remi.models.chat import Message
-
-if TYPE_CHECKING:
-    from remi.agent.context import RuntimeContext
 
 __all__ = [
     "BaseModule",

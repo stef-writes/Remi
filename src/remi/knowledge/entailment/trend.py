@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import structlog
 
-if TYPE_CHECKING:
-    from remi.knowledge.entailment.base import MakeSignalFn
-    from remi.models.properties import PropertyStore
-    from remi.models.signals import Signal, SignalDefinition
-    from remi.services.snapshots import SnapshotService
+from remi.knowledge.entailment.base import MakeSignalFn
+from remi.models.properties import PropertyStore
+from remi.models.signals import Signal, SignalDefinition
+from remi.services.snapshots import SnapshotService
 
 _log = structlog.get_logger(__name__)
 

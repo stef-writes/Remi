@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.documents.appfolio_schema import parse_delinquency_rows
+from remi.knowledge.ingestion.base import IngestionResult
 from remi.knowledge.ingestion.helpers import parse_address
+from remi.models.documents import Document
 from remi.models.memory import KnowledgeStore, Relationship
 from remi.models.properties import (
     Lease,
@@ -19,10 +21,6 @@ from remi.models.properties import (
     UnitStatus,
 )
 from remi.shared.text import slugify
-
-if TYPE_CHECKING:
-    from remi.knowledge.ingestion.base import IngestionResult
-    from remi.models.documents import Document
 
 _TENANT_STATUS_MAP: dict[str, TenantStatus] = {
     "current": TenantStatus.CURRENT,

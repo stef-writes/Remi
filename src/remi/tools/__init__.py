@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from remi.models.documents import DocumentStore
+from remi.models.memory import MemoryStore
+from remi.models.ontology import OntologyStore
+from remi.models.retrieval import Embedder, VectorStore
+from remi.models.sandbox import Sandbox
+from remi.models.signals import SignalStore
+from remi.models.tools import ToolRegistry
+from remi.models.trace import TraceStore
 from remi.tools.documents import register_document_tools
 from remi.tools.memory import register_memory_tools
 from remi.tools.ontology import register_ontology_tools
 from remi.tools.sandbox import register_sandbox_tools
 from remi.tools.trace import register_trace_tools
 from remi.tools.vectors import register_vector_tools
-
-if TYPE_CHECKING:
-    from remi.models.documents import DocumentStore
-    from remi.models.memory import MemoryStore
-    from remi.models.ontology import OntologyStore
-    from remi.models.retrieval import Embedder, VectorStore
-    from remi.models.sandbox import Sandbox
-    from remi.models.signals import SignalStore
-    from remi.models.tools import ToolRegistry
-    from remi.models.trace import TraceStore
 
 
 def register_all_tools(

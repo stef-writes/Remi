@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from remi.knowledge.entailment.base import MakeSignalFn
-    from remi.models.properties import PropertyStore
-    from remi.models.signals import DomainOntology, Signal, SignalDefinition
+from remi.knowledge.entailment.base import MakeSignalFn
+from remi.models.properties import PropertyStore
+from remi.models.signals import DomainOntology, Signal, SignalDefinition
 
 
 async def eval_manager_concentration_risk(

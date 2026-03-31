@@ -7,15 +7,13 @@ then expands through the knowledge graph to pull in related context.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
 from remi.models.ontology import OntologyLink, OntologyStore
-
-if TYPE_CHECKING:
-    from remi.models.retrieval import Embedder, SearchResult, VectorStore
-    from remi.models.signals import Signal, SignalStore
+from remi.models.retrieval import Embedder, SearchResult, VectorStore
+from remi.models.signals import Signal, SignalStore
 
 _log = structlog.get_logger(__name__)
 

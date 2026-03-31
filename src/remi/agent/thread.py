@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.agent.base import Message
-
-if TYPE_CHECKING:
-    from remi.agent.config import AgentConfig
+from remi.agent.config import AgentConfig
 
 
 def build_initial_thread(cfg: AgentConfig, inputs: dict[str, Any]) -> list[Message]:

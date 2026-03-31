@@ -8,14 +8,11 @@ tool calls → reasoning output. Every trace is a tree of spans that shows
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 import typer
 
 from remi.cli.shared import get_container_async, json_out, use_json
-
-if TYPE_CHECKING:
-    from remi.models.trace import Span
+from remi.models.trace import Span
 
 cmd = typer.Typer(
     name="trace",

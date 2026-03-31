@@ -17,15 +17,12 @@ are skipped — earlier producers win.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import structlog
 
+from remi.models.signals import ProducerResult, Signal, SignalProducer, SignalStore
 from remi.models.trace import SpanKind
-
-if TYPE_CHECKING:
-    from remi.models.signals import ProducerResult, Signal, SignalProducer, SignalStore
-    from remi.observability.tracer import Tracer
+from remi.observability.tracer import Tracer
 
 _log = structlog.get_logger(__name__)
 

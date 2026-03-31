@@ -5,12 +5,10 @@ Provides: trace_list, trace_show, trace_spans.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.models.tools import ToolArg, ToolDefinition, ToolRegistry
-
-if TYPE_CHECKING:
-    from remi.models.trace import TraceStore
+from remi.models.trace import TraceStore
 
 
 def register_trace_tools(

@@ -5,12 +5,10 @@ Provides: document_list, document_query.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from remi.models.documents import DocumentStore
 from remi.models.tools import ToolArg, ToolDefinition, ToolRegistry
-
-if TYPE_CHECKING:
-    from remi.models.documents import DocumentStore
 
 
 def register_document_tools(

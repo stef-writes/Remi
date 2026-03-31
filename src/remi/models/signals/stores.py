@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from remi.models.signals.enums import HypothesisStatus
-    from remi.models.signals.feedback import SignalFeedback, SignalFeedbackSummary
-    from remi.models.signals.hypothesis import Hypothesis
-    from remi.models.signals.signal import Signal
+from remi.models.signals.enums import HypothesisStatus
+from remi.models.signals.feedback import SignalFeedback, SignalFeedbackSummary
+from remi.models.signals.hypothesis import Hypothesis
+from remi.models.signals.signal import Signal
 
 
 class SignalStore(abc.ABC):

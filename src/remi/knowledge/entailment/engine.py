@@ -11,7 +11,8 @@ and learned producers via ``CompositeProducer``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import structlog
 
@@ -30,6 +31,7 @@ from remi.knowledge.entailment.trend import (
     eval_consistent_direction,
     eval_declining_consecutive_periods,
 )
+from remi.models.properties import PropertyStore
 from remi.models.signals import (
     DomainOntology,
     ProducerResult,
@@ -40,13 +42,8 @@ from remi.models.signals import (
     SignalStore,
 )
 from remi.models.trace import SpanKind
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
-
-    from remi.models.properties import PropertyStore
-    from remi.observability.tracer import Tracer
-    from remi.services.snapshots import SnapshotService
+from remi.observability.tracer import Tracer
+from remi.services.snapshots import SnapshotService
 
 _log = structlog.get_logger(__name__)
 

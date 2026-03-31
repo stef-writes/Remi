@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.documents.appfolio_schema import parse_lease_expiration_rows
+from remi.knowledge.ingestion.base import IngestionResult
 from remi.knowledge.ingestion.helpers import parse_address
+from remi.models.documents import Document
 from remi.models.memory import KnowledgeStore, Relationship
 from remi.models.properties import Lease, OccupancyStatus, PropertyStore, Tenant, Unit, UnitStatus
 from remi.shared.text import slugify
-
-if TYPE_CHECKING:
-    from remi.knowledge.ingestion.base import IngestionResult
-    from remi.models.documents import Document
 
 
 async def ingest_lease_expiration(

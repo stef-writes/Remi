@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import SQLModel, select
 
 from remi.db.tables import (
@@ -34,10 +36,6 @@ from remi.models.properties import (
     Unit,
     UnitStatus,
 )
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 _T = TypeVar("_T", bound=SQLModel)
 

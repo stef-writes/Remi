@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from remi.knowledge.ingestion.base import IngestionResult
 from remi.knowledge.ingestion.helpers import entity_id_from_row
+from remi.models.documents import Document
 from remi.models.memory import KnowledgeStore, Relationship
-
-if TYPE_CHECKING:
-    from remi.knowledge.ingestion.base import IngestionResult
-    from remi.models.documents import Document
 
 _COLUMN_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("property", re.compile(r"property|building|address|location|complex", re.I)),

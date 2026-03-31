@@ -11,11 +11,13 @@ from __future__ import annotations
 import contextlib
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
+from remi.knowledge.graph_retriever import GraphRetriever, ResolvedEntity
 from remi.models.chat import Message
+from remi.models.ontology import OntologyLink
 from remi.models.signals import (
     CausalChain,
     DomainOntology,
@@ -25,11 +27,7 @@ from remi.models.signals import (
     SignalStore,
 )
 from remi.models.trace import SpanKind
-
-if TYPE_CHECKING:
-    from remi.knowledge.graph_retriever import GraphRetriever, ResolvedEntity
-    from remi.models.ontology import OntologyLink
-    from remi.observability.tracer import Tracer
+from remi.observability.tracer import Tracer
 
 _log = structlog.get_logger(__name__)
 

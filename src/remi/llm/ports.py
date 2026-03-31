@@ -8,18 +8,15 @@ message or tool schemas.
 from __future__ import annotations
 
 import abc
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 from pydantic import Field as PydanticField
 
 from remi.models.chat import Message, ToolCallRequest
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
-    from remi.models.tools import ToolDefinition
+from remi.models.tools import ToolDefinition
 
 __all__ = ["Message", "ToolCallRequest", "TokenUsage", "LLMRequest", "LLMResponse", "LLMProvider"]
 

@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 import structlog
 
+from remi.agent.config import AgentConfig
 from remi.llm.ports import LLMProvider, LLMRequest, LLMResponse, TokenUsage, ToolCallRequest
+from remi.models.chat import Message
+from remi.models.tools import ToolDefinition
 from remi.models.trace import SpanKind
-
-if TYPE_CHECKING:
-    from remi.agent.config import AgentConfig
-    from remi.models.chat import Message
-    from remi.models.tools import ToolDefinition
-    from remi.observability.tracer import Tracer
+from remi.observability.tracer import Tracer
 
 logger = structlog.get_logger("remi.agent.llm")
 

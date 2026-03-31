@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
-if TYPE_CHECKING:
-    from remi.knowledge.context_builder import ContextBuilder
-    from remi.llm.factory import LLMProviderFactory
-    from remi.models.memory import MemoryStore
-    from remi.models.signals import DomainOntology, SignalStore
-    from remi.models.tools import ToolRegistry
-    from remi.observability.tracer import Tracer
+from remi.knowledge.context_builder import ContextBuilder
+from remi.llm.factory import LLMProviderFactory
+from remi.models.memory import MemoryStore
+from remi.models.signals import DomainOntology, SignalStore
+from remi.models.tools import ToolRegistry
+from remi.observability.tracer import Tracer
 
 
 class OnEventCallback(Protocol):

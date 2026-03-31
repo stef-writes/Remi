@@ -9,13 +9,11 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.llm.ports import LLMProvider, LLMResponse, TokenUsage, ToolCallRequest
-
-if TYPE_CHECKING:
-    from remi.models.chat import Message
-    from remi.models.tools import ToolDefinition
+from remi.models.chat import Message
+from remi.models.tools import ToolDefinition
 
 
 class GeminiProvider(LLMProvider):

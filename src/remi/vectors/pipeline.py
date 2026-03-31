@@ -11,17 +11,13 @@ as-is so agents can retrieve raw evidence from uploaded reports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from decimal import Decimal
 
 import structlog
 
+from remi.models.documents import DocumentStore
+from remi.models.properties import PropertyStore
 from remi.models.retrieval import Embedder, EmbeddingRecord, EmbeddingRequest, VectorStore
-
-if TYPE_CHECKING:
-    from decimal import Decimal
-
-    from remi.models.documents import DocumentStore
-    from remi.models.properties import PropertyStore
 
 _log = structlog.get_logger(__name__)
 

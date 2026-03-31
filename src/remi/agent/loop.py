@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
 
 import structlog
 
 from remi.agent.base import Message
+from remi.agent.config import AgentConfig
 from remi.agent.llm_bridge import OnEventCallback, build_llm_request, stream_llm_response
 from remi.agent.thread import try_parse_json
+from remi.agent.tool_executor import ToolExecutor
 from remi.llm.ports import LLMProvider, LLMRequest, TokenUsage
-
-if TYPE_CHECKING:
-    from remi.agent.config import AgentConfig
-    from remi.agent.tool_executor import ToolExecutor
-    from remi.observability.tracer import Tracer
+from remi.observability.tracer import Tracer
 
 logger = structlog.get_logger("remi.agent.loop")
 

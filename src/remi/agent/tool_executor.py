@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import json
 import traceback as _traceback
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
+import structlog
+
+from remi.agent.config import AgentConfig
+from remi.agent.context import RuntimeContext
+from remi.llm.ports import ToolCallRequest
+from remi.models.tools import ToolDefinition
 from remi.models.trace import SpanKind
-
-if TYPE_CHECKING:
-    import structlog
-
-    from remi.agent.config import AgentConfig
-    from remi.agent.context import RuntimeContext
-    from remi.llm.ports import ToolCallRequest
-    from remi.models.tools import ToolDefinition
-    from remi.observability.tracer import Tracer
+from remi.observability.tracer import Tracer
 
 
 class ToolExecuteFn(Protocol):

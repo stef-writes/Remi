@@ -8,15 +8,12 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncIterator
+from typing import Any
 
 from remi.llm.ports import LLMProvider, LLMResponse, StreamChunk, TokenUsage, ToolCallRequest
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
-    from remi.models.chat import Message
-    from remi.models.tools import ToolDefinition
+from remi.models.chat import Message
+from remi.models.tools import ToolDefinition
 
 
 class OpenAIProvider(LLMProvider):

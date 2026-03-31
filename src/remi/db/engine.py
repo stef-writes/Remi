@@ -8,7 +8,7 @@ Usage in the container:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -17,9 +17,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlmodel import SQLModel
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
 
 
 def create_async_engine_from_url(

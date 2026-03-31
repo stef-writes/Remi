@@ -9,24 +9,22 @@ from __future__ import annotations
 
 import json
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
 from remi.agent.base import BaseModule, Message, ModuleOutput
 from remi.agent.config import AgentConfig
+from remi.agent.context import RuntimeContext
+from remi.agent.llm_bridge import OnEventCallback
 from remi.agent.loop import run_agent_loop
 from remi.agent.thread import build_initial_thread, format_output, last_assistant_content
 from remi.agent.tool_executor import ToolExecutor, build_tool_set
 from remi.knowledge.context_builder import extract_signal_references
+from remi.llm.ports import LLMProvider
 from remi.llm.pricing import estimate_cost
 from remi.models.trace import SpanKind
 from remi.observability.tracer import Tracer, get_current_trace_id
-
-if TYPE_CHECKING:
-    from remi.agent.context import RuntimeContext
-    from remi.agent.llm_bridge import OnEventCallback
-    from remi.llm.ports import LLMProvider
 
 logger = structlog.get_logger("remi.agent")
 

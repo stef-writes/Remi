@@ -8,7 +8,7 @@ with typed RunDeps and RunParams.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import structlog
 import yaml
@@ -16,19 +16,17 @@ import yaml
 from remi.agent.base import Message, ModuleOutput
 from remi.agent.context import RunDeps, RunParams, RuntimeContext
 from remi.agent.node import AgentNode
+from remi.agent.retry import RetryPolicy
+from remi.knowledge.context_builder import ContextBuilder
+from remi.llm.factory import LLMProviderFactory
+from remi.models.chat import AgentEvent, ChatSessionStore
+from remi.models.memory import MemoryStore
+from remi.models.sandbox import Sandbox
+from remi.models.signals import DomainOntology, SignalStore
+from remi.models.tools import ToolRegistry
+from remi.observability.tracer import Tracer
 from remi.shared.ids import new_run_id
 from remi.shared.paths import APPS_DIR as AGENTS_DIR
-
-if TYPE_CHECKING:
-    from remi.agent.retry import RetryPolicy
-    from remi.knowledge.context_builder import ContextBuilder
-    from remi.llm.factory import LLMProviderFactory
-    from remi.models.chat import AgentEvent, ChatSessionStore
-    from remi.models.memory import MemoryStore
-    from remi.models.sandbox import Sandbox
-    from remi.models.signals import DomainOntology, SignalStore
-    from remi.models.tools import ToolRegistry
-    from remi.observability.tracer import Tracer
 
 logger = structlog.get_logger("remi.runner")
 

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from remi.models.signals.enums import SignalOutcome
+from remi.models.signals.enums import SignalOutcome
 
 
 def _utcnow() -> datetime:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pydantic import BaseModel
 
 from remi.models.properties import (
     Lease,
@@ -19,9 +19,6 @@ from remi.models.properties import (
     Unit,
     UnitStatus,
 )
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel
 
 
 def _merge(existing: BaseModel, incoming: BaseModel) -> BaseModel:

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import Any
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from remi.llm.ports import LLMProvider
+from remi.llm.ports import LLMProvider
 
 
 class LLMProviderFactory:

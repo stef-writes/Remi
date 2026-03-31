@@ -15,18 +15,16 @@ matching and logs which columns it found / missed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 
+from remi.knowledge.ingestion.base import IngestionResult
 from remi.knowledge.ingestion.helpers import parse_address
+from remi.models.documents import Document
+from remi.models.memory import KnowledgeStore
+from remi.models.properties import PropertyStore
 from remi.shared.text import slugify
-
-if TYPE_CHECKING:
-    from remi.knowledge.ingestion.base import IngestionResult
-    from remi.models.documents import Document
-    from remi.models.memory import KnowledgeStore
-    from remi.models.properties import PropertyStore
 
 logger = structlog.get_logger(__name__)
 

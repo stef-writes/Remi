@@ -5,12 +5,10 @@ Provides: semantic_search, vector_stats.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from remi.models.retrieval import Embedder, VectorStore
 from remi.models.tools import ToolArg, ToolDefinition, ToolRegistry
-
-if TYPE_CHECKING:
-    from remi.models.retrieval import Embedder, VectorStore
 
 
 def register_vector_tools(

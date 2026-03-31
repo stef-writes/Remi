@@ -7,7 +7,7 @@ onto_codify_policy, onto_codify_causal_link, onto_define_type.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.models.ontology import (
     KnowledgeProvenance,
@@ -15,10 +15,8 @@ from remi.models.ontology import (
     OntologyStore,
     PropertyDef,
 )
+from remi.models.signals import SignalStore
 from remi.models.tools import ToolArg, ToolDefinition, ToolRegistry
-
-if TYPE_CHECKING:
-    from remi.models.signals import SignalStore
 
 
 def register_ontology_tools(

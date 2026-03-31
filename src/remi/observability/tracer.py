@@ -15,8 +15,9 @@ contextvars so nested spans form a tree without manual threading.
 from __future__ import annotations
 
 import contextvars
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.models.trace import (
     Span,
@@ -26,9 +27,6 @@ from remi.models.trace import (
     new_span_id,
     new_trace_id,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 
 _current_trace_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_current_trace_id", default=None

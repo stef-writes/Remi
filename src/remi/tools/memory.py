@@ -5,12 +5,10 @@ Provides: memory_store, memory_recall.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from remi.models.memory import MemoryStore
 from remi.models.tools import ToolArg, ToolDefinition, ToolRegistry
-
-if TYPE_CHECKING:
-    from remi.models.memory import MemoryStore
 
 
 def register_memory_tools(

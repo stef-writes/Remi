@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from remi.documents.appfolio_schema import parse_rent_roll_rows
+from remi.knowledge.ingestion.base import IngestionResult
 from remi.knowledge.ingestion.helpers import occupancy_to_unit_status, parse_address
+from remi.models.documents import Document
 from remi.models.memory import KnowledgeStore, Relationship
 from remi.models.properties import OccupancyStatus, PropertyStore, Unit
 from remi.shared.text import slugify
-
-if TYPE_CHECKING:
-    from remi.knowledge.ingestion.base import IngestionResult
-    from remi.models.documents import Document
 
 _OCCUPANCY_MAP: dict[str, OccupancyStatus] = {
     "occupied": OccupancyStatus.OCCUPIED,
