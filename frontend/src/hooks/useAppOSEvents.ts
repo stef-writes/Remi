@@ -12,7 +12,7 @@ export function useAppOSEvents(onEvent?: (event: WsEvent) => void) {
   const callbackRef = useRef(onEvent);
   callbackRef.current = onEvent;
 
-  const connect = useCallback(() => {
+  const connect = useCallback(function connectSocket() {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     const ws = new WebSocket(WS_URL);
@@ -28,7 +28,7 @@ export function useAppOSEvents(onEvent?: (event: WsEvent) => void) {
     };
     ws.onclose = () => {
       setConnected(false);
-      setTimeout(connect, 2000);
+      setTimeout(connectSocket, 2000);
     };
     ws.onerror = () => ws.close();
     wsRef.current = ws;

@@ -9,6 +9,43 @@ from remi.agent.base import Message
 from remi.agent.config import AgentConfig
 
 
+def trim_thread(thread: list[Message], max_turns: int) -> list[Message]:
+    """Apply a sliding window to keep only the last *max_turns* user/assistant pairs.
+
+    System messages at the head are preserved unconditionally. If any
+    conversational messages are removed, a short notice is inserted after the
+    first system message so the model knows history was truncated.
+
+    A "turn" is one user message plus one assistant message (2 messages).
+    """
+    if max_turns <= 0:
+        return thread
+
+    system_prefix: list[Message] = []
+    conversation: list[Message] = []
+    for msg in thread:
+        if not conversation and msg.role == "system":
+            system_prefix.append(msg)
+        else:
+            conversation.append(msg)
+
+    max_messages = max_turns * 2
+    if len(conversation) <= max_messages:
+        return thread
+
+    trimmed_count = len(conversation) - max_messages
+    kept = conversation[-max_messages:]
+
+    notice = Message(
+        role="system",
+        content=(
+            f"[Earlier conversation history was trimmed for context limits. "
+            f"{trimmed_count} messages removed.]"
+        ),
+    )
+    return system_prefix + [notice] + kept
+
+
 def build_initial_thread(cfg: AgentConfig, inputs: dict[str, Any]) -> list[Message]:
     """Build the initial message thread from config and inputs."""
     thread: list[Message] = []

@@ -1,7 +1,10 @@
 import type {
+  ActionItemResponse,
   AgentMeta,
+  EntityNoteResponse,
   ModelsConfig,
   ManagerListItem,
+  ManagerNoteResponse,
   ManagerReview,
   PortfolioOverview,
   DelinquencyBoard,
@@ -138,5 +141,159 @@ export const api = {
       throw new Error(data.detail || res.statusText);
     }
     return res.json() as Promise<{ manager_id: string; assigned: number; already_assigned: number; not_found: string[] }>;
+  },
+
+  // --- Manager CRUD ---
+
+  updateManager: async (managerId: string, updates: { name?: string; email?: string; company?: string; phone?: string }) => {
+    const res = await fetch(`${BASE}/api/v1/managers/${managerId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ manager_id: string; portfolio_id: string; name: string }>;
+  },
+
+  deleteManager: async (managerId: string) => {
+    const res = await fetch(`${BASE}/api/v1/managers/${managerId}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ deleted: boolean }>;
+  },
+
+  mergeManagers: async (sourceId: string, targetId: string) => {
+    const res = await fetch(`${BASE}/api/v1/managers/merge`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_manager_id: sourceId, target_manager_id: targetId }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ target_manager_id: string; properties_moved: number; source_deleted: boolean }>;
+  },
+
+  // --- Property CRUD ---
+
+  updateProperty: async (propertyId: string, updates: { name?: string; portfolio_id?: string; street?: string; city?: string; state?: string; zip_code?: string }) => {
+    const res = await fetch(`${BASE}/api/v1/properties/${propertyId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ id: string; name: string }>;
+  },
+
+  deleteProperty: async (propertyId: string) => {
+    const res = await fetch(`${BASE}/api/v1/properties/${propertyId}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ deleted: boolean }>;
+  },
+
+  // --- Tenant CRUD ---
+
+  getTenant: (tenantId: string) =>
+    get<{ tenant_id: string; name: string; leases: unknown[] }>(`/api/v1/tenants/${tenantId}`),
+
+  updateTenant: async (tenantId: string, updates: { email?: string; phone?: string }) => {
+    const res = await fetch(`${BASE}/api/v1/tenants/${tenantId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ id: string; name: string }>;
+  },
+
+  // --- Action Items ---
+
+  listActionItems: (params?: { manager_id?: string; property_id?: string; status?: string }) =>
+    get<{ items: ActionItemResponse[]; total: number }>(`/api/v1/actions/items${qs(params || {})}`),
+
+  createActionItem: async (data: { title: string; description?: string; priority?: string; manager_id?: string; property_id?: string; tenant_id?: string; due_date?: string }) => {
+    const res = await fetch(`${BASE}/api/v1/actions/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<ActionItemResponse>;
+  },
+
+  updateActionItem: async (itemId: string, updates: { title?: string; description?: string; status?: string; priority?: string; due_date?: string }) => {
+    const res = await fetch(`${BASE}/api/v1/actions/items/${itemId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<ActionItemResponse>;
+  },
+
+  deleteActionItem: async (itemId: string) => {
+    const res = await fetch(`${BASE}/api/v1/actions/items/${itemId}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ deleted: boolean }>;
+  },
+
+  // --- Manager Notes ---
+
+  listManagerNotes: (managerId: string) =>
+    get<{ notes: ManagerNoteResponse[]; total: number }>(`/api/v1/actions/notes${qs({ manager_id: managerId })}`),
+
+  createManagerNote: async (managerId: string, content: string) => {
+    const res = await fetch(`${BASE}/api/v1/actions/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ manager_id: managerId, content }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<ManagerNoteResponse>;
+  },
+
+  updateManagerNote: async (noteId: string, content: string) => {
+    const res = await fetch(`${BASE}/api/v1/actions/notes/${noteId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<ManagerNoteResponse>;
+  },
+
+  deleteManagerNote: async (noteId: string) => {
+    const res = await fetch(`${BASE}/api/v1/actions/notes/${noteId}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ deleted: boolean }>;
+  },
+
+  // --- Entity Notes (KnowledgeGraph-backed) ---
+
+  listEntityNotes: (entityType: string, entityId: string) =>
+    get<{ notes: EntityNoteResponse[]; total: number }>(`/api/v1/notes?entity_type=${encodeURIComponent(entityType)}&entity_id=${encodeURIComponent(entityId)}`),
+
+  createEntityNote: async (entityType: string, entityId: string, content: string) => {
+    const res = await fetch(`${BASE}/api/v1/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, entity_type: entityType, entity_id: entityId }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<EntityNoteResponse>;
+  },
+
+  updateEntityNote: async (noteId: string, content: string) => {
+    const res = await fetch(`${BASE}/api/v1/notes/${noteId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<EntityNoteResponse>;
+  },
+
+  deleteEntityNote: async (noteId: string) => {
+    const res = await fetch(`${BASE}/api/v1/notes/${noteId}`, { method: "DELETE" });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ deleted: boolean }>;
   },
 };

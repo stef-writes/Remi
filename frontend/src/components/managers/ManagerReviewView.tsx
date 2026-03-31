@@ -1,9 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { fmt$, fmtDate, pct } from "@/lib/format";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { ReviewPrepTab } from "./ReviewPrepTab";
 import { MetricCard } from "@/components/ui/MetricCard";
+import { MetricStrip } from "@/components/ui/MetricStrip";
+import { PageContainer } from "@/components/ui/PageContainer";
 import { Badge } from "@/components/ui/Badge";
 import { StatusDot } from "@/components/ui/StatusDot";
 import type {
@@ -18,17 +24,7 @@ import type {
   ManagerSnapshot,
 } from "@/lib/types";
 
-function fmt$(n: number) {
-  return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
-function pct(n: number) {
-  return (n * 100).toFixed(1) + "%";
-}
-function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-type Tab = "overview" | "delinquency" | "leases" | "vacancies" | "performance";
+type Tab = "overview" | "delinquency" | "leases" | "vacancies" | "performance" | "review";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
@@ -36,6 +32,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "leases", label: "Leases" },
   { key: "vacancies", label: "Vacancies" },
   { key: "performance", label: "Performance" },
+  { key: "review", label: "Review Prep" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -90,16 +87,17 @@ function OverviewTab({ review }: { review: ManagerReview }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+      <MetricStrip>
         <MetricCard label="Units" value={review.total_units} sub={`${review.occupied} occupied`} />
         <MetricCard label="Occupancy" value={pct(review.occupancy_rate)} trend={review.occupancy_rate >= 0.9 ? "up" : "down"} />
         <MetricCard label="Revenue" value={fmt$(review.total_actual_rent)} />
         <MetricCard label="Market Rent" value={fmt$(review.total_market_rent)} />
         <MetricCard label="Loss to Lease" value={fmt$(review.total_loss_to_lease)} alert={review.total_loss_to_lease > 0} />
         <MetricCard label="Vacancy Loss" value={fmt$(review.total_vacancy_loss)} alert={review.total_vacancy_loss > 0} />
+        <MetricCard label="Delinquent" value={review.delinquent_count} sub={review.total_delinquent_balance > 0 ? fmt$(review.total_delinquent_balance) + " owed" : undefined} alert={review.delinquent_count > 0} />
         <MetricCard label="Expiring (90d)" value={review.expiring_leases_90d} alert={review.expiring_leases_90d > 0} />
         <MetricCard label="Issues" value={totalIssues} alert={totalIssues > 0} />
-      </div>
+      </MetricStrip>
 
       {/* Properties table */}
       <section className="rounded-xl border border-border bg-surface overflow-hidden">
@@ -163,10 +161,10 @@ function DelinquencyTab({ data }: { data: DelinquencyBoard | null }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
+      <MetricStrip className="lg:grid-cols-2">
         <MetricCard label="Delinquent Tenants" value={data.total_delinquent} alert />
         <MetricCard label="Total Balance Owed" value={fmt$(data.total_balance)} alert />
-      </div>
+      </MetricStrip>
       <div className="rounded-xl border border-border bg-surface overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -214,11 +212,11 @@ function LeasesTab({ data }: { data: LeaseCalendar | null }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <MetricStrip className="lg:grid-cols-3">
         <MetricCard label="Expiring" value={data.total_expiring} alert={data.total_expiring > 5} />
         <MetricCard label="Month-to-Month" value={data.month_to_month_count} alert={data.month_to_month_count > 0} />
         <MetricCard label="Window" value={`${data.days_window}d`} />
-      </div>
+      </MetricStrip>
       <div className="rounded-xl border border-border bg-surface overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -268,12 +266,12 @@ function VacanciesTab({ data }: { data: VacancyTracker | null }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-3">
+      <MetricStrip className="lg:grid-cols-4">
         <MetricCard label="Vacant" value={data.total_vacant} alert={data.total_vacant > 0} />
         <MetricCard label="On Notice" value={data.total_notice} alert={data.total_notice > 0} />
         <MetricCard label="Rent at Risk" value={fmt$(data.total_market_rent_at_risk)} alert />
         <MetricCard label="Avg Days Vacant" value={data.avg_days_vacant ?? "—"} />
-      </div>
+      </MetricStrip>
       <div className="rounded-xl border border-border bg-surface overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -411,36 +409,80 @@ function Delta({ prev, curr, fmt: fmtFn, invert }: { prev: number; curr: number;
 /* ------------------------------------------------------------------ */
 
 export function ManagerReviewView({ managerId }: { managerId: string }) {
-  const [review, setReview] = useState<ManagerReview | null>(null);
-  const [delinquency, setDelinquency] = useState<DelinquencyBoard | null>(null);
-  const [leases, setLeases] = useState<LeaseCalendar | null>(null);
-  const [vacancies, setVacancies] = useState<VacancyTracker | null>(null);
-  const [snapshots, setSnapshots] = useState<ManagerSnapshot[]>([]);
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    try {
-      const [rev, del, lse, vac, snaps] = await Promise.all([
-        api.getManagerReview(managerId).catch(() => null),
-        api.delinquencyBoard(managerId).catch(() => null),
-        api.leasesExpiring(90, managerId).catch(() => null),
-        api.vacancyTracker(managerId).catch(() => null),
-        api.snapshots(managerId).catch(() => ({ total: 0, snapshots: [] })),
-      ]);
-      setReview(rev);
-      setDelinquency(del);
-      setLeases(lse);
-      setVacancies(vac);
-      setSnapshots(snaps.snapshots);
-    } finally {
-      setLoading(false);
-    }
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editCompany, setEditCompany] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  const [deleting, setDeleting] = useState(false);
+
+  const { data, loading, refetch } = useApiQuery(async () => {
+    const [review, delinquency, leases, vacancies, snaps, actionItems] = await Promise.all([
+      api.getManagerReview(managerId).catch(() => null),
+      api.delinquencyBoard(managerId).catch(() => null),
+      api.leasesExpiring(90, managerId).catch(() => null),
+      api.vacancyTracker(managerId).catch(() => null),
+      api.snapshots(managerId).catch(() => ({ total: 0, snapshots: [] })),
+      api.listActionItems({ manager_id: managerId }).catch(() => ({ total: 0, items: [] })),
+    ]);
+
+    return {
+      review: review as ManagerReview | null,
+      delinquency: delinquency as DelinquencyBoard | null,
+      leases: leases as LeaseCalendar | null,
+      vacancies: vacancies as VacancyTracker | null,
+      snapshots: snaps.snapshots as ManagerSnapshot[],
+      actionCount: actionItems.total,
+    };
   }, [managerId]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const review = data?.review ?? null;
+  const delinquency = data?.delinquency ?? null;
+  const leases = data?.leases ?? null;
+  const vacancies = data?.vacancies ?? null;
+  const snapshots = data?.snapshots ?? [];
+  const actionCount = data?.actionCount ?? 0;
+
+  function startEdit() {
+    if (!review) return;
+    setEditName(review.name);
+    setEditEmail(review.email || "");
+    setEditCompany(review.company || "");
+    setEditing(true);
+  }
+
+  async function saveEdit() {
+    setEditSaving(true);
+    try {
+      await api.updateManager(managerId, {
+        name: editName.trim(),
+        email: editEmail.trim() || undefined,
+        company: editCompany.trim() || undefined,
+      });
+      setEditing(false);
+      refetch();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update manager");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm("Delete this manager? This action cannot be undone.")) return;
+    setDeleting(true);
+    try {
+      await api.deleteManager(managerId);
+      router.push("/");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete manager");
+      setDeleting(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -465,14 +507,71 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
   const snapCount = snapshots.length;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto px-8 py-8 space-y-6">
+    <PageContainer wide>
         {/* Header */}
         <div>
           <Link href="/" className="text-xs text-fg-faint hover:text-fg-secondary transition-colors">
             &larr; All Managers
           </Link>
-          <h1 className="text-xl font-bold text-fg mt-2">{review.name}</h1>
+
+          {editing ? (
+            <div className="mt-2 space-y-2 rounded-lg border border-border bg-surface-raised p-4">
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Name"
+                  className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <input
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="Email"
+                  className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <input
+                  value={editCompany}
+                  onChange={(e) => setEditCompany(e.target.value)}
+                  placeholder="Company"
+                  className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={saveEdit}
+                  disabled={editSaving || !editName.trim()}
+                  className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-fg disabled:opacity-50"
+                >
+                  {editSaving ? "Saving..." : "Save"}
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  disabled={editSaving}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-fg-secondary hover:text-fg disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 mt-2">
+              <h1 className="text-xl font-bold text-fg">{review.name}</h1>
+              <button
+                onClick={startEdit}
+                className="rounded-md border border-border px-2 py-1 text-[10px] font-medium text-fg-muted hover:text-fg hover:border-fg-muted transition-colors"
+              >
+                Edit
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="rounded-md border border-border px-2 py-1 text-[10px] font-medium text-fg-muted hover:text-error hover:border-error transition-colors disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 mt-1">
             {review.company && <span className="text-xs text-fg-muted">{review.company}</span>}
             <span className="text-xs text-fg-faint">{review.property_count} properties · {review.total_units} units</span>
@@ -480,9 +579,9 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-border -mx-8 px-8">
+        <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
           {TABS.map(({ key, label }) => {
-            const count = key === "delinquency" ? delCount : key === "leases" ? leaseCount : key === "vacancies" ? vacCount : key === "performance" ? snapCount : 0;
+            const count = key === "delinquency" ? delCount : key === "leases" ? leaseCount : key === "vacancies" ? vacCount : key === "performance" ? snapCount : key === "review" ? actionCount : 0;
             return (
               <button
                 key={key}
@@ -496,7 +595,7 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
                 {label}
                 {count > 0 && key !== "overview" && (
                   <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full ${
-                    key === "delinquency" || key === "vacancies" ? "bg-error-soft text-error" : key === "leases" ? "bg-warn-soft text-warn" : "bg-surface-sunken text-fg-faint"
+                    key === "delinquency" || key === "vacancies" ? "bg-error-soft text-error" : key === "leases" ? "bg-warn-soft text-warn" : key === "review" ? "bg-accent/20 text-accent" : "bg-surface-sunken text-fg-faint"
                   }`}>
                     {count}
                   </span>
@@ -512,7 +611,7 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
         {tab === "leases" && <LeasesTab data={leases} />}
         {tab === "vacancies" && <VacanciesTab data={vacancies} />}
         {tab === "performance" && <PerformanceTab snapshots={snapshots} managerName={review.name} />}
-      </div>
-    </div>
+        {tab === "review" && <ReviewPrepTab managerId={managerId} />}
+    </PageContainer>
   );
 }

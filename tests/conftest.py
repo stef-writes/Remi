@@ -12,15 +12,15 @@ from remi.models.properties import (
     Property,
     PropertyManager,
 )
-from remi.models.signals import DomainOntology
+from remi.models.signals import DomainRulebook
 from remi.stores.properties import InMemoryPropertyStore
 from remi.stores.signals import InMemorySignalStore
 
 
 @pytest.fixture
-def domain_ontology() -> DomainOntology:
+def domain_rulebook() -> DomainRulebook:
     raw = load_domain_yaml()
-    return DomainOntology.from_yaml(raw)
+    return DomainRulebook.from_yaml(raw)
 
 
 @pytest.fixture
@@ -35,12 +35,12 @@ def property_store() -> InMemoryPropertyStore:
 
 @pytest.fixture
 def engine(
-    domain_ontology: DomainOntology,
+    domain_rulebook: DomainRulebook,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
 ) -> EntailmentEngine:
     return EntailmentEngine(
-        domain=domain_ontology,
+        domain=domain_rulebook,
         property_store=property_store,
         signal_store=signal_store,
     )

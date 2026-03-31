@@ -284,27 +284,21 @@ class RemiDashboard(App):
     @work(exclusive=True, thread=False)
     async def _boot(self) -> None:
         self._activity("  [dim]Bootstrapping container…[/dim]")
-        from remi.infrastructure.config.container import Container
-        from remi.infrastructure.config.settings import load_settings
-        from remi.infrastructure.observability.logging import configure_logging
+        from remi.config.container import Container
+        from remi.config.settings import load_settings
+        from remi.observability.logging import configure_logging
 
         settings = load_settings()
-        configure_logging(level="WARNING", format="text")
+        configure_logging(level="WARNING", format="console")
         self._container = Container(settings)
         await self._container.ensure_bootstrapped()
         self._activity("  [green]✓[/green] Container bootstrapped")
-
-        # Sandbox
-        from remi.infrastructure.sandbox.seeder import SandboxSeeder  # noqa: F401
 
         session = await self._container.chat_session_store.create(self._agent_name)
         self._session_id = session.id
         self._sandbox_session_id = f"dash-{session.id}"
         await self._container.sandbox.create_session(self._sandbox_session_id)
-        seeded = await self._container.sandbox_seeder.seed(
-            self._container.sandbox, self._sandbox_session_id
-        )
-        self._activity(f"  [green]✓[/green] Sandbox ready — {len(seeded)} data files")
+        self._activity("  [green]✓[/green] Sandbox ready")
 
         # Initial TBox
         self._refresh_tbox()
@@ -345,7 +339,7 @@ class RemiDashboard(App):
             signals = await self._container.signal_store.list_signals()
             self.signal_count = len(signals)
             self.query_one("#signal-panel", SignalPanel).refresh_signals(
-                signals, self._container.domain_ontology
+                signals, self._container.domain_rulebook
             )
         except Exception as exc:
             self._activity(f"  [red]✗ Pipeline error:[/red] {exc}")
@@ -378,7 +372,7 @@ class RemiDashboard(App):
             return
         try:
             self.query_one("#tbox-panel", TBoxPanel).refresh_tbox(
-                self._container.domain_ontology
+                self._container.domain_rulebook
             )
         except (NoMatches, Exception):
             pass
@@ -398,7 +392,7 @@ class RemiDashboard(App):
 
     @work(exclusive=False, thread=False)
     async def _run_chat(self, user_input: str) -> None:
-        from remi.domain.modules.base import Message
+        from remi.models.chat import Message
 
         self._chat(f"\n[bold green]you>[/bold green] {user_input}")
 
@@ -491,7 +485,7 @@ class RemiDashboard(App):
             if len(signals) != self.signal_count:
                 self.signal_count = len(signals)
                 self.query_one("#signal-panel", SignalPanel).refresh_signals(
-                    signals, self._container.domain_ontology
+                    signals, self._container.domain_rulebook
                 )
         except Exception:
             pass

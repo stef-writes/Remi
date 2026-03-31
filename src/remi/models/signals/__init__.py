@@ -2,7 +2,7 @@
 
 Submodules:
   enums      — Severity, RuleCondition, Horizon, Deontic, SignalOutcome, etc.
-  tbox       — SignalDefinition, Policy, CausalChain, DomainOntology, MutableDomainOntology
+  tbox       — SignalDefinition, Policy, CausalChain, DomainRulebook, MutableRulebook
   signal     — Signal, ProducerResult, SignalProducer
   feedback   — SignalFeedback, SignalFeedbackSummary
   hypothesis — Hypothesis, HypothesisKind/Status
@@ -29,9 +29,12 @@ from remi.models.signals.signal import ProducerResult, Signal, SignalProducer
 from remi.models.signals.stores import FeedbackStore, HypothesisStore, SignalStore
 from remi.models.signals.tbox import (
     CausalChain,
+    CompositionRule,
     DomainOntology,
+    DomainRulebook,
     InferenceRule,
     MutableDomainOntology,
+    MutableRulebook,
     Policy,
     SignalDefinition,
     WorkflowSeed,
@@ -49,15 +52,19 @@ __all__ = [
     "RuleCondition",
     "Severity",
     "SignalOutcome",
-    # tbox
+    # tbox (canonical names)
     "CausalChain",
-    "DomainOntology",
+    "CompositionRule",
+    "DomainRulebook",
     "InferenceRule",
-    "MutableDomainOntology",
+    "MutableRulebook",
     "Policy",
     "SignalDefinition",
     "WorkflowSeed",
     "WorkflowStep",
+    # tbox (backward compat aliases)
+    "DomainOntology",
+    "MutableDomainOntology",
     # signal
     "ProducerResult",
     "Signal",

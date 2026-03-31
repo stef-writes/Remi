@@ -54,6 +54,8 @@ class ManagerListItem(BaseModel):
     expiring_leases_90d: int
     expired_leases: int
     below_market_units: int
+    delinquent_count: int
+    total_delinquent_balance: float
 
 
 class ManagerListResponse(BaseModel):
@@ -71,6 +73,24 @@ class CreateManagerResponse(BaseModel):
     manager_id: str
     portfolio_id: str
     name: str
+
+
+class UpdateManagerRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    company: str | None = None
+    phone: str | None = None
+
+
+class MergeManagersRequest(BaseModel):
+    source_manager_id: str
+    target_manager_id: str
+
+
+class MergeManagersResponse(BaseModel):
+    target_manager_id: str
+    properties_moved: int
+    source_deleted: bool
 
 
 class AssignPropertiesRequest(BaseModel):
@@ -104,5 +124,7 @@ class ManagerReviewResponse(BaseModel):
     expiring_leases_90d: int
     expired_leases: int
     below_market_units: int
+    delinquent_count: int
+    total_delinquent_balance: float
     properties: list[PropertySummary]
     top_issues: list[UnitIssue]

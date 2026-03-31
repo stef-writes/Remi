@@ -1,0 +1,67 @@
+---
+description: REMI project conventions, architecture, and guardrails
+globs: ["**/*.py", "**/*.yaml", "**/*.yml"]
+alwaysApply: true
+---
+
+# REMI Conventions
+
+## Tooling
+
+- Always use `uv run` to execute Python — never `python` or `python3` directly
+- Always use `uv add` to add dependencies — never `pip install`
+- Never reference `.venv/` paths
+
+## Error Handling
+
+- Never silently swallow errors — let them raise
+- No bare `except`, no `except Exception: pass`, no returning `None` to mask failures
+- Use `structlog` for logging (`import structlog; logger = structlog.get_logger(...)`)
+- Do not use `print()` or the stdlib `logging` module directly
+
+## Tests
+
+- Only write tests for meaningful behavior — not implementation details
+- Tests should verify real failure modes and edge cases
+- Do not write tests that just confirm a function returns without crashing
+- Ask before writing tests if the value isn't obvious
+
+## Architecture: Layer Placement
+
+Before placing code in a file, identify which layer it belongs to:
+
+```
+Layer 1 — Facts       src/remi/stores/       Storage adapters only — no business logic
+Layer 2 — Domain      src/remi/config/       domain.yaml, settings, DI container
+Layer 3 — Signals     src/remi/services/     Domain logic, query services, signal computation
+Layer 4 — Interface   src/remi/api/          FastAPI routers — thin, delegate to services
+                      src/remi/cli/          Typer commands — thin, delegate to services
+                      src/remi/agent/        Agent loop, LLM bridge, tool executor
+```
+
+**State the intended layer before creating a new file or adding significant logic.**
+
+## Key Constraints
+
+- `src/remi/config/domain.yaml` is the source of truth for signal definitions, thresholds, and rules — do not hardcode these values in Python
+- The LLM agent does NOT detect signals — the entailment engine does. The LLM explains, connects, recommends, and codifies.
+- `src/remi/shared/` is for cross-cutting primitives only (enums, errors, ids, clock) — no business logic
+- Prefer small focused modules over accumulating logic in an existing file
+- When a file is growing beyond a single clear responsibility, flag it before adding more
+
+## Module Map
+
+```
+agent/        AgentNode, loop, intent classifier, LLM bridge, tool executor
+agents/       App YAML configs (director, knowledge_enricher, report_classifier)
+api/          FastAPI routers
+cli/          Typer CLI
+config/       Settings, DI container, domain.yaml
+knowledge/    Context builder, graph retriever
+llm/          LLM provider ports + adapters
+models/       Pydantic models
+services/     Domain services
+stores/       Storage adapters
+tools/        Agent tool implementations
+shared/       Cross-cutting primitives only
+```

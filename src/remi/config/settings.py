@@ -103,7 +103,7 @@ class LLMSettings(BaseModel):
     """Default LLM provider and model — overridable per-session from the frontend."""
 
     default_provider: str = "anthropic"
-    default_model: str = "claude-sonnet-4-6"
+    default_model: str = "claude-sonnet-4-20250514"
 
 
 class EmbeddingsSettings(BaseModel):

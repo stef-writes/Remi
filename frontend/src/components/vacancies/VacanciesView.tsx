@@ -1,39 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
+import { fmt$ } from "@/lib/format";
 import { MetricCard } from "@/components/ui/MetricCard";
+import { MetricStrip } from "@/components/ui/MetricStrip";
+import { PageContainer } from "@/components/ui/PageContainer";
 import { Badge } from "@/components/ui/Badge";
 import { ManagerFilter } from "@/components/ui/ManagerFilter";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import type { VacancyTracker } from "@/lib/types";
 
-function fmt$(n: number) {
-  return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
-
 export function VacanciesView() {
-  const [data, setData] = useState<VacancyTracker | null>(null);
   const [managerId, setManagerId] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setData(await api.vacancyTracker(managerId || undefined));
-    } catch {
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [managerId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data, loading } = useApiQuery<VacancyTracker>(
+    () => api.vacancyTracker(managerId || undefined),
+    [managerId]
+  );
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-8 py-8 space-y-6">
+    <PageContainer>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-fg">Vacancies</h1>
@@ -45,7 +31,7 @@ export function VacanciesView() {
         </div>
 
         {data && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <MetricStrip className="lg:grid-cols-4">
             <MetricCard
               label="Vacant Units"
               value={data.total_vacant}
@@ -66,7 +52,7 @@ export function VacanciesView() {
               label="Avg Days Vacant"
               value={data.avg_days_vacant != null ? String(data.avg_days_vacant) : "—"}
             />
-          </div>
+          </MetricStrip>
         )}
 
         {loading && (
@@ -132,7 +118,6 @@ export function VacanciesView() {
             No vacant units found
           </div>
         )}
-      </div>
-    </div>
+    </PageContainer>
   );
 }

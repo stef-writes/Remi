@@ -101,6 +101,61 @@ class AnthropicProvider(LLMProvider):
             self._client = anthropic.AsyncAnthropic(api_key=self._api_key)
         return self._client
 
+    # -- prompt caching helpers -----------------------------------------------
+
+    @classmethod
+    def _build_kwargs(
+        cls,
+        *,
+        model: str,
+        messages: list[Message],
+        temperature: float,
+        max_tokens: int,
+        tools: list[ToolDefinition] | None,
+    ) -> dict[str, Any]:
+        """Build Anthropic API kwargs with cache breakpoints on static prefixes."""
+        system_prompt, anthropic_messages = cls._split_system_and_messages(messages)
+
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": anthropic_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+
+        if system_prompt:
+            kwargs["system"] = [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
+
+        if tools:
+            anthropic_tools = [cls._tool_to_anthropic(t) for t in tools]
+            anthropic_tools[-1]["cache_control"] = {"type": "ephemeral"}
+            kwargs["tools"] = anthropic_tools
+
+        return kwargs
+
+    @staticmethod
+    def _extract_usage(resp_usage: Any) -> TokenUsage:
+        """Extract token usage including cache metrics from an Anthropic response."""
+        if not resp_usage:
+            return TokenUsage()
+        input_tokens = getattr(resp_usage, "input_tokens", 0)
+        output_tokens = getattr(resp_usage, "output_tokens", 0)
+        cache_read = getattr(resp_usage, "cache_read_input_tokens", 0) or 0
+        cache_creation = getattr(resp_usage, "cache_creation_input_tokens", 0) or 0
+        return TokenUsage(
+            prompt_tokens=input_tokens,
+            completion_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+            cache_read_tokens=cache_read,
+            cache_creation_tokens=cache_creation,
+        )
+
     # -- LLMProvider interface ------------------------------------------------
 
     async def complete(
@@ -113,18 +168,13 @@ class AnthropicProvider(LLMProvider):
         tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         client = self._get_client()
-        system_prompt, anthropic_messages = self._split_system_and_messages(messages)
-
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": anthropic_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-        if system_prompt:
-            kwargs["system"] = system_prompt
-        if tools:
-            kwargs["tools"] = [self._tool_to_anthropic(t) for t in tools]
+        kwargs = self._build_kwargs(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+        )
 
         resp = await client.messages.create(**kwargs)
 
@@ -143,20 +193,10 @@ class AnthropicProvider(LLMProvider):
                     )
                 )
 
-        usage = (
-            TokenUsage(
-                prompt_tokens=resp.usage.input_tokens,
-                completion_tokens=resp.usage.output_tokens,
-                total_tokens=resp.usage.input_tokens + resp.usage.output_tokens,
-            )
-            if resp.usage
-            else TokenUsage()
-        )
-
         return LLMResponse(
             content=content_text,
             model=resp.model,
-            usage=usage,
+            usage=self._extract_usage(resp.usage),
             tool_calls=tool_calls,
         )
 
@@ -170,23 +210,20 @@ class AnthropicProvider(LLMProvider):
         tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         client = self._get_client()
-        system_prompt, anthropic_messages = self._split_system_and_messages(messages)
-
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "messages": anthropic_messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-        if system_prompt:
-            kwargs["system"] = system_prompt
-        if tools:
-            kwargs["tools"] = [self._tool_to_anthropic(t) for t in tools]
+        kwargs = self._build_kwargs(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+        )
 
         current_tool_id = ""
         current_tool_name = ""
         prompt_tokens = 0
         completion_tokens = 0
+        cache_read = 0
+        cache_creation = 0
 
         async with client.messages.stream(**kwargs) as stream:
             async for event in stream:
@@ -221,7 +258,10 @@ class AnthropicProvider(LLMProvider):
                         completion_tokens = getattr(event.usage, "output_tokens", 0)
                 elif event.type == "message_start":
                     if hasattr(event, "message") and hasattr(event.message, "usage"):
-                        prompt_tokens = getattr(event.message.usage, "input_tokens", 0)
+                        msg_usage = event.message.usage
+                        prompt_tokens = getattr(msg_usage, "input_tokens", 0)
+                        cache_read = getattr(msg_usage, "cache_read_input_tokens", 0) or 0
+                        cache_creation = getattr(msg_usage, "cache_creation_input_tokens", 0) or 0
 
         yield StreamChunk(
             type="done",
@@ -229,5 +269,7 @@ class AnthropicProvider(LLMProvider):
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=prompt_tokens + completion_tokens,
+                cache_read_tokens=cache_read,
+                cache_creation_tokens=cache_creation,
             ),
         )

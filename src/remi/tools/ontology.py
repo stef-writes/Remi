@@ -1,4 +1,4 @@
-"""Ontology tools — in-process calls to OntologyStore and SignalStore.
+"""Ontology tools — in-process calls to KnowledgeGraph and SignalStore.
 
 Provides: onto_signals, onto_explain, onto_search, onto_get, onto_related,
 onto_aggregate, onto_timeline, onto_schema, onto_codify_observation,
@@ -10,22 +10,22 @@ from __future__ import annotations
 from typing import Any
 
 from remi.models.ontology import (
+    KnowledgeGraph,
     KnowledgeProvenance,
     ObjectTypeDef,
-    OntologyStore,
     PropertyDef,
 )
 from remi.models.signals import SignalStore
 from remi.models.tools import ToolArg, ToolDefinition, ToolRegistry
 
 
-def register_ontology_tools(
+def register_knowledge_graph_tools(
     registry: ToolRegistry,
     *,
-    ontology_store: OntologyStore,
+    knowledge_graph: KnowledgeGraph,
     signal_store: SignalStore | None = None,
 ) -> None:
-    store = ontology_store
+    store = knowledge_graph
 
     # -- onto_signals ----------------------------------------------------------
 

@@ -176,6 +176,36 @@ class MaintenanceRequest(BaseModel, frozen=True):
     vendor: str | None = None
 
 
+class ActionItemStatus(StrEnum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class ActionItemPriority(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+class ActionItem(BaseModel, frozen=True):
+    """User-created action item tied to a manager, property, or tenant."""
+
+    id: str
+    title: str
+    description: str = ""
+    status: ActionItemStatus = ActionItemStatus.OPEN
+    priority: ActionItemPriority = ActionItemPriority.MEDIUM
+    manager_id: str | None = None
+    property_id: str | None = None
+    tenant_id: str | None = None
+    due_date: date | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
 class MetricSnapshot(BaseModel, frozen=True):
     """A single metric observation for a property, portfolio, or manager."""
 
@@ -308,3 +338,33 @@ class PropertyStore(abc.ABC):
 
     @abc.abstractmethod
     async def upsert_maintenance_request(self, request: MaintenanceRequest) -> None: ...
+
+    # -- Deletes --
+    @abc.abstractmethod
+    async def delete_manager(self, manager_id: str) -> bool: ...
+
+    @abc.abstractmethod
+    async def delete_property(self, property_id: str) -> bool: ...
+
+    @abc.abstractmethod
+    async def delete_tenant(self, tenant_id: str) -> bool: ...
+
+    # -- Action Items --
+    @abc.abstractmethod
+    async def get_action_item(self, item_id: str) -> ActionItem | None: ...
+
+    @abc.abstractmethod
+    async def list_action_items(
+        self,
+        *,
+        manager_id: str | None = None,
+        property_id: str | None = None,
+        tenant_id: str | None = None,
+        status: ActionItemStatus | None = None,
+    ) -> list[ActionItem]: ...
+
+    @abc.abstractmethod
+    async def upsert_action_item(self, item: ActionItem) -> None: ...
+
+    @abc.abstractmethod
+    async def delete_action_item(self, item_id: str) -> bool: ...

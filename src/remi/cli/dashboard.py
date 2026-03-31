@@ -288,7 +288,7 @@ class RemiDashboard(App):  # type: ignore[type-arg]
             self.signal_count = len(signals)
             with contextlib.suppress(NoMatches):
                 self.query_one(_SignalPanel).refresh_signals(
-                    signals, self._container.domain_ontology
+                    signals, self._container.domain_rulebook
                 )
         except Exception as exc:
             self._log_activity(f"  [red]✗ Pipeline error:[/red] {exc}")
@@ -315,7 +315,7 @@ class RemiDashboard(App):  # type: ignore[type-arg]
         if self._container is None:
             return
         with contextlib.suppress(NoMatches, Exception):
-            self.query_one(_TBoxPanel).refresh_tbox(self._container.domain_ontology)
+            self.query_one(_TBoxPanel).refresh_tbox(self._container.domain_rulebook)
 
     @on(Input.Submitted, "#chat-input")
     def on_chat_submit(self, event: Input.Submitted) -> None:
@@ -415,7 +415,7 @@ class RemiDashboard(App):  # type: ignore[type-arg]
             if len(signals) != self.signal_count:
                 self.signal_count = len(signals)
                 self.query_one(_SignalPanel).refresh_signals(
-                    signals, self._container.domain_ontology
+                    signals, self._container.domain_rulebook
                 )
         except (NoMatches, Exception):
             pass

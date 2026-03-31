@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from remi.api.dependencies import get_property_query, get_property_store, get_rent_roll_service
 from remi.api.properties.schemas import (
@@ -13,7 +14,7 @@ from remi.api.properties.schemas import (
     UnitListResponse,
     UnitSummary,
 )
-from remi.models.properties import PropertyStore, UnitStatus
+from remi.models.properties import Address, PropertyStore, UnitStatus
 from remi.services.property_queries import PropertyQueryService
 from remi.services.rent_roll import RentRollService
 
@@ -82,3 +83,51 @@ async def rent_roll(
     if result is None:
         raise HTTPException(404, f"Property '{property_id}' not found")
     return RentRollResponse(**result.model_dump())
+
+
+class UpdatePropertyRequest(BaseModel):
+    name: str | None = None
+    street: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    portfolio_id: str | None = None
+
+
+@router.patch("/{property_id}")
+async def update_property(
+    property_id: str,
+    body: UpdatePropertyRequest,
+    ps: PropertyStore = Depends(get_property_store),
+) -> dict[str, str]:
+    prop = await ps.get_property(property_id)
+    if not prop:
+        raise HTTPException(404, f"Property '{property_id}' not found")
+
+    updates: dict[str, object] = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.portfolio_id is not None:
+        updates["portfolio_id"] = body.portfolio_id
+    if any(f is not None for f in (body.street, body.city, body.state, body.zip_code)):
+        updates["address"] = Address(
+            street=body.street or prop.address.street,
+            city=body.city or prop.address.city,
+            state=body.state or prop.address.state,
+            zip_code=body.zip_code or prop.address.zip_code,
+        )
+
+    updated = prop.model_copy(update=updates)
+    await ps.upsert_property(updated)
+    return {"id": property_id, "name": updated.name}
+
+
+@router.delete("/{property_id}", status_code=200)
+async def delete_property(
+    property_id: str,
+    ps: PropertyStore = Depends(get_property_store),
+) -> dict[str, bool]:
+    deleted = await ps.delete_property(property_id)
+    if not deleted:
+        raise HTTPException(404, f"Property '{property_id}' not found")
+    return {"deleted": True}

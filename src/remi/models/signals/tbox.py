@@ -1,4 +1,8 @@
-"""TBox models — declarative domain expertise as typed, frozen structures."""
+"""TBox models — declarative domain expertise as typed, frozen structures.
+
+Renamed from DomainOntology/MutableDomainOntology to DomainRulebook/MutableRulebook
+to reflect that these are business rules and calibrations, not an ontology.
+"""
 
 from __future__ import annotations
 
@@ -63,6 +67,21 @@ class CausalChain(BaseModel, frozen=True):
     description: str
 
 
+class CompositionRule(BaseModel, frozen=True):
+    """When multiple signals co-occur on the same entity, emit a composite signal.
+
+    Constituents are signal type names. The engine checks that all are
+    active on a single entity of the given ``scope`` type before firing.
+    """
+
+    name: str
+    description: str
+    constituents: list[str]
+    scope: str
+    severity: Severity
+    require_same_entity: bool = True
+
+
 class WorkflowStep(BaseModel, frozen=True):
     id: str
     description: str
@@ -73,8 +92,8 @@ class WorkflowSeed(BaseModel, frozen=True):
     steps: list[WorkflowStep]
 
 
-class DomainOntology(BaseModel, frozen=True):
-    """The full TBox + ABox seeds, parsed from domain.yaml.
+class DomainRulebook(BaseModel, frozen=True):
+    """Declarative business rules and calibrations, parsed from domain.yaml.
 
     Every field is typed. Every query method returns typed models.
     Adding a signal to domain.yaml and having it fail Pydantic validation
@@ -85,10 +104,11 @@ class DomainOntology(BaseModel, frozen=True):
     thresholds: dict[str, float] = Field(default_factory=dict)
     policies: list[Policy] = Field(default_factory=list)
     causal_chains: list[CausalChain] = Field(default_factory=list)
+    compositions: list[CompositionRule] = Field(default_factory=list)
     workflows: list[WorkflowSeed] = Field(default_factory=list)
 
     @classmethod
-    def from_yaml(cls, raw: dict[str, Any]) -> DomainOntology:
+    def from_yaml(cls, raw: dict[str, Any]) -> DomainRulebook:
         tbox = raw.get("tbox", {})
         abox = raw.get("abox", {})
 
@@ -124,6 +144,18 @@ class DomainOntology(BaseModel, frozen=True):
             for c in tbox.get("causal_chains", [])
         ]
 
+        compositions = [
+            CompositionRule(
+                name=c["name"],
+                description=c.get("description", "").strip(),
+                constituents=c["constituents"],
+                scope=c["scope"],
+                severity=Severity(c["severity"]),
+                require_same_entity=c.get("require_same_entity", True),
+            )
+            for c in tbox.get("compositions", [])
+        ]
+
         workflows = [
             WorkflowSeed(
                 name=w["name"],
@@ -137,6 +169,7 @@ class DomainOntology(BaseModel, frozen=True):
             thresholds=tbox.get("thresholds", {}),
             policies=policies,
             causal_chains=causal_chains,
+            compositions=compositions,
             workflows=workflows,
         )
 
@@ -163,25 +196,32 @@ class DomainOntology(BaseModel, frozen=True):
         return [c for c in self.causal_chains if c.cause == cause]
 
     def all_signal_names(self) -> list[str]:
-        return list(self.signals.keys())
+        names = list(self.signals.keys())
+        names.extend(c.name for c in self.compositions)
+        return names
 
 
-class MutableDomainOntology:
-    """Runtime-writable view over a frozen DomainOntology.
+# Backward compatibility
+DomainOntology = DomainRulebook
 
-    The static DomainOntology (from domain.yaml) is immutable. This wrapper
+
+class MutableRulebook:
+    """Runtime-writable view over a frozen DomainRulebook.
+
+    The static DomainRulebook (from domain.yaml) is immutable. This wrapper
     adds a mutable layer for hypotheses that have been confirmed and graduated
     into the TBox.
     """
 
-    def __init__(self, base: DomainOntology) -> None:
+    def __init__(self, base: DomainRulebook) -> None:
         self._base = base
         self._extra_signals: dict[str, SignalDefinition] = {}
         self._extra_thresholds: dict[str, float] = {}
         self._extra_chains: list[CausalChain] = []
+        self._extra_compositions: list[CompositionRule] = []
 
     @property
-    def base(self) -> DomainOntology:
+    def base(self) -> DomainRulebook:
         return self._base
 
     @property
@@ -203,6 +243,10 @@ class MutableDomainOntology:
     @property
     def policies(self) -> list[Policy]:
         return list(self._base.policies)
+
+    @property
+    def compositions(self) -> list[CompositionRule]:
+        return list(self._base.compositions) + list(self._extra_compositions)
 
     @property
     def workflows(self) -> list[WorkflowSeed]:
@@ -240,7 +284,9 @@ class MutableDomainOntology:
         return base + extra
 
     def all_signal_names(self) -> list[str]:
-        return list(self.signals.keys())
+        names = list(self.signals.keys())
+        names.extend(c.name for c in self.compositions)
+        return names
 
     def add_signal(self, defn: SignalDefinition) -> None:
         self._extra_signals[defn.name] = defn
@@ -251,6 +297,9 @@ class MutableDomainOntology:
     def add_causal_chain(self, chain: CausalChain) -> None:
         self._extra_chains.append(chain)
 
+    def add_composition(self, rule: CompositionRule) -> None:
+        self._extra_compositions.append(rule)
+
     @property
     def learned_signal_count(self) -> int:
         return len(self._extra_signals)
@@ -258,3 +307,7 @@ class MutableDomainOntology:
     @property
     def learned_chain_count(self) -> int:
         return len(self._extra_chains)
+
+
+# Backward compatibility
+MutableDomainOntology = MutableRulebook

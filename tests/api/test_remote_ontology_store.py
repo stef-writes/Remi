@@ -1,8 +1,8 @@
-"""Tests for RemoteOntologyStore — validates the typed HTTP client
+"""Tests for RemoteKnowledgeGraph — validates the typed HTTP client
 against a real (in-process) REMI API via TestClient.
 
-Proves the contract: RemoteOntologyStore is a drop-in replacement for
-BridgedOntologyStore across the full OntologyStore interface.
+Proves the contract: RemoteKnowledgeGraph is a drop-in replacement for
+BridgedKnowledgeGraph across the full KnowledgeGraph interface.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from remi.api.dependencies import get_container
 from remi.api.main import create_app
 from remi.config.container import Container
-from remi.knowledge.ontology.remote import RemoteOntologyStore
+from remi.knowledge.ontology.remote import RemoteKnowledgeGraph
 from remi.models.ontology import KnowledgeProvenance, ObjectTypeDef, PropertyDef
 
 
@@ -35,14 +35,14 @@ async def http_client(container: Container) -> AsyncClient:
 
 
 @pytest.fixture
-def remote_store(http_client: AsyncClient) -> RemoteOntologyStore:
-    return RemoteOntologyStore(base_url="http://test", client=http_client)
+def remote_store(http_client: AsyncClient) -> RemoteKnowledgeGraph:
+    return RemoteKnowledgeGraph(base_url="http://test", client=http_client)
 
 
 # -- Schema round-trip --------------------------------------------------------
 
 
-async def test_list_object_types(remote_store: RemoteOntologyStore) -> None:
+async def test_list_object_types(remote_store: RemoteKnowledgeGraph) -> None:
     types = await remote_store.list_object_types()
     assert isinstance(types, list)
     for t in types:
@@ -50,9 +50,9 @@ async def test_list_object_types(remote_store: RemoteOntologyStore) -> None:
 
 
 async def test_get_object_type_found(
-    remote_store: RemoteOntologyStore, container: Container
+    remote_store: RemoteKnowledgeGraph, container: Container
 ) -> None:
-    local_types = await container.ontology_store.list_object_types()
+    local_types = await container.knowledge_graph.list_object_types()
     if not local_types:
         pytest.skip("No types after bootstrap")
 
@@ -62,15 +62,15 @@ async def test_get_object_type_found(
     assert result.name == name
 
 
-async def test_get_object_type_not_found(remote_store: RemoteOntologyStore) -> None:
+async def test_get_object_type_not_found(remote_store: RemoteKnowledgeGraph) -> None:
     result = await remote_store.get_object_type("ZZZDoesNotExist")
     assert result is None
 
 
-async def test_define_then_get_object_type(remote_store: RemoteOntologyStore) -> None:
+async def test_define_then_get_object_type(remote_store: RemoteKnowledgeGraph) -> None:
     type_def = ObjectTypeDef(
         name="RemoteTestType",
-        description="Defined via RemoteOntologyStore",
+        description="Defined via RemoteKnowledgeGraph",
         properties=(PropertyDef(name="x", data_type="integer"),),
         provenance=KnowledgeProvenance.USER_STATED,
     )
@@ -85,12 +85,12 @@ async def test_define_then_get_object_type(remote_store: RemoteOntologyStore) ->
 # -- Search round-trip --------------------------------------------------------
 
 
-async def test_search_objects_empty(remote_store: RemoteOntologyStore) -> None:
+async def test_search_objects_empty(remote_store: RemoteKnowledgeGraph) -> None:
     results = await remote_store.search_objects("PropertyManager")
     assert isinstance(results, list)
 
 
-async def test_search_with_filters(remote_store: RemoteOntologyStore) -> None:
+async def test_search_with_filters(remote_store: RemoteKnowledgeGraph) -> None:
     results = await remote_store.search_objects(
         "Unit", filters={"status": "vacant"}, limit=5
     )
@@ -100,7 +100,7 @@ async def test_search_with_filters(remote_store: RemoteOntologyStore) -> None:
 # -- Get round-trip -----------------------------------------------------------
 
 
-async def test_get_object_not_found(remote_store: RemoteOntologyStore) -> None:
+async def test_get_object_not_found(remote_store: RemoteKnowledgeGraph) -> None:
     result = await remote_store.get_object("Property", "doesnt-exist")
     assert result is None
 
@@ -108,13 +108,13 @@ async def test_get_object_not_found(remote_store: RemoteOntologyStore) -> None:
 # -- Related round-trip -------------------------------------------------------
 
 
-async def test_get_links_empty(remote_store: RemoteOntologyStore) -> None:
+async def test_get_links_empty(remote_store: RemoteKnowledgeGraph) -> None:
     links = await remote_store.get_links("nonexistent-id")
     assert isinstance(links, list)
     assert len(links) == 0
 
 
-async def test_traverse_empty(remote_store: RemoteOntologyStore) -> None:
+async def test_traverse_empty(remote_store: RemoteKnowledgeGraph) -> None:
     nodes = await remote_store.traverse("nonexistent-id", max_depth=2)
     assert isinstance(nodes, list)
 
@@ -122,7 +122,7 @@ async def test_traverse_empty(remote_store: RemoteOntologyStore) -> None:
 # -- Aggregate round-trip -----------------------------------------------------
 
 
-async def test_aggregate_count(remote_store: RemoteOntologyStore) -> None:
+async def test_aggregate_count(remote_store: RemoteKnowledgeGraph) -> None:
     result = await remote_store.aggregate("PropertyManager", "count")
     assert result == 0
 
@@ -130,7 +130,7 @@ async def test_aggregate_count(remote_store: RemoteOntologyStore) -> None:
 # -- Timeline round-trip ------------------------------------------------------
 
 
-async def test_get_timeline_empty(remote_store: RemoteOntologyStore) -> None:
+async def test_get_timeline_empty(remote_store: RemoteKnowledgeGraph) -> None:
     events = await remote_store.get_timeline("Property", "prop-1")
     assert isinstance(events, list)
 
@@ -138,7 +138,7 @@ async def test_get_timeline_empty(remote_store: RemoteOntologyStore) -> None:
 # -- Codify round-trip --------------------------------------------------------
 
 
-async def test_codify_returns_entity_id(remote_store: RemoteOntologyStore) -> None:
+async def test_codify_returns_entity_id(remote_store: RemoteKnowledgeGraph) -> None:
     entity_id = await remote_store.codify(
         "observation",
         {"description": "test via remote store"},
@@ -152,10 +152,10 @@ async def test_codify_returns_entity_id(remote_store: RemoteOntologyStore) -> No
 
 
 async def test_schema_parity(
-    remote_store: RemoteOntologyStore, container: Container
+    remote_store: RemoteKnowledgeGraph, container: Container
 ) -> None:
-    """RemoteOntologyStore returns the same types as the local store."""
-    local_types = await container.ontology_store.list_object_types()
+    """RemoteKnowledgeGraph returns the same types as the local store."""
+    local_types = await container.knowledge_graph.list_object_types()
     remote_types = await remote_store.list_object_types()
 
     local_names = {t.name for t in local_types}
@@ -164,9 +164,9 @@ async def test_schema_parity(
 
 
 async def test_aggregate_parity(
-    remote_store: RemoteOntologyStore, container: Container
+    remote_store: RemoteKnowledgeGraph, container: Container
 ) -> None:
     """Aggregate results match between local and remote."""
-    local_result = await container.ontology_store.aggregate("PropertyManager", "count")
+    local_result = await container.knowledge_graph.aggregate("PropertyManager", "count")
     remote_result = await remote_store.aggregate("PropertyManager", "count")
     assert local_result == remote_result

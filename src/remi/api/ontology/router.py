@@ -1,6 +1,6 @@
 """REST endpoints for the unified ontology layer.
 
-Domain-agnostic — operates purely through the OntologyStore port.
+Domain-agnostic — operates purely through the KnowledgeGraph port.
 Maps 1:1 to the CLI ``remi onto`` subcommands.
 """
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from remi.api.dependencies import get_ontology_store
+from remi.api.dependencies import get_knowledge_graph
 from remi.api.ontology.schemas import (
     AggregateRequest,
     AggregateResponse,
@@ -24,7 +24,7 @@ from remi.api.ontology.schemas import (
     SearchResponse,
     TimelineResponse,
 )
-from remi.knowledge.ontology_bridge import BridgedOntologyStore
+from remi.knowledge.ontology_bridge import BridgedKnowledgeGraph
 from remi.models.ontology import ObjectTypeDef, PropertyDef
 
 router = APIRouter(prefix="/ontology", tags=["ontology"])
@@ -38,7 +38,7 @@ async def search_objects(
     type_name: str,
     order_by: str | None = Query(None, description="Sort field (prefix with - for desc)"),
     limit: int = Query(50, ge=1, le=1000),
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> SearchResponse:
     """Search objects of any type with optional field filters.
 
@@ -56,7 +56,7 @@ async def search_objects(
 async def search_objects_post(
     type_name: str,
     body: SearchRequest,
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> SearchResponse:
     """Search with filters in the request body (for complex filter objects)."""
     results = await store.search_objects(
@@ -75,7 +75,7 @@ async def search_objects_post(
 async def get_object(
     type_name: str,
     object_id: str,
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> ObjectResponse:
     """Get a single object by type and ID."""
     obj = await store.get_object(type_name, object_id)
@@ -96,7 +96,7 @@ async def get_related(
     link_type: str | None = Query(None, description="Filter by link type"),
     direction: str = Query("both", description="both|outgoing|incoming"),
     max_depth: int = Query(1, ge=1, le=10, description="Traversal depth"),
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> RelatedResponse:
     """Find related objects via link traversal."""
     if max_depth > 1:
@@ -132,7 +132,7 @@ async def get_related(
 async def aggregate(
     type_name: str,
     body: AggregateRequest,
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> AggregateResponse:
     """Compute aggregate metrics (count, sum, avg, min, max) across objects."""
     result = await store.aggregate(
@@ -161,7 +161,7 @@ async def get_timeline(
     type_name: str,
     object_id: str,
     limit: int = Query(50, ge=1, le=1000),
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> TimelineResponse:
     """Show event history for an object."""
     events = await store.get_timeline(
@@ -182,7 +182,7 @@ async def get_timeline(
 
 @router.get("/schema", response_model=SchemaListResponse)
 async def list_schema(
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> SchemaListResponse:
     """List all defined object types and link types."""
     types = await store.list_object_types()
@@ -196,7 +196,7 @@ async def list_schema(
 @router.get("/schema/{type_name}", response_model=SchemaTypeResponse)
 async def get_schema_type(
     type_name: str,
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> SchemaTypeResponse:
     """Describe a specific object type and its related link types."""
     ot = await store.get_object_type(type_name)
@@ -217,7 +217,7 @@ async def get_schema_type(
 @router.post("/codify", response_model=CodifyResponse)
 async def codify(
     body: CodifyRequest,
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> CodifyResponse:
     """Codify operational knowledge into the ontology."""
     entity_id = await store.codify(
@@ -244,7 +244,7 @@ async def codify(
 @router.post("/define", response_model=DefineTypeResponse)
 async def define_type(
     body: DefineTypeRequest,
-    store: BridgedOntologyStore = Depends(get_ontology_store),
+    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> DefineTypeResponse:
     """Define a new object type in the ontology."""
     props = tuple(

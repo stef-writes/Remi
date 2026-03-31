@@ -9,24 +9,26 @@ interface Props {
 }
 
 export function MetricCard({ label, value, sub, trend, alert }: Props) {
+  const display = typeof value === "number" ? value.toLocaleString() : value;
+
   return (
     <div
-      className={`rounded-xl border px-5 py-4 ${
+      className={`rounded-xl border min-w-0 overflow-hidden px-4 py-3 sm:px-5 sm:py-4 ${
         alert
           ? "border-warn/30 bg-warn-soft"
           : "border-border bg-surface"
       }`}
     >
-      <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wide mb-1">
+      <p className="text-[10px] sm:text-[11px] font-medium text-fg-muted uppercase tracking-wide mb-1 truncate">
         {label}
       </p>
-      <div className="flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-fg">
-          {typeof value === "number" ? value.toLocaleString() : value}
+      <div className="flex items-baseline gap-1 min-w-0">
+        <span className="text-lg sm:text-2xl font-bold text-fg truncate">
+          {display}
         </span>
         {trend && (
           <span
-            className={`text-xs font-semibold ${
+            className={`text-xs font-semibold shrink-0 ${
               trend === "up"
                 ? "text-ok"
                 : trend === "down"
@@ -38,7 +40,7 @@ export function MetricCard({ label, value, sub, trend, alert }: Props) {
           </span>
         )}
       </div>
-      {sub && <p className="text-[11px] text-fg-faint mt-1">{sub}</p>}
+      {sub && <p className="text-[10px] sm:text-[11px] text-fg-faint mt-0.5 truncate">{sub}</p>}
     </div>
   );
 }

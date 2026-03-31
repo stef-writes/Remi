@@ -9,7 +9,7 @@ import pytest
 from remi.knowledge.entailment.engine import EntailmentEngine
 from remi.knowledge.ontology.bootstrap import load_domain_yaml
 from remi.models.properties import Unit, UnitStatus
-from remi.models.signals import DomainOntology
+from remi.models.signals import DomainRulebook
 from remi.observability.tracer import Tracer
 from remi.stores.properties import InMemoryPropertyStore
 from remi.stores.signals import InMemorySignalStore
@@ -28,8 +28,8 @@ def tracer(trace_store: InMemoryTraceStore) -> Tracer:
 
 
 @pytest.fixture
-def domain_ontology() -> DomainOntology:
-    return DomainOntology.from_yaml(load_domain_yaml())
+def domain_rulebook() -> DomainRulebook:
+    return DomainRulebook.from_yaml(load_domain_yaml())
 
 
 @pytest.fixture
@@ -44,13 +44,13 @@ def property_store() -> InMemoryPropertyStore:
 
 @pytest.fixture
 def traced_engine(
-    domain_ontology: DomainOntology,
+    domain_rulebook: DomainRulebook,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
     tracer: Tracer,
 ) -> EntailmentEngine:
     return EntailmentEngine(
-        domain=domain_ontology,
+        domain=domain_rulebook,
         property_store=property_store,
         signal_store=signal_store,
         tracer=tracer,
@@ -113,13 +113,13 @@ async def test_entailment_trace_has_tbox_metadata(
 
 @pytest.mark.asyncio
 async def test_untraced_engine_still_works(
-    domain_ontology: DomainOntology,
+    domain_rulebook: DomainRulebook,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
 ) -> None:
     """Engine without tracer should work exactly as before."""
     engine = EntailmentEngine(
-        domain=domain_ontology,
+        domain=domain_rulebook,
         property_store=property_store,
         signal_store=signal_store,
     )

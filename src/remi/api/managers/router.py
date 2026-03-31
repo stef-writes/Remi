@@ -13,6 +13,9 @@ from remi.api.managers.schemas import (
     ManagerListItem,
     ManagerListResponse,
     ManagerReviewResponse,
+    MergeManagersRequest,
+    MergeManagersResponse,
+    UpdateManagerRequest,
 )
 from remi.models.properties import Portfolio, PropertyManager, PropertyStore
 from remi.services.manager_review import ManagerReviewService
@@ -47,6 +50,8 @@ async def list_managers(
                 expiring_leases_90d=s.expiring_leases_90d,
                 expired_leases=s.expired_leases,
                 below_market_units=s.below_market_units,
+                delinquent_count=s.delinquent_count,
+                total_delinquent_balance=s.total_delinquent_balance,
             )
             for s in summaries
         ]
@@ -97,6 +102,86 @@ async def create_manager(
         manager_id=manager_id,
         portfolio_id=portfolio_id,
         name=body.name,
+    )
+
+
+@router.patch("/{manager_id}", response_model=CreateManagerResponse)
+async def update_manager(
+    manager_id: str,
+    body: UpdateManagerRequest,
+    ps: PropertyStore = Depends(get_property_store),
+) -> CreateManagerResponse:
+    mgr = await ps.get_manager(manager_id)
+    if not mgr:
+        raise HTTPException(404, f"Manager '{manager_id}' not found")
+
+    updates: dict[str, str | None] = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.email is not None:
+        updates["email"] = body.email
+    if body.company is not None:
+        updates["company"] = body.company
+    if body.phone is not None:
+        updates["phone"] = body.phone
+
+    updated = mgr.model_copy(update=updates)
+    await ps.upsert_manager(updated)
+
+    portfolios = await ps.list_portfolios(manager_id=manager_id)
+    portfolio_id = portfolios[0].id if portfolios else ""
+
+    return CreateManagerResponse(
+        manager_id=manager_id,
+        portfolio_id=portfolio_id,
+        name=updated.name,
+    )
+
+
+@router.delete("/{manager_id}", status_code=200)
+async def delete_manager(
+    manager_id: str,
+    ps: PropertyStore = Depends(get_property_store),
+) -> dict[str, bool]:
+    deleted = await ps.delete_manager(manager_id)
+    if not deleted:
+        raise HTTPException(404, f"Manager '{manager_id}' not found")
+    return {"deleted": True}
+
+
+@router.post("/merge", response_model=MergeManagersResponse)
+async def merge_managers(
+    body: MergeManagersRequest,
+    ps: PropertyStore = Depends(get_property_store),
+) -> MergeManagersResponse:
+    """Move all properties from source manager to target, then delete source."""
+    source = await ps.get_manager(body.source_manager_id)
+    target = await ps.get_manager(body.target_manager_id)
+    if not source:
+        raise HTTPException(404, f"Source manager '{body.source_manager_id}' not found")
+    if not target:
+        raise HTTPException(404, f"Target manager '{body.target_manager_id}' not found")
+
+    target_portfolios = await ps.list_portfolios(manager_id=body.target_manager_id)
+    if not target_portfolios:
+        raise HTTPException(400, f"Target manager has no portfolio")
+    target_pf_id = target_portfolios[0].id
+
+    source_portfolios = await ps.list_portfolios(manager_id=body.source_manager_id)
+    moved = 0
+    for spf in source_portfolios:
+        props = await ps.list_properties(portfolio_id=spf.id)
+        for prop in props:
+            updated = prop.model_copy(update={"portfolio_id": target_pf_id})
+            await ps.upsert_property(updated)
+            moved += 1
+
+    deleted = await ps.delete_manager(body.source_manager_id)
+
+    return MergeManagersResponse(
+        target_manager_id=body.target_manager_id,
+        properties_moved=moved,
+        source_deleted=deleted,
     )
 
 

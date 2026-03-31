@@ -19,7 +19,7 @@ the domain expertise of property management.
 ## Incline and REMI
 
 **Incline** is the domain-agnostic AI infrastructure underneath — the graph
-runtime, ontology system, entailment engine, signal framework, hypothesis
+runtime, knowledge graph, entailment engine, signal framework, hypothesis
 pipeline, LLM providers, sandbox, trace layer, and tool system. It is the
 reusable IP.
 
@@ -32,57 +32,72 @@ See `INCLINE.md` for the full framework architecture and package boundary.
 
 ---
 
-## TBox and ABox — The Foundational Distinction
+## The Three Layers of Knowledge
 
-These terms come from Description Logic, the formal underpinning of knowledge
-representation systems. They describe two fundamentally different kinds of
-knowledge.
+The system separates three fundamentally different kinds of knowledge, each
+with its own responsibilities and lifecycle.
 
-### TBox — Terminological Box
+### Domain Rulebook (Business Rules & Calibrations)
 
-The TBox defines **what kinds of things exist and what they mean**. It is the
+The **DomainRulebook** defines **what things mean in this business**. It is the
 vocabulary and the rules of the domain. It answers: *what is a ChronicVacancy?
 What counts as a LeaseExpirationCliff? What does it mean for a manager to be
 underperforming?*
 
-The TBox is not data. It is **institutional expertise, formalized**. It contains:
+The rulebook is not data. It is **institutional expertise, formalized**. It contains:
 
-- **Concept definitions** — named domain states with human-readable descriptions
-- **Inference rules** — conditions under which a concept is entailed to be true
+- **Signal definitions** — named domain states with human-readable descriptions
+- **Inference rules** — conditions under which a signal is entailed to be true
 - **Thresholds** — the numeric calibrations that define normal vs. alarming
 - **Policies** — obligations that should follow from certain conditions
 - **Causal chains** — relationships between domain states (slow maintenance
   causes extended vacancy)
 
-In REMI, the TBox lives in `src/remi/workflows/domain.yaml`. It is the single
+In REMI, the rulebook lives in `src/remi/config/domain.yaml`. It is the single
 file a domain expert should read, correct, and extend. No code change required
 to update a threshold or add a new signal.
 
-### ABox — Assertion Box
+### Ontology (Schema Layer)
 
-The ABox contains **individual facts asserted about the world**. It answers:
-*what actually happened? What is the current state of this specific lease, unit,
-tenant, property?*
+The **Ontology** defines **what types of things exist and how they relate**. It is
+the structural vocabulary — object types (Property, Unit, Lease, Tenant), link
+types (BELONGS_TO, COVERS, CAUSES), and their constraints. Small, stable, loaded
+at boot, extended by learning.
 
-The ABox is the data. In REMI:
+This is what "ontology" properly means: the schema of a knowledge representation
+system. It does not contain instances, rules, or data.
 
-- `PropertyStore` — the structured ABox for core RE entities (properties, units,
+### Knowledge Graph (Instance Layer)
+
+The **KnowledgeGraph** stores **individual facts asserted about the world**. It
+answers: *what actually happened? What is the current state of this specific
+lease, unit, tenant, property?*
+
+The knowledge graph is the data. In REMI:
+
+- `PropertyStore` — the structured store for core RE entities (properties, units,
   leases, tenants, maintenance requests)
-- `KnowledgeStore` — the graph ABox for relationships, observations, and
+- `KnowledgeStore` — the graph store for relationships, observations, and
   dynamically discovered entities
-- Uploaded AppFolio reports — raw ABox assertions ingested from the real world
+- Uploaded AppFolio reports — raw assertions ingested from the real world
 
-### Why the Distinction Matters
+The `BridgedKnowledgeGraph` implementation bridges both — routing core type
+queries to `PropertyStore` and non-core/graph queries to `KnowledgeStore`.
 
-Without a TBox, the system has data but no meaning. The LLM is forced to
+### Why the Separation Matters
+
+Without a rulebook, the system has data but no meaning. The LLM is forced to
 reconstruct domain expertise from scratch on every query — which is slow,
 inconsistent, and doesn't accumulate.
 
-Without an ABox, the TBox has rules but nothing to apply them to.
+Without a knowledge graph, the rulebook has rules but nothing to apply them to.
 
-The **Entailment Engine** combines them: it evaluates TBox rules against ABox
-facts and produces **Signals** — named, evidenced, severity-ranked states that
-represent what is currently true about the director's world.
+Without an ontology, neither knows what types of things exist or how they connect.
+
+The **Entailment Engine** combines them: it evaluates rulebook rules against
+knowledge graph facts and produces **Signals** — named, evidenced,
+severity-ranked states that represent what is currently true about the
+director's world.
 
 ---
 
@@ -90,7 +105,7 @@ represent what is currently true about the director's world.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  LAYER 1 — FACTS (ABox)                                          │
+│  LAYER 1 — FACTS (Knowledge Graph)                               │
 │                                                                  │
 │  PropertyStore: properties, units, leases, tenants, maintenance  │
 │  KnowledgeStore: relationships, graph entities, observations     │
@@ -101,10 +116,11 @@ represent what is currently true about the director's world.
                          │ evaluated against
                          ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  LAYER 2 — DOMAIN (TBox)                                         │
+│  LAYER 2 — DOMAIN (Rulebook + Ontology)                          │
 │                                                                  │
-│  domain.yaml: concepts, thresholds, rules, policies, causality   │
-│  bootstrap.py: loads TBox into the ontology at startup           │
+│  domain.yaml: signal defs, thresholds, rules, policies, chains   │
+│  Ontology: object types, link types, constraints                 │
+│  bootstrap.py: loads schema + seeds into knowledge graph         │
 │                                                                  │
 │  What things mean in this business. Domain expertise formalized. │
 │  Editable by domain experts without touching code.               │
@@ -115,24 +131,24 @@ represent what is currently true about the director's world.
 │  LAYER 3A — SIGNAL PIPELINE (Deductive — known physics)          │
 │                                                                  │
 │  CompositeProducer → merges SignalProducers:                     │
-│    ├── RuleBasedProducer (EntailmentEngine) — TBox rules         │
+│    ├── RuleBasedProducer (EntailmentEngine) — rulebook rules     │
 │    └── StatisticalProducer — z-score outliers, concentrations    │
 │                                                                  │
 │  SignalStore: named signals with evidence, severity, provenance  │
 │  FeedbackStore: tracks outcomes (acted_on, dismissed, etc.)      │
-│  MutableDomainOntology: static TBox + graduated learned entries  │
+│  MutableRulebook: static rulebook + graduated learned entries    │
 │                                                                  │
 │  LAYER 3B — HYPOTHESIS PIPELINE (Inductive — discovering physics)│
 │                                                                  │
-│  PatternDetector → scans ABox data for patterns, proposes:       │
+│  PatternDetector → scans knowledge graph for patterns, proposes: │
 │    ├── Threshold hypotheses → candidate SignalDefinitions         │
 │    ├── Correlation hypotheses → candidate CausalChains            │
 │    └── Anomaly patterns → codified observations                  │
 │                                                                  │
-│  HypothesisStore: candidate TBox entries awaiting review         │
-│  HypothesisGraduator: confirmed → live TBox entries              │
+│  HypothesisStore: candidate rulebook entries awaiting review     │
+│  HypothesisGraduator: confirmed → live rulebook entries          │
 │                                                                  │
-│  Lifecycle: PROPOSED → CONFIRMED → graduated into TBox           │
+│  Lifecycle: PROPOSED → CONFIRMED → graduated into rulebook       │
 │             PROPOSED → REJECTED  → archived                      │
 └──────┬──────────────────────────┬────────────────────────────────┘
        │ navigated by             │ displayed by
@@ -159,7 +175,7 @@ represent what is currently true about the director's world.
 │  Modes: quick answer → investigation → deep research             │
 │  Sandbox: writes and runs Python/shell for data science tasks    │
 │  Never: recomputes what the entailment engine already knows      │
-│  Grows: the TBox via codified observations (with provenance)     │
+│  Grows: the rulebook via codified observations (with provenance) │
 └────────────────────────┬─────────────────────────────────────────┘
                          │ every step recorded by
                          ▼
@@ -252,7 +268,7 @@ for analysis that goes beyond what tool calls can express.
 └─────────────────────────────────────────────────┘
 ```
 
-### Live Ontology Access from Sandbox
+### Live Knowledge Graph Access from Sandbox
 
 The sandbox is not limited to static CSV snapshots. At session start, the
 `SandboxSeeder` writes a `remi_client.py` module into the working directory —
@@ -270,12 +286,12 @@ remi.codify("observation", {"description": "seasonal vacancy pattern"})
 ```
 
 This closes the loop: sandbox analysis → codified knowledge → updated
-ontology → re-derived signals. The sandbox becomes a first-class participant
-in the ontology, not a disconnected CSV playground.
+knowledge graph → re-derived signals. The sandbox becomes a first-class
+participant in the knowledge graph, not a disconnected CSV playground.
 
-The `RemoteOntologyStore` class (in `infrastructure/ontology/remote.py`)
-implements the full `OntologyStore` ABC over HTTP, making it a typed, drop-in
-replacement for `BridgedOntologyStore`. Any code that takes an `OntologyStore`
+The `RemoteKnowledgeGraph` class (in `knowledge/ontology/remote.py`)
+implements the full `KnowledgeGraph` ABC over HTTP, making it a typed, drop-in
+replacement for `BridgedKnowledgeGraph`. Any code that takes a `KnowledgeGraph`
 works identically whether backed by local stores or by HTTP calls to a
 running REMI server.
 
@@ -288,7 +304,7 @@ The sandbox protects real data through subprocess isolation:
 - The working directory is a **temp directory** — agent code cannot read or
   write the host filesystem
 - The sandbox client (`remi_client.py`) talks to the API server — reads and
-  writes go through the ontology layer with full provenance tracking
+  writes go through the knowledge graph layer with full provenance tracking
 - Static CSV exports remain available for bulk pandas analysis
 - Dangerous commands (sudo, curl, network tools) are blocked
 
@@ -298,7 +314,7 @@ The sandbox protects real data through subprocess isolation:
 
 26 tools registered, organized by module:
 
-### Ontology (12 tools)
+### Knowledge Graph (12 tools)
 Core domain querying and knowledge management.
 
 | Tool | Purpose |
@@ -309,7 +325,7 @@ Core domain querying and knowledge management.
 | `onto_get` | Get a single entity by ID |
 | `onto_related` | Traverse entity relationships |
 | `onto_aggregate` | Aggregate metrics (count, sum, avg, group) |
-| `onto_schema` | Inspect the ontology schema (TBox types) |
+| `onto_schema` | Inspect the ontology schema (types and links) |
 | `onto_timeline` | Get temporal events for an entity |
 | `onto_codify_observation` | Assert a new observation |
 | `onto_codify_policy` | Define a new policy rule |
@@ -405,7 +421,7 @@ signal and its evidence.
 ```
 Deduction  →  EntailmentEngine   →  "There IS a LeaseExpirationCliff"
                                     (certain, rule-based, pre-computed)
-                                    Uses: known laws from TBox (static + graduated)
+                                    Uses: known laws from rulebook (static + graduated)
 
 Induction  →  PatternDetector   →  "days_vacant has outliers at 4.2σ —
                                     propose a threshold signal definition"
@@ -453,19 +469,19 @@ remi onto signals --manager <id>     # What is currently entailed to be true?
 remi onto explain <signal-id>        # What evidence justifies this state?
 remi onto infer --now                # Re-evaluate all rules against current facts
 remi onto codify observation ...     # Assert a new piece of knowledge (USER_STATED)
-remi onto schema                     # Inspect the TBox (what concepts exist?)
+remi onto schema                     # Inspect the schema (what types exist?)
 ```
 
-The CLI grammar is stable across domains. Only the TBox changes. An LLM agent
+The CLI grammar is stable across domains. Only the rulebook changes. An LLM agent
 that knows this grammar can operate in any domain the framework is applied to,
 because it has already learned the epistemological structure: observe, assert,
 derive, explain, act.
 
 ---
 
-## The Ontology as Institutional Memory
+## The Knowledge Graph as Institutional Memory
 
-The TBox accumulates domain expertise over time:
+The knowledge graph and rulebook accumulate domain expertise over time:
 
 - Thresholds the director calibrates from her experience
 - Causal chains observed across the portfolio ("below-market rent leads to
@@ -473,12 +489,12 @@ The TBox accumulates domain expertise over time:
 - Policies established from repeated situations
 - Signals the LLM discovered and codified
 
-Every `onto_codify observation` call is a potential TBox addition. The
+Every `onto_codify observation` call is a potential rulebook addition. The
 provenance system (`CORE`, `SEEDED`, `DATA_DERIVED`, `USER_STATED`, `INFERRED`, `LEARNED`)
 tracks how each piece of knowledge entered the system and how much trust it
 deserves.
 
-The ontology is not a static schema. It is a **living epistemic artifact** —
+The knowledge graph is not a static schema. It is a **living epistemic artifact** —
 the formalized, versioned, reviewable expertise of this director and this
 domain.
 
@@ -497,10 +513,10 @@ for analysis that goes beyond pre-built tool capabilities.
 ### `knowledge_enricher`
 **Audience:** Internal (ingestion pipeline)
 **Entry point:** Ambiguous document rows
-**Primary job:** Classify rows into typed ontology entities; extend TBox if new
-types are discovered
-**Unique capability:** TBox-aware classification — uses `onto_schema` before
-deciding on entity types, extends the ontology rather than forcing unknown data
+**Primary job:** Classify rows into typed knowledge graph entities; extend schema
+if new types are discovered
+**Unique capability:** Schema-aware classification — uses `onto_schema` before
+deciding on entity types, extends the schema rather than forcing unknown data
 into existing types
 
 ---
@@ -508,10 +524,12 @@ into existing types
 ## Workflow Files
 
 ```
-src/remi/workflows/
-  domain.yaml                    # TBox — domain expertise as YAML
+src/remi/config/
+  domain.yaml                    # Rulebook — domain expertise as YAML
+src/remi/agents/
   director/app.yaml              # The unified conversational agent
   knowledge_enricher/app.yaml    # Internal ingestion agent
+  report_classifier/app.yaml     # Internal report classification agent
 ```
 
 ---
@@ -519,7 +537,7 @@ src/remi/workflows/
 ## The Trace Layer — Observability as Proof
 
 The trace layer captures the full reasoning chain: data entered → entailment
-engine fired → signals produced → agent perceived through TBox → agent called
+engine fired → signals produced → agent perceived through rulebook → agent called
 tools → agent reasoned → output produced. Every step is a **Span** in a
 hierarchical **Trace**.
 
@@ -529,8 +547,8 @@ Each span is categorized by the *kind of cognitive act* it represents:
 
 | SpanKind | What it captures |
 |----------|-----------------|
-| `ENTAILMENT` | The entailment engine evaluating a TBox rule against ABox facts |
-| `PERCEPTION` | The agent receiving its world model (TBox injection, active signals) |
+| `ENTAILMENT` | The entailment engine evaluating a rulebook rule against knowledge graph facts |
+| `PERCEPTION` | The agent receiving its world model (rulebook injection, active signals) |
 | `LLM_CALL` | A raw LLM request/response (model, tokens, latency) |
 | `TOOL_CALL` | The agent invoking a tool (name, arguments, result) — includes sandbox |
 | `REASONING` | The agent's final output (signals referenced, recommendations made) |
@@ -560,8 +578,8 @@ a trace is active, so log output correlates directly with the span tree.
 
 ### Why This Matters
 
-Without the trace layer, the claim that "the TBox shapes the agent's
-perception" is unverifiable. With it, you can literally watch: the TBox
+Without the trace layer, the claim that "the rulebook shapes the agent's
+perception" is unverifiable. With it, you can literally watch: the rulebook
 was injected → these signals were active → the agent referenced them →
 the recommendation followed from the domain rules. The trace is both the
 **proof mechanism** and the **trust infrastructure**.
@@ -576,7 +594,7 @@ Every fact, signal, and codified observation carries a provenance tag:
 |-----|---------|-------|
 | `CORE` | Defined by the system at build time | Highest |
 | `SEEDED` | Loaded at bootstrap from `domain.yaml` | High |
-| `DATA_DERIVED` | Computed from ABox facts by entailment | High (rule-dependent) |
+| `DATA_DERIVED` | Computed from knowledge graph facts by entailment | High (rule-dependent) |
 | `USER_STATED` | Asserted by the director or a manager | High (but overridable) |
 | `INFERRED` | Produced by the LLM via abductive reasoning | Medium (verify before acting) |
 
@@ -588,5 +606,5 @@ such.
 
 ## Version
 
-Architecture version: 5.0 (Incline/REMI boundary established)
-Document date: 2026-03-29
+Architecture version: 6.0 (Ontology/KnowledgeGraph/Rulebook separation)
+Document date: 2026-03-31

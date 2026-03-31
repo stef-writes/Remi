@@ -1,4 +1,9 @@
-"""Merged models module."""
+"""Domain schema (Ontology) and knowledge graph (KnowledgeGraph) ports.
+
+The Ontology defines the vocabulary — object types, link types, constraints.
+The KnowledgeGraph stores instances, relationships, and supports traversal.
+These were previously merged into a single OntologyStore ABC.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ from pydantic import BaseModel, Field
 class KnowledgeProvenance(StrEnum):
     """Tracks how a piece of knowledge entered the system.
 
-    Single canonical provenance enum — used by both OntologyStore and Signal.
+    Single canonical provenance enum — used by both KnowledgeGraph and Signal.
     ``Provenance`` in ``models.signals`` is an alias for this class.
     """
 
@@ -35,13 +40,17 @@ class PropertyDef(BaseModel, frozen=True):
     default: Any = None
 
 
-class OntologyLink(BaseModel, frozen=True):
+class KnowledgeLink(BaseModel, frozen=True):
     """A concrete link instance in the knowledge graph."""
 
     source_id: str
     link_type: str
     target_id: str
     properties: dict[str, Any] = Field(default_factory=dict)
+
+
+# Backward compatibility
+OntologyLink = KnowledgeLink
 
 
 class LinkTypeDef(BaseModel, frozen=True):
@@ -64,7 +73,7 @@ class ActionDef(BaseModel, frozen=True):
 
 
 class ObjectTypeDef(BaseModel, frozen=True):
-    """Defines a type in the ontology — both code-defined entities and
+    """Defines a type in the domain schema — both code-defined entities and
     dynamically discovered types share this shape."""
 
     name: str
@@ -82,10 +91,17 @@ class ObjectTypeDef(BaseModel, frozen=True):
         return tuple(p for p in self.properties if p.required)
 
 
-class OntologyStore(abc.ABC):
-    """Unified ontology interface over structured and graph data."""
+# ---------------------------------------------------------------------------
+# Ontology — the schema layer (TBox structure: what types exist)
+# ---------------------------------------------------------------------------
 
-    # -- Schema ---------------------------------------------------------------
+
+class Ontology(abc.ABC):
+    """The domain vocabulary: object types, link types, constraints.
+
+    This is the structural TBox — what kinds of things exist and how
+    they can relate. Small, stable, loaded at boot, extended by learning.
+    """
 
     @abc.abstractmethod
     async def list_object_types(self) -> list[ObjectTypeDef]: ...
@@ -101,6 +117,23 @@ class OntologyStore(abc.ABC):
 
     @abc.abstractmethod
     async def define_link_type(self, link_def: LinkTypeDef) -> None: ...
+
+
+# ---------------------------------------------------------------------------
+# KnowledgeGraph — instance store with links, traversal, codification
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeGraph(Ontology):
+    """Entity and relationship store with traversal and codification.
+
+    Extends Ontology with instance CRUD, link management, graph traversal,
+    aggregation, timeline, and knowledge codification. This is the ABox
+    layer — the actual facts and relationships.
+
+    Implementations bridge domain-specific stores (e.g. PropertyStore)
+    with a generic KnowledgeStore for non-core types.
+    """
 
     # -- Objects --------------------------------------------------------------
 
@@ -198,3 +231,7 @@ class OntologyStore(abc.ABC):
     ) -> str:
         """Store a piece of operational knowledge. Returns the entity ID."""
         ...
+
+
+# Backward compatibility — existing code that imports OntologyStore still works
+OntologyStore = KnowledgeGraph

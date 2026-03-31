@@ -1,7 +1,7 @@
-"""ChatAgentService — run the director agent in single-shot or multi-turn chat.
+"""ChatAgentService — run agents in single-shot or multi-turn chat.
 
-Calls AgentNode.run() directly — no graph runtime, no app registry.
-Loads the agent config from agents/<name>/app.yaml and builds a RuntimeContext
+Calls AgentNode.run() directly — no graph runtime.
+Loads agent config from agents/<name>/app.yaml and builds a RuntimeContext
 with typed RunDeps and RunParams.
 """
 
@@ -22,11 +22,11 @@ from remi.llm.factory import LLMProviderFactory
 from remi.models.chat import AgentEvent, ChatSessionStore
 from remi.models.memory import MemoryStore
 from remi.models.sandbox import Sandbox
-from remi.models.signals import DomainOntology, SignalStore
+from remi.models.signals import DomainRulebook, SignalStore
 from remi.models.tools import ToolRegistry
 from remi.observability.tracer import Tracer
 from remi.shared.ids import new_run_id
-from remi.shared.paths import APPS_DIR as AGENTS_DIR
+from remi.shared.paths import AGENTS_DIR
 
 logger = structlog.get_logger("remi.runner")
 
@@ -47,7 +47,7 @@ class ChatAgentService:
         provider_factory: LLMProviderFactory,
         tool_registry: ToolRegistry,
         sandbox: Sandbox,
-        domain_ontology: DomainOntology,
+        domain_rulebook: DomainRulebook,
         signal_store: SignalStore,
         memory_store: MemoryStore,
         tracer: Tracer,
@@ -60,7 +60,7 @@ class ChatAgentService:
         self._provider_factory = provider_factory
         self._tool_registry = tool_registry
         self._sandbox = sandbox
-        self._domain_ontology = domain_ontology
+        self._domain_rulebook = domain_rulebook
         self._signal_store = signal_store
         self._memory_store = memory_store
         self._tracer = tracer
@@ -98,7 +98,7 @@ class ChatAgentService:
             tracer=self._tracer,
             memory_store=self._memory_store,
             signal_store=self._signal_store,
-            domain_ontology=self._domain_ontology,
+            domain_rulebook=self._domain_rulebook,
             context_builder=self._context_builder,
             default_provider=self._default_provider,
             default_model=self._default_model,

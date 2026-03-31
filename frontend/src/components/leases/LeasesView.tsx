@@ -1,42 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
+import { fmt$ } from "@/lib/format";
 import { MetricCard } from "@/components/ui/MetricCard";
+import { MetricStrip } from "@/components/ui/MetricStrip";
+import { PageContainer } from "@/components/ui/PageContainer";
 import { Badge } from "@/components/ui/Badge";
 import { ManagerFilter } from "@/components/ui/ManagerFilter";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import type { LeaseCalendar } from "@/lib/types";
-
-function fmt$(n: number) {
-  return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
 
 const WINDOWS = [30, 60, 90] as const;
 
 export function LeasesView() {
-  const [data, setData] = useState<LeaseCalendar | null>(null);
   const [days, setDays] = useState<number>(90);
   const [managerId, setManagerId] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setData(await api.leasesExpiring(days, managerId || undefined));
-    } catch {
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [days, managerId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data, loading } = useApiQuery<LeaseCalendar>(
+    () => api.leasesExpiring(days, managerId || undefined),
+    [days, managerId]
+  );
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-8 py-8 space-y-6">
+    <PageContainer>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-fg">Expiring Leases</h1>
@@ -65,7 +51,7 @@ export function LeasesView() {
         </div>
 
         {data && (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <MetricStrip className="lg:grid-cols-3">
             <MetricCard
               label="Expiring Leases"
               value={data.total_expiring}
@@ -81,7 +67,7 @@ export function LeasesView() {
               value={fmt$(data.leases.reduce((s, l) => s + l.monthly_rent, 0))}
               sub="at risk of turnover"
             />
-          </div>
+          </MetricStrip>
         )}
 
         {loading && (
@@ -141,7 +127,6 @@ export function LeasesView() {
             No expiring leases in the next {days} days
           </div>
         )}
-      </div>
-    </div>
+    </PageContainer>
   );
 }

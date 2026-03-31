@@ -1,6 +1,6 @@
 """REMI dependency injection container.
 
-Single container class wiring all REMI services: property store, ontology,
+Single container class wiring all REMI services: property store, knowledge graph,
 entailment engine, signal pipeline, sandbox, LLM providers, tools, chat,
 and document ingestion.
 """
@@ -16,10 +16,11 @@ from remi.config.settings import RemiSettings
 from remi.documents.appfolio_schema import REPORT_TYPE_DESCRIPTIONS
 from remi.knowledge.composite import CompositeProducer
 from remi.knowledge.context_builder import ContextBuilder
+from remi.knowledge.entailment.composition import CompositionProducer
 from remi.knowledge.graduation import HypothesisGraduator
 from remi.knowledge.graph_retriever import GraphRetriever
-from remi.knowledge.ontology_bootstrap import bootstrap_ontology, load_domain_yaml
-from remi.knowledge.ontology_bridge import BridgedOntologyStore, CoreTypeBindings
+from remi.knowledge.ontology_bootstrap import bootstrap_knowledge_graph, load_domain_yaml
+from remi.knowledge.ontology_bridge import BridgedKnowledgeGraph, CoreTypeBindings
 from remi.knowledge.pattern_detector import PatternDetector
 from remi.knowledge.statistical import StatisticalProducer
 from remi.llm.factory import LLMProviderFactory
@@ -29,7 +30,7 @@ from remi.models.memory import KnowledgeStore, MemoryStore
 from remi.models.properties import PropertyStore
 from remi.models.retrieval import Embedder, VectorStore
 from remi.models.sandbox import Sandbox
-from remi.models.signals import DomainOntology, FeedbackStore, MutableDomainOntology, SignalStore
+from remi.models.signals import DomainRulebook, FeedbackStore, MutableRulebook, SignalStore
 from remi.models.tools import ToolRegistry
 from remi.models.trace import TraceStore
 from remi.observability.tracer import Tracer
@@ -74,11 +75,11 @@ class Container:
 
         # -- Stores ------------------------------------------------------------
         self.chat_session_store: ChatSessionStore = InMemoryChatSessionStore()
-        self.document_store: DocumentStore = InMemoryDocumentStore()
         self.property_store: PropertyStore = self._build_property_store()
+        self.document_store: DocumentStore = self._build_document_store()
 
-        # -- Ontology layer ----------------------------------------------------
-        self.ontology_store: BridgedOntologyStore = BridgedOntologyStore(
+        # -- Knowledge graph ---------------------------------------------------
+        self.knowledge_graph: BridgedKnowledgeGraph = BridgedKnowledgeGraph(
             self.knowledge_store,
             core_types=self._build_core_type_bindings(),
         )
@@ -88,22 +89,22 @@ class Container:
         self.trace_store: TraceStore = InMemoryTraceStore()
         self.tracer: Tracer = Tracer(self.trace_store)
 
-        # -- Signal layer (TBox loaded from domain.yaml) -----------------------
+        # -- Signal layer (rulebook loaded from domain.yaml) -------------------
         raw_domain = load_domain_yaml()
-        self.domain_ontology: DomainOntology = DomainOntology.from_yaml(raw_domain)
-        self.mutable_domain = MutableDomainOntology(self.domain_ontology)
+        self.domain_rulebook: DomainRulebook = DomainRulebook.from_yaml(raw_domain)
+        self.mutable_rulebook = MutableRulebook(self.domain_rulebook)
         self.signal_store: SignalStore = InMemorySignalStore()
         self.feedback_store: FeedbackStore = InMemoryFeedbackStore()
 
         # -- Hypothesis layer --------------------------------------------------
         self.hypothesis_store = InMemoryHypothesisStore()
         self.pattern_detector = PatternDetector(
-            ontology_store=self.ontology_store,
+            knowledge_graph=self.knowledge_graph,
             hypothesis_store=self.hypothesis_store,
         )
         self.hypothesis_graduator = HypothesisGraduator(
-            domain=self.mutable_domain,
-            ontology_store=self.ontology_store,
+            domain=self.mutable_rulebook,
+            knowledge_graph=self.knowledge_graph,
             hypothesis_store=self.hypothesis_store,
         )
 
@@ -166,6 +167,7 @@ class Container:
 
         self.dashboard_service = DashboardQueryService(
             property_store=self.property_store,
+            knowledge_store=self.knowledge_store,
         )
 
         self.snapshot_service = SnapshotService(
@@ -187,18 +189,26 @@ class Container:
         # -- Entailment engine -------------------------------------------------
 
         self.entailment_engine = EntailmentEngine(
-            domain=self.mutable_domain,
+            domain=self.mutable_rulebook,
             property_store=self.property_store,
             signal_store=self.signal_store,
             tracer=self.tracer,
             snapshot_service=self.snapshot_service,
         )
         self.statistical_producer = StatisticalProducer(
-            ontology_store=self.ontology_store,
+            knowledge_graph=self.knowledge_graph,
+        )
+        self.composition_producer = CompositionProducer(
+            domain=self.mutable_rulebook,
+            signal_store=self.signal_store,
         )
         self.signal_pipeline = CompositeProducer(
             signal_store=self.signal_store,
-            producers=[self.entailment_engine, self.statistical_producer],
+            producers=[
+                self.entailment_engine,
+                self.statistical_producer,
+                self.composition_producer,
+            ],
             tracer=self.tracer,
         )
 
@@ -209,14 +219,18 @@ class Container:
             vector_store=self.vector_store,
             embedder=self.embedder,
             document_store=self.document_store,
+            signal_store=self.signal_store,
         )
 
         # -- Tools -------------------------------------------------------------
+        # Workflow tools (portfolio_review, draft_action_plan, etc.) need
+        # sub_agent (ChatAgentService) which is built later, so we defer them.
 
         register_all_tools(
             self.tool_registry,
-            ontology_store=self.ontology_store,
+            knowledge_graph=self.knowledge_graph,
             document_store=self.document_store,
+            property_store=self.property_store,
             memory_store=self.memory_store,
             signal_store=self.signal_store,
             vector_store=self.vector_store,
@@ -273,13 +287,13 @@ class Container:
         # -- Knowledge retrieval -----------------------------------------------
 
         self.graph_retriever = GraphRetriever(
-            ontology_store=self.ontology_store,
+            knowledge_graph=self.knowledge_graph,
             vector_store=self.vector_store,
             embedder=self.embedder,
             signal_store=self.signal_store,
         )
         self.context_builder = ContextBuilder(
-            domain=self.mutable_domain,
+            domain=self.mutable_rulebook,
             signal_store=self.signal_store,
             graph_retriever=self.graph_retriever,
         )
@@ -290,7 +304,7 @@ class Container:
             provider_factory=self.provider_factory,
             tool_registry=self.tool_registry,
             sandbox=self.sandbox,
-            domain_ontology=self.domain_ontology,
+            domain_rulebook=self.domain_rulebook,
             signal_store=self.signal_store,
             memory_store=self.memory_store,
             tracer=self.tracer,
@@ -301,14 +315,35 @@ class Container:
             context_builder=self.context_builder,
         )
 
+        # Late-register workflow tools that depend on sub-agent invocation.
+        from remi.tools.workflows import register_workflow_tools
+
+        register_workflow_tools(
+            self.tool_registry,
+            property_store=self.property_store,
+            knowledge_graph=self.knowledge_graph,
+            manager_review=self.manager_review,
+            dashboard_service=self.dashboard_service,
+            sub_agent=self.chat_agent,
+        )
+
     async def ensure_bootstrapped(self) -> None:
         if self._bootstrap_pending:
             if self._db_engine is not None:
                 from remi.db.engine import create_tables
 
                 await create_tables(self._db_engine)
-            await bootstrap_ontology(self.ontology_store)
+            await bootstrap_knowledge_graph(self.knowledge_graph)
             self._bootstrap_pending = False
+
+    # Backward compatibility attributes
+    @property
+    def ontology_store(self) -> BridgedKnowledgeGraph:
+        return self.knowledge_graph
+
+    @property
+    def domain_ontology(self) -> DomainRulebook:
+        return self.domain_rulebook
 
     def _build_property_store(self) -> PropertyStore:
         from remi.stores.properties import InMemoryPropertyStore
@@ -333,6 +368,14 @@ class Container:
 
         return InMemoryPropertyStore()
 
+    def _build_document_store(self) -> DocumentStore:
+        if self._db_session_factory is not None:
+            from remi.stores.postgres_documents import PostgresDocumentStore
+
+            return PostgresDocumentStore(self._db_session_factory)
+
+        return InMemoryDocumentStore()
+
     def _build_core_type_bindings(self) -> CoreTypeBindings:
         return {
             "PropertyManager": (self.property_store.get_manager, self.property_store.list_managers),
@@ -344,6 +387,10 @@ class Container:
             "MaintenanceRequest": (
                 self.property_store.get_maintenance_request,
                 self.property_store.list_maintenance_requests,
+            ),
+            "ActionItem": (
+                self.property_store.get_action_item,
+                self.property_store.list_action_items,
             ),
         }
 

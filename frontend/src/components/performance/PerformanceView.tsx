@@ -1,24 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
+import { fmt$, fmtDate, pct } from "@/lib/format";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { PageContainer } from "@/components/ui/PageContainer";
 import { ManagerFilter } from "@/components/ui/ManagerFilter";
 import type { ManagerSnapshot, ManagerListItem } from "@/lib/types";
 
-function fmt$(n: number) {
-  return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
-function pct(n: number) {
-  return (n * 100).toFixed(1) + "%";
-}
-function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+const SNAPSHOT_DATE_FORMAT: Intl.DateTimeFormatOptions = {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+};
 
 function Delta({ prev, curr, fmt, invert }: { prev: number; curr: number; fmt: (n: number) => string; invert?: boolean }) {
   const diff = curr - prev;
@@ -39,28 +34,20 @@ interface SnapshotRow {
 }
 
 export function PerformanceView() {
-  const [snapshots, setSnapshots] = useState<ManagerSnapshot[]>([]);
   const [managerId, setManagerId] = useState("");
-  const [managers, setManagers] = useState<ManagerListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    try {
-      const [mgrs, snap] = await Promise.all([
-        api.listManagers().catch(() => []),
-        api.snapshots(managerId || undefined).catch(() => ({ total: 0, snapshots: [] })),
-      ]);
-      setManagers(mgrs);
-      setSnapshots(snap.snapshots);
-    } finally {
-      setLoading(false);
-    }
+  const { data, loading } = useApiQuery<{
+    managers: ManagerListItem[];
+    snapshots: ManagerSnapshot[];
+  }>(async () => {
+    const [managers, snap] = await Promise.all([
+      api.listManagers().catch(() => []),
+      api.snapshots(managerId || undefined).catch(() => ({ total: 0, snapshots: [] })),
+    ]);
+    return { managers, snapshots: snap.snapshots };
   }, [managerId]);
 
-  useEffect(() => {
-    setLoading(true);
-    load();
-  }, [load]);
+  const managers = data?.managers ?? [];
+  const snapshots = data?.snapshots ?? [];
 
   // Group snapshots by manager, pick latest + previous
   const rows: SnapshotRow[] = [];
@@ -88,17 +75,8 @@ export function PerformanceView() {
       )
     : [];
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-sm text-fg-faint animate-pulse">Loading...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto px-8 py-8 space-y-6">
+    <PageContainer wide>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-fg">PM Performance</h1>
@@ -114,6 +92,10 @@ export function PerformanceView() {
             onChange={setManagerId}
           />
         </div>
+
+        {loading && (
+          <div className="text-sm text-fg-faint animate-pulse">Loading...</div>
+        )}
 
         {snapshots.length === 0 && (
           <div className="rounded-xl border border-border bg-surface px-8 py-16 text-center">
@@ -201,7 +183,7 @@ export function PerformanceView() {
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right text-fg-faint text-[10px]">
-                        {fmtDate(r.current.timestamp)}
+                        {fmtDate(r.current.timestamp, SNAPSHOT_DATE_FORMAT)}
                       </td>
                     </tr>
                   ))}
@@ -243,7 +225,7 @@ export function PerformanceView() {
                       const prev = i > 0 ? timeline[i - 1] : null;
                       return (
                         <tr key={s.timestamp} className="border-b border-border-subtle hover:bg-surface-raised">
-                          <td className="px-4 py-2.5 text-fg-secondary text-[10px]">{fmtDate(s.timestamp)}</td>
+                          <td className="px-4 py-2.5 text-fg-secondary text-[10px]">{fmtDate(s.timestamp, SNAPSHOT_DATE_FORMAT)}</td>
                           <td className="px-4 py-2.5 text-right text-fg-secondary">{s.property_count}</td>
                           <td className="px-4 py-2.5 text-right text-fg-secondary">
                             {s.total_units}
@@ -282,7 +264,6 @@ export function PerformanceView() {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </PageContainer>
   );
 }

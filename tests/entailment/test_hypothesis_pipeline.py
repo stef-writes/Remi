@@ -1,5 +1,5 @@
 """Tests for the hypothesis pipeline: PatternDetector, HypothesisStore,
-HypothesisGraduator, and MutableDomainOntology.
+HypothesisGraduator, and MutableRulebook.
 
 The hypothesis pipeline is the induction layer — it discovers candidate
 TBox entries from data patterns and graduates them into the live domain.
@@ -10,15 +10,15 @@ from __future__ import annotations
 import pytest
 
 from remi.knowledge.graduation import HypothesisGraduator
-from remi.knowledge.ontology.bridge import BridgedOntologyStore
+from remi.knowledge.ontology.bridge import BridgedKnowledgeGraph
 from remi.knowledge.pattern_detector import PatternDetector
 from remi.models.properties import Unit, UnitStatus
 from remi.models.signals import (
-    DomainOntology,
+    DomainRulebook,
     Hypothesis,
     HypothesisKind,
     HypothesisStatus,
-    MutableDomainOntology,
+    MutableRulebook,
 )
 from remi.stores.memory import InMemoryKnowledgeStore
 from remi.stores.properties import InMemoryPropertyStore
@@ -33,11 +33,11 @@ def property_store() -> InMemoryPropertyStore:
 
 
 @pytest.fixture
-def ontology_store(
+def knowledge_graph(
     property_store: InMemoryPropertyStore,
-) -> BridgedOntologyStore:
+) -> BridgedKnowledgeGraph:
     ks = InMemoryKnowledgeStore()
-    return BridgedOntologyStore(
+    return BridgedKnowledgeGraph(
         ks,
         core_types={
             "PropertyManager": (property_store.get_manager, property_store.list_managers),
@@ -60,15 +60,15 @@ def hypothesis_store() -> InMemoryHypothesisStore:
 
 
 @pytest.fixture
-def domain() -> DomainOntology:
+def domain() -> DomainRulebook:
     from remi.knowledge.ontology.bootstrap import load_domain_yaml
 
-    return DomainOntology.from_yaml(load_domain_yaml())
+    return DomainRulebook.from_yaml(load_domain_yaml())
 
 
 @pytest.fixture
-def mutable_domain(domain: DomainOntology) -> MutableDomainOntology:
-    return MutableDomainOntology(domain)
+def mutable_domain(domain: DomainRulebook) -> MutableRulebook:
+    return MutableRulebook(domain)
 
 
 # -- HypothesisStore ----------------------------------------------------------
@@ -158,20 +158,20 @@ async def test_hypothesis_store_update_nonexistent(
     assert result is None
 
 
-# -- MutableDomainOntology ----------------------------------------------------
+# -- MutableRulebook ----------------------------------------------------
 
 
 def test_mutable_domain_starts_with_base(
-    mutable_domain: MutableDomainOntology,
-    domain: DomainOntology,
+    mutable_domain: MutableRulebook,
+    domain: DomainRulebook,
 ) -> None:
     assert mutable_domain.all_signal_names() == domain.all_signal_names()
     assert len(mutable_domain.causal_chains) == len(domain.causal_chains)
 
 
 def test_mutable_domain_add_signal(
-    mutable_domain: MutableDomainOntology,
-    domain: DomainOntology,
+    mutable_domain: MutableRulebook,
+    domain: DomainRulebook,
 ) -> None:
     from remi.models.signals import (
         EntityType,
@@ -208,7 +208,7 @@ def test_mutable_domain_add_signal(
 
 
 def test_mutable_domain_add_causal_chain(
-    mutable_domain: MutableDomainOntology,
+    mutable_domain: MutableRulebook,
 ) -> None:
     from remi.models.signals import CausalChain
 
@@ -228,23 +228,23 @@ def test_mutable_domain_add_causal_chain(
 
 
 async def test_pattern_detector_empty_store(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     hypothesis_store: InMemoryHypothesisStore,
 ) -> None:
-    await _bootstrap(ontology_store)
-    detector = PatternDetector(ontology_store, hypothesis_store)
+    await _bootstrap(knowledge_graph)
+    detector = PatternDetector(knowledge_graph, hypothesis_store)
     result = await detector.run()
     assert result.proposed == 0
     assert result.errors == 0
 
 
 async def test_pattern_detector_finds_outlier_threshold(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     property_store: InMemoryPropertyStore,
     hypothesis_store: InMemoryHypothesisStore,
 ) -> None:
     """Seed units with one extreme outlier, verify threshold hypothesis."""
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
 
     for i in range(10):
         await property_store.upsert_unit(Unit(
@@ -264,7 +264,7 @@ async def test_pattern_detector_finds_outlier_threshold(
     ))
 
     detector = PatternDetector(
-        ontology_store, hypothesis_store,
+        knowledge_graph, hypothesis_store,
         zscore_threshold=2.0, min_sample_size=5,
     )
     result = await detector.run()
@@ -289,12 +289,12 @@ async def test_pattern_detector_finds_outlier_threshold(
 
 
 async def test_pattern_detector_finds_concentration(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     property_store: InMemoryPropertyStore,
     hypothesis_store: InMemoryHypothesisStore,
 ) -> None:
     """Seed units where 90% have the same status."""
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
 
     for i in range(9):
         await property_store.upsert_unit(Unit(
@@ -311,7 +311,7 @@ async def test_pattern_detector_finds_concentration(
     ))
 
     detector = PatternDetector(
-        ontology_store, hypothesis_store,
+        knowledge_graph, hypothesis_store,
         concentration_threshold=0.80, min_sample_size=5,
     )
     result = await detector.run()
@@ -327,12 +327,12 @@ async def test_pattern_detector_finds_concentration(
 
 
 async def test_graduate_signal_definition(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     hypothesis_store: InMemoryHypothesisStore,
-    mutable_domain: MutableDomainOntology,
+    mutable_domain: MutableRulebook,
 ) -> None:
     """Confirm and graduate a threshold hypothesis into a live SignalDefinition."""
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
 
     hyp = Hypothesis(
         hypothesis_id="hyp-grad-1",
@@ -360,7 +360,7 @@ async def test_graduate_signal_definition(
     )
 
     graduator = HypothesisGraduator(
-        mutable_domain, ontology_store, hypothesis_store,
+        mutable_domain, knowledge_graph, hypothesis_store,
     )
     result = await graduator.graduate("hyp-grad-1")
 
@@ -373,11 +373,11 @@ async def test_graduate_signal_definition(
 
 
 async def test_graduate_causal_chain(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     hypothesis_store: InMemoryHypothesisStore,
-    mutable_domain: MutableDomainOntology,
+    mutable_domain: MutableRulebook,
 ) -> None:
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
     initial_chains = len(mutable_domain.causal_chains)
 
     hyp = Hypothesis(
@@ -401,7 +401,7 @@ async def test_graduate_causal_chain(
     )
 
     graduator = HypothesisGraduator(
-        mutable_domain, ontology_store, hypothesis_store,
+        mutable_domain, knowledge_graph, hypothesis_store,
     )
     result = await graduator.graduate("hyp-grad-2")
 
@@ -410,9 +410,9 @@ async def test_graduate_causal_chain(
 
 
 async def test_graduate_rejects_unconfirmed(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     hypothesis_store: InMemoryHypothesisStore,
-    mutable_domain: MutableDomainOntology,
+    mutable_domain: MutableRulebook,
 ) -> None:
     hyp = Hypothesis(
         hypothesis_id="hyp-unconfirmed",
@@ -425,7 +425,7 @@ async def test_graduate_rejects_unconfirmed(
     await hypothesis_store.put(hyp)
 
     graduator = HypothesisGraduator(
-        mutable_domain, ontology_store, hypothesis_store,
+        mutable_domain, knowledge_graph, hypothesis_store,
     )
     result = await graduator.graduate("hyp-unconfirmed")
 
@@ -434,11 +434,11 @@ async def test_graduate_rejects_unconfirmed(
 
 
 async def test_graduate_all_confirmed(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     hypothesis_store: InMemoryHypothesisStore,
-    mutable_domain: MutableDomainOntology,
+    mutable_domain: MutableRulebook,
 ) -> None:
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
 
     for i in range(3):
         hyp = Hypothesis(
@@ -455,7 +455,7 @@ async def test_graduate_all_confirmed(
         )
 
     graduator = HypothesisGraduator(
-        mutable_domain, ontology_store, hypothesis_store,
+        mutable_domain, knowledge_graph, hypothesis_store,
     )
     results = await graduator.graduate_all_confirmed()
     graduated = [r for r in results if r.graduated]
@@ -466,13 +466,13 @@ async def test_graduate_all_confirmed(
 
 
 async def test_full_hypothesis_lifecycle(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     property_store: InMemoryPropertyStore,
     hypothesis_store: InMemoryHypothesisStore,
-    mutable_domain: MutableDomainOntology,
+    mutable_domain: MutableRulebook,
 ) -> None:
     """Full cycle: detect patterns → confirm → graduate → verify in TBox."""
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
 
     for i in range(10):
         await property_store.upsert_unit(Unit(
@@ -491,7 +491,7 @@ async def test_full_hypothesis_lifecycle(
     ))
 
     detector = PatternDetector(
-        ontology_store, hypothesis_store,
+        knowledge_graph, hypothesis_store,
         zscore_threshold=2.0, min_sample_size=5,
     )
     detect_result = await detector.run()
@@ -509,7 +509,7 @@ async def test_full_hypothesis_lifecycle(
     initial_signals = len(mutable_domain.all_signal_names())
 
     graduator = HypothesisGraduator(
-        mutable_domain, ontology_store, hypothesis_store,
+        mutable_domain, knowledge_graph, hypothesis_store,
     )
     grad_results = await graduator.graduate_all_confirmed()
     graduated = [r for r in grad_results if r.graduated]
@@ -526,7 +526,7 @@ async def test_full_hypothesis_lifecycle(
 # -- Helpers ------------------------------------------------------------------
 
 
-async def _bootstrap(ontology_store: BridgedOntologyStore) -> None:
-    from remi.knowledge.ontology.bootstrap import bootstrap_ontology
+async def _bootstrap(knowledge_graph: BridgedKnowledgeGraph) -> None:
+    from remi.knowledge.ontology.bootstrap import bootstrap_knowledge_graph
 
-    await bootstrap_ontology(ontology_store)
+    await bootstrap_knowledge_graph(knowledge_graph)

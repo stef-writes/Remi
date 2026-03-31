@@ -80,11 +80,10 @@ function ToolCallRow({ tc }: { tc: ToolCall }) {
 }
 
 const MODEL_PRICING: Record<string, [number, number]> = {
-  "claude-opus-4-6": [5.0, 25.0],
-  "claude-sonnet-4-6": [3.0, 15.0],
+  "claude-opus-4-20250514": [5.0, 25.0],
+  "claude-sonnet-4-20250514": [3.0, 15.0],
   "claude-sonnet-4-5-20250929": [3.0, 15.0],
   "claude-haiku-4-5-20251001": [1.0, 5.0],
-  "claude-sonnet-4-20250514": [3.0, 15.0],
   "gpt-4o": [2.5, 10.0],
   "gpt-4o-mini": [0.15, 0.6],
   "gpt-4-turbo": [10.0, 30.0],
@@ -110,10 +109,22 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+function formatLatency(ms: number): string {
+  if (ms >= 60_000) return `${(ms / 60_000).toFixed(1)}m`;
+  if (ms >= 1_000) return `${(ms / 1_000).toFixed(1)}s`;
+  return `${ms}ms`;
+}
+
 function UsageBadge({ usage }: { usage: UsageInfo }) {
   const cost = usage.cost ?? calcCost(usage);
   return (
     <div className="flex items-center gap-1.5 text-[10px] text-fg-faint select-none">
+      {usage.latency_ms != null && (
+        <>
+          <span className="font-medium">{formatLatency(usage.latency_ms)}</span>
+          <span className="text-fg-ghost">·</span>
+        </>
+      )}
       <span>{formatTokens(usage.prompt_tokens)} in</span>
       <span className="text-fg-ghost">/</span>
       <span>{formatTokens(usage.completion_tokens)} out</span>
@@ -127,6 +138,12 @@ function UsageBadge({ usage }: { usage: UsageInfo }) {
         <>
           <span className="text-fg-ghost">·</span>
           <span>{usage.model.replace(/^claude-/, "").replace(/-\d{8}$/, "")}</span>
+        </>
+      )}
+      {usage.intent && (
+        <>
+          <span className="text-fg-ghost">·</span>
+          <span className="text-fg-ghost">{usage.intent}</span>
         </>
       )}
     </div>

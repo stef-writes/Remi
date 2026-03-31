@@ -8,11 +8,11 @@ import pytest
 
 from remi.knowledge.composite import CompositeProducer
 from remi.knowledge.entailment.engine import EntailmentEngine
-from remi.knowledge.ontology.bridge import BridgedOntologyStore
+from remi.knowledge.ontology.bridge import BridgedKnowledgeGraph
 from remi.knowledge.statistical import StatisticalProducer
 from remi.models.properties import Unit, UnitStatus
 from remi.models.signals import (
-    DomainOntology,
+    DomainRulebook,
     ProducerResult,
     Provenance,
     Severity,
@@ -44,11 +44,11 @@ def property_store() -> InMemoryPropertyStore:
 
 
 @pytest.fixture
-def ontology_store(
+def knowledge_graph(
     property_store: InMemoryPropertyStore,
-) -> BridgedOntologyStore:
+) -> BridgedKnowledgeGraph:
     ks = InMemoryKnowledgeStore()
-    return BridgedOntologyStore(
+    return BridgedKnowledgeGraph(
         ks,
         core_types={
             "PropertyManager": (property_store.get_manager, property_store.list_managers),
@@ -233,7 +233,7 @@ async def test_entailment_engine_implements_signal_producer(
     """EntailmentEngine is a valid SignalProducer."""
     from remi.knowledge.ontology.bootstrap import load_domain_yaml
 
-    domain = DomainOntology.from_yaml(load_domain_yaml())
+    domain = DomainRulebook.from_yaml(load_domain_yaml())
     engine = EntailmentEngine(domain=domain, property_store=property_store)
 
     assert isinstance(engine, SignalProducer)
@@ -248,21 +248,21 @@ async def test_entailment_engine_implements_signal_producer(
 
 
 async def test_statistical_producer_empty_store(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
 ) -> None:
     """No data → no signals."""
-    await _bootstrap(ontology_store)
-    producer = StatisticalProducer(ontology_store)
+    await _bootstrap(knowledge_graph)
+    producer = StatisticalProducer(knowledge_graph=knowledge_graph)
     result = await producer.evaluate()
     assert result.produced == 0
 
 
 async def test_statistical_outlier_detection(
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
     property_store: InMemoryPropertyStore,
 ) -> None:
     """Seed units with one outlier value, verify detection."""
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
 
     for i in range(10):
         unit = Unit(
@@ -284,7 +284,7 @@ async def test_statistical_outlier_detection(
     await property_store.upsert_unit(outlier)
 
     producer = StatisticalProducer(
-        ontology_store, zscore_threshold=2.0, min_sample_size=5,
+        knowledge_graph=knowledge_graph, zscore_threshold=2.0, min_sample_size=5,
     )
     result = await producer.evaluate()
 
@@ -388,16 +388,16 @@ async def test_full_pipeline_integration(
     signal_store: InMemorySignalStore,
     feedback_store: InMemoryFeedbackStore,
     property_store: InMemoryPropertyStore,
-    ontology_store: BridgedOntologyStore,
+    knowledge_graph: BridgedKnowledgeGraph,
 ) -> None:
     """End-to-end: rules + stats produce signals, feedback records outcomes."""
     from remi.knowledge.ontology.bootstrap import load_domain_yaml
 
-    await _bootstrap(ontology_store)
+    await _bootstrap(knowledge_graph)
 
-    domain = DomainOntology.from_yaml(load_domain_yaml())
+    domain = DomainRulebook.from_yaml(load_domain_yaml())
     engine = EntailmentEngine(domain=domain, property_store=property_store)
-    stats = StatisticalProducer(ontology_store)
+    stats = StatisticalProducer(knowledge_graph=knowledge_graph)
 
     pipeline = CompositeProducer(
         signal_store=signal_store,
@@ -426,7 +426,7 @@ async def test_full_pipeline_integration(
 # -- Helpers ------------------------------------------------------------------
 
 
-async def _bootstrap(ontology_store: BridgedOntologyStore) -> None:
-    from remi.knowledge.ontology.bootstrap import bootstrap_ontology
+async def _bootstrap(knowledge_graph: BridgedKnowledgeGraph) -> None:
+    from remi.knowledge.ontology.bootstrap import bootstrap_knowledge_graph
 
-    await bootstrap_ontology(ontology_store)
+    await bootstrap_knowledge_graph(knowledge_graph)

@@ -3,9 +3,9 @@
 When a hypothesis is confirmed (by a human or the director agent), the
 graduator translates it into the appropriate TBox entry:
 
-- SIGNAL_DEFINITION → a SignalDefinition added to the runtime DomainOntology
-- CAUSAL_CHAIN → a CausalChain + link in the OntologyStore
-- ANOMALY_PATTERN / CORRELATION → codified knowledge in the OntologyStore
+- SIGNAL_DEFINITION → a SignalDefinition added to the runtime DomainRulebook
+- CAUSAL_CHAIN → a CausalChain + link in the KnowledgeGraph
+- ANOMALY_PATTERN / CORRELATION → codified knowledge in the KnowledgeGraph
 
 This is the bridge between induction (PatternDetector proposing candidate
 laws) and deduction (EntailmentEngine evaluating them). Once graduated,
@@ -20,7 +20,7 @@ from typing import Any
 
 import structlog
 
-from remi.models.ontology import KnowledgeProvenance, OntologyStore
+from remi.models.ontology import KnowledgeProvenance, KnowledgeGraph
 from remi.models.signals import (
     CausalChain,
     Horizon,
@@ -29,7 +29,7 @@ from remi.models.signals import (
     HypothesisStatus,
     HypothesisStore,
     InferenceRule,
-    MutableDomainOntology,
+    MutableRulebook,
     RuleCondition,
     Severity,
     SignalDefinition,
@@ -51,19 +51,19 @@ class GraduationResult:
 class HypothesisGraduator:
     """Promotes confirmed hypotheses into live TBox entries.
 
-    Takes a MutableDomainOntology and OntologyStore, translates the
+    Takes a MutableRulebook and KnowledgeGraph, translates the
     hypothesis's proposed_tbox_entry into the appropriate typed model,
     and registers it.
     """
 
     def __init__(
         self,
-        domain: MutableDomainOntology,
-        ontology_store: OntologyStore,
+        domain: MutableRulebook,
+        knowledge_graph: KnowledgeGraph,
         hypothesis_store: HypothesisStore,
     ) -> None:
         self._domain = domain
-        self._os = ontology_store
+        self._kg = knowledge_graph
         self._hs = hypothesis_store
 
     async def graduate(self, hypothesis_id: str) -> GraduationResult:
@@ -172,12 +172,12 @@ class HypothesisGraduator:
 
         source_id = f"cause:{chain.cause}"
         target_id = f"cause:{chain.effect}"
-        await self._os.codify(
+        await self._kg.codify(
             "cause",
             {"description": chain.description},
             provenance=KnowledgeProvenance.LEARNED,
         )
-        await self._os.put_link(
+        await self._kg.put_link(
             source_id,
             "CAUSES",
             target_id,
@@ -191,8 +191,8 @@ class HypothesisGraduator:
         }
 
     async def _graduate_codified_knowledge(self, hyp: Hypothesis) -> dict[str, Any]:
-        """Codify a pattern or observation into the OntologyStore."""
-        await self._os.codify(
+        """Codify a pattern or observation into the KnowledgeGraph."""
+        await self._kg.codify(
             "hypothesis_observation",
             {
                 "title": hyp.title,

@@ -1,10 +1,12 @@
 """Chat agent runner — multi-turn conversation over WebSocket.
 
 Thin transport adapter: delegates agent execution to ChatAgentService.
+Tracks running tasks per session for server-side cancellation.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import structlog
@@ -17,6 +19,8 @@ from remi.api.realtime.jsonrpc import (
     JsonRpcRequest,
 )
 from remi.models.chat import ChatSessionStore
+from remi.observability.events import Event
+from remi.shared.errors import SessionNotFoundError, ValidationError
 
 logger = structlog.get_logger("remi.chat_runner")
 
@@ -33,14 +37,23 @@ async def _resolve_manager_scope(
         if mgr is None:
             return {}
         portfolios = await property_store.list_portfolios(manager_id=manager_id)
-        property_names: list[str] = []
-        total_units = 0
-        for p in portfolios:
-            props = await property_store.list_properties(portfolio_id=p.id)
-            for prop in props:
-                property_names.append(prop.name)
-                units = await property_store.list_units(property_id=prop.id)
-                total_units += len(units)
+
+        # Gather property lists across all portfolios concurrently
+        portfolio_props = await asyncio.gather(*[
+            property_store.list_properties(portfolio_id=p.id)
+            for p in portfolios
+        ])
+        all_props = [prop for props in portfolio_props for prop in props]
+
+        # Gather unit counts across all properties concurrently
+        unit_lists = await asyncio.gather(*[
+            property_store.list_units(property_id=prop.id)
+            for prop in all_props
+        ])
+
+        property_names = [prop.name for prop in all_props]
+        total_units = sum(len(units) for units in unit_lists)
+
         return {
             "manager_id": manager_id,
             "manager_name": mgr.name,
@@ -68,6 +81,13 @@ def build_chat_dispatcher(
     from remi.models.chat import Message
 
     dp = Dispatcher()
+    running_tasks: dict[str, asyncio.Task[str]] = {}
+    session_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_session_lock(session_id: str) -> asyncio.Lock:
+        if session_id not in session_locks:
+            session_locks[session_id] = asyncio.Lock()
+        return session_locks[session_id]
 
     @dp.method("chat.create")
     async def chat_create(req: JsonRpcRequest) -> dict[str, Any]:
@@ -101,75 +121,121 @@ def build_chat_dispatcher(
         if not session_id:
             raise ValueError("session_id is required")
 
-        log = logger.bind(session_id=session_id, mode=mode, manager_id=manager_id)
-        log.info(
-            "chat_send",
-            message_length=len(message_text),
-            provider=req_provider,
-            model=req_model,
-        )
-
-        session = await chat_session_store.get(session_id)
-        if session is None:
-            raise ValueError(f"Session '{session_id}' not found")
-
-        provider = req_provider or session.provider
-        model = req_model or session.model
-
-        manager_scope = await _resolve_manager_scope(property_store, manager_id)
-
-        user_msg = Message(role="user", content=message_text)
-        await chat_session_store.append_message(session_id, user_msg)
-
-        session = await chat_session_store.get(session_id)
-        assert session is not None
-
-        async def on_event(event_type: str, data: dict[str, Any]) -> None:
-            await send_notification(
-                ws,
-                f"chat.{event_type}",
-                {
-                    "session_id": session_id,
-                    **data,
-                },
+        lock = _get_session_lock(session_id)
+        async with lock:
+            log = logger.bind(session_id=session_id, mode=mode, manager_id=manager_id)
+            log.info(
+                "chat_send",
+                message_length=len(message_text),
+                provider=req_provider,
+                model=req_model,
             )
 
-        try:
-            answer = await chat_agent.run_chat_agent(
-                session.agent,
-                session.thread,
-                on_event,
-                mode=mode,
-                sandbox_session_id=f"chat-{session_id}",
-                provider=provider,
-                model=model,
-                extra=manager_scope,
-            )
-        except Exception as exc:
-            log.error("chat_send_error", error=str(exc), error_type=type(exc).__name__)
-            await send_notification(
-                ws,
-                "chat.error",
-                {
-                    "session_id": session_id,
-                    "message": str(exc),
-                },
-            )
-            raise
+            session = await chat_session_store.get(session_id)
+            if session is None:
+                raise ValueError(f"Session '{session_id}' not found")
 
-        assistant_msg = Message(role="assistant", content=answer)
-        await chat_session_store.append_message(session_id, assistant_msg)
+            provider = req_provider or session.provider
+            model = req_model or session.model
 
-        return {"status": "ok", "session_id": session_id}
+            manager_scope = await _resolve_manager_scope(property_store, manager_id)
+
+            user_msg = Message(role="user", content=message_text)
+            await chat_session_store.append_message(session_id, user_msg)
+
+            session = await chat_session_store.get(session_id)
+            assert session is not None
+
+            async def on_event(event_type: str, data: dict[str, Any]) -> None:
+                try:
+                    await asyncio.wait_for(
+                        send_notification(
+                            ws,
+                            f"chat.{event_type}",
+                            {"session_id": session_id, **data},
+                        ),
+                        timeout=10.0,
+                    )
+                except (asyncio.TimeoutError, Exception):
+                    log.debug("notification_send_failed", event_type=event_type)
+
+            async def _run_agent() -> str:
+                return await chat_agent.run_chat_agent(
+                    session.agent,
+                    session.thread,
+                    on_event,
+                    mode=mode,
+                    sandbox_session_id=f"chat-{session_id}",
+                    provider=provider,
+                    model=model,
+                    extra=manager_scope,
+                )
+
+            task = asyncio.current_task()
+            assert task is not None
+            running_tasks[session_id] = task
+
+            try:
+                answer = await _run_agent()
+            except asyncio.CancelledError:
+                log.info("chat_send_cancelled", session_id=session_id)
+                try:
+                    await send_notification(
+                        ws,
+                        "chat.done",
+                        {
+                            "session_id": session_id,
+                            "response": "",
+                            "cancelled": True,
+                        },
+                    )
+                except Exception:
+                    pass
+                raise
+            except Exception as exc:
+                log.error("chat_send_error", error=str(exc), error_type=type(exc).__name__)
+                error_msg = Message(
+                    role="assistant",
+                    content=f"[Error: {type(exc).__name__} — {exc}]",
+                )
+                await chat_session_store.append_message(session_id, error_msg)
+                await send_notification(
+                    ws,
+                    "chat.error",
+                    {
+                        "session_id": session_id,
+                        "message": str(exc),
+                    },
+                )
+                raise
+            finally:
+                running_tasks.pop(session_id, None)
+
+            assistant_msg = Message(role="assistant", content=answer)
+            await chat_session_store.append_message(session_id, assistant_msg)
+
+            return {"status": "ok", "session_id": session_id}
+
+    @dp.method("chat.stop")
+    async def chat_stop(req: JsonRpcRequest) -> dict[str, Any]:
+        session_id = req.params.get("session_id")
+        if not session_id:
+            raise ValueError("session_id is required")
+        task = running_tasks.get(session_id)
+        if task is not None and not task.done():
+            task.cancel()
+            logger.info("chat_stop", session_id=session_id)
+            return {"status": "stopped", "session_id": session_id}
+        return {"status": "not_running", "session_id": session_id}
 
     @dp.method("chat.history")
     async def chat_history(req: JsonRpcRequest) -> dict[str, Any]:
         session_id = req.params.get("session_id")
         if not session_id:
-            raise ValueError("session_id is required")
+            raise ValidationError("session_id is required", field="session_id")
         session = await chat_session_store.get(session_id)
         if session is None:
-            raise ValueError(f"Session '{session_id}' not found")
+            raise SessionNotFoundError(session_id)
         return {
             "session_id": session.id,
             "agent": session.agent,

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlmodel import SQLModel, select
 
 from remi.db.tables import (
+    ActionItemRow,
     LeaseRow,
     MaintenanceRequestRow,
     PortfolioRow,
@@ -18,6 +19,9 @@ from remi.db.tables import (
     UnitRow,
 )
 from remi.models.properties import (
+    ActionItem,
+    ActionItemPriority,
+    ActionItemStatus,
     Address,
     Lease,
     LeaseStatus,
@@ -327,8 +331,8 @@ class PostgresPropertyStore(PropertyStore):
 
     async def list_managers(self) -> list[PropertyManager]:
         async with self._session_factory() as session:
-            result = await session.exec(select(PropertyManagerRow))
-            return [_manager_from_row(r) for r in result.all()]
+            result = await session.execute(select(PropertyManagerRow))
+            return [_manager_from_row(r) for r in result.scalars().all()]
 
     async def upsert_manager(self, manager: PropertyManager) -> None:
         async with self._session_factory() as session:
@@ -352,8 +356,8 @@ class PostgresPropertyStore(PropertyStore):
             stmt = select(PortfolioRow)
             if manager_id:
                 stmt = stmt.where(PortfolioRow.manager_id == manager_id)
-            result = await session.exec(stmt)
-            return [_portfolio_from_row(r) for r in result.all()]
+            result = await session.execute(stmt)
+            return [_portfolio_from_row(r) for r in result.scalars().all()]
 
     async def upsert_portfolio(self, portfolio: Portfolio) -> None:
         async with self._session_factory() as session:
@@ -377,8 +381,8 @@ class PostgresPropertyStore(PropertyStore):
             stmt = select(PropertyRow)
             if portfolio_id:
                 stmt = stmt.where(PropertyRow.portfolio_id == portfolio_id)
-            result = await session.exec(stmt)
-            return [_property_from_row(r) for r in result.all()]
+            result = await session.execute(stmt)
+            return [_property_from_row(r) for r in result.scalars().all()]
 
     async def upsert_property(self, prop: Property) -> None:
         async with self._session_factory() as session:
@@ -412,8 +416,8 @@ class PostgresPropertyStore(PropertyStore):
                 stmt = stmt.where(UnitRow.status == status.value)
             if occupancy_status:
                 stmt = stmt.where(UnitRow.occupancy_status == occupancy_status.value)
-            result = await session.exec(stmt)
-            return [_unit_from_row(r) for r in result.all()]
+            result = await session.execute(stmt)
+            return [_unit_from_row(r) for r in result.scalars().all()]
 
     async def upsert_unit(self, unit: Unit) -> None:
         async with self._session_factory() as session:
@@ -450,8 +454,8 @@ class PostgresPropertyStore(PropertyStore):
                 stmt = stmt.where(LeaseRow.property_id == property_id)
             if status:
                 stmt = stmt.where(LeaseRow.status == status.value)
-            result = await session.exec(stmt)
-            return [_lease_from_row(r) for r in result.all()]
+            result = await session.execute(stmt)
+            return [_lease_from_row(r) for r in result.scalars().all()]
 
     async def upsert_lease(self, lease: Lease) -> None:
         async with self._session_factory() as session:
@@ -483,8 +487,8 @@ class PostgresPropertyStore(PropertyStore):
                 stmt = stmt.where(TenantRow.id.in_(lease_stmt))  # type: ignore[union-attr]
             if status:
                 stmt = stmt.where(TenantRow.status == status.value)
-            result = await session.exec(stmt)
-            return [_tenant_from_row(r) for r in result.all()]
+            result = await session.execute(stmt)
+            return [_tenant_from_row(r) for r in result.scalars().all()]
 
     async def upsert_tenant(self, tenant: Tenant) -> None:
         async with self._session_factory() as session:
@@ -518,8 +522,8 @@ class PostgresPropertyStore(PropertyStore):
                 stmt = stmt.where(MaintenanceRequestRow.unit_id == unit_id)
             if status:
                 stmt = stmt.where(MaintenanceRequestRow.status == status.value)
-            result = await session.exec(stmt)
-            return [_maintenance_from_row(r) for r in result.all()]
+            result = await session.execute(stmt)
+            return [_maintenance_from_row(r) for r in result.scalars().all()]
 
     async def upsert_maintenance_request(self, request: MaintenanceRequest) -> None:
         async with self._session_factory() as session:
@@ -530,3 +534,145 @@ class PostgresPropertyStore(PropertyStore):
             else:
                 session.add(_maintenance_to_row(request))
             await session.commit()
+
+    # -- Deletes ---------------------------------------------------------------
+
+    async def delete_manager(self, manager_id: str) -> bool:
+        async with self._session_factory() as session:
+            row = await session.get(PropertyManagerRow, manager_id)
+            if not row:
+                return False
+            pf_result = await session.execute(
+                select(PortfolioRow).where(PortfolioRow.manager_id == manager_id)
+            )
+            pf_ids = [pf.id for pf in pf_result.scalars().all()]
+            if pf_ids:
+                prop_result = await session.execute(
+                    select(PropertyRow).where(PropertyRow.portfolio_id.in_(pf_ids))  # type: ignore[union-attr]
+                )
+                for prop in prop_result.scalars().all():
+                    prop.portfolio_id = ""
+                    session.add(prop)
+                for pf_id in pf_ids:
+                    pf_row = await session.get(PortfolioRow, pf_id)
+                    if pf_row:
+                        await session.delete(pf_row)
+            await session.delete(row)
+            await session.commit()
+            return True
+
+    async def delete_property(self, property_id: str) -> bool:
+        async with self._session_factory() as session:
+            row = await session.get(PropertyRow, property_id)
+            if not row:
+                return False
+            for tbl in (UnitRow, LeaseRow):
+                result = await session.execute(
+                    select(tbl).where(tbl.property_id == property_id)  # type: ignore[attr-defined]
+                )
+                for child in result.scalars().all():
+                    await session.delete(child)
+            await session.delete(row)
+            await session.commit()
+            return True
+
+    async def delete_tenant(self, tenant_id: str) -> bool:
+        async with self._session_factory() as session:
+            row = await session.get(TenantRow, tenant_id)
+            if not row:
+                return False
+            result = await session.execute(
+                select(LeaseRow).where(LeaseRow.tenant_id == tenant_id)
+            )
+            for lease in result.scalars().all():
+                await session.delete(lease)
+            await session.delete(row)
+            await session.commit()
+            return True
+
+    # -- Action Items ----------------------------------------------------------
+
+    async def get_action_item(self, item_id: str) -> ActionItem | None:
+        async with self._session_factory() as session:
+            row = await session.get(ActionItemRow, item_id)
+            return _action_item_from_row(row) if row else None
+
+    async def list_action_items(
+        self,
+        *,
+        manager_id: str | None = None,
+        property_id: str | None = None,
+        tenant_id: str | None = None,
+        status: ActionItemStatus | None = None,
+    ) -> list[ActionItem]:
+        async with self._session_factory() as session:
+            stmt = select(ActionItemRow)
+            if manager_id:
+                stmt = stmt.where(ActionItemRow.manager_id == manager_id)
+            if property_id:
+                stmt = stmt.where(ActionItemRow.property_id == property_id)
+            if tenant_id:
+                stmt = stmt.where(ActionItemRow.tenant_id == tenant_id)
+            if status:
+                stmt = stmt.where(ActionItemRow.status == status.value)
+            result = await session.execute(stmt)
+            return [_action_item_from_row(r) for r in result.scalars().all()]
+
+    async def upsert_action_item(self, item: ActionItem) -> None:
+        async with self._session_factory() as session:
+            existing = await session.get(ActionItemRow, item.id)
+            if existing:
+                _apply_merge(existing, item)
+                session.add(existing)
+            else:
+                session.add(_action_item_to_row(item))
+            await session.commit()
+
+    async def delete_action_item(self, item_id: str) -> bool:
+        async with self._session_factory() as session:
+            row = await session.get(ActionItemRow, item_id)
+            if not row:
+                return False
+            await session.delete(row)
+            await session.commit()
+            return True
+
+
+
+# ---------------------------------------------------------------------------
+# ActionItem conversion helpers
+# ---------------------------------------------------------------------------
+
+
+def _action_item_from_row(row: ActionItemRow) -> ActionItem:
+    return ActionItem(
+        id=row.id,
+        title=row.title,
+        description=row.description,
+        status=ActionItemStatus(row.status),
+        priority=ActionItemPriority(row.priority),
+        manager_id=row.manager_id,
+        property_id=row.property_id,
+        tenant_id=row.tenant_id,
+        due_date=row.due_date,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _action_item_to_row(item: ActionItem) -> ActionItemRow:
+    return ActionItemRow(
+        id=item.id,
+        title=item.title,
+        description=item.description,
+        status=item.status.value,
+        priority=item.priority.value,
+        manager_id=item.manager_id,
+        property_id=item.property_id,
+        tenant_id=item.tenant_id,
+        due_date=item.due_date,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+    )
+
+

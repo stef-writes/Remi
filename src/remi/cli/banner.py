@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from remi.config.settings import load_settings
-from remi.shared.paths import APPS_DIR as AGENTS_DIR
+from remi.shared.paths import AGENTS_DIR
 
 
 def _key_status(env_var: str) -> Text:
@@ -23,11 +23,13 @@ def _key_status(env_var: str) -> Text:
 
 
 def _short_model(name: str) -> str:
-    """Shorten model IDs for display: claude-sonnet-4-6 -> sonnet-4.6"""
+    """Shorten model IDs for display: claude-sonnet-4-20250514 -> sonnet-4"""
     if name.startswith("claude-"):
-        parts = name.replace("claude-", "").split("-")
-        if len(parts) >= 3:
-            return f"{parts[0]}-{parts[1]}.{parts[2]}"
+        stem = name.replace("claude-", "")
+        # Strip dated suffix like -20250514
+        import re
+        stem = re.sub(r"-\d{8}$", "", stem)
+        return stem
     return name
 
 

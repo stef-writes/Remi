@@ -45,7 +45,7 @@ async def test_list_schema(client: AsyncClient, container: Container) -> None:
 
 
 async def test_get_schema_type_found(client: AsyncClient, container: Container) -> None:
-    types = await container.ontology_store.list_object_types()
+    types = await container.knowledge_graph.list_object_types()
     if not types:
         pytest.skip("No types registered after bootstrap")
 
@@ -159,7 +159,7 @@ async def test_codify_with_link(client: AsyncClient, container: Container) -> No
     data = resp.json()
     assert data["ok"] is True
 
-    links = await container.ontology_store.get_links("entity-a")
+    links = await container.knowledge_graph.get_links("entity-a")
     assert any(lnk["link_type"] == "CAUSES" for lnk in links)
 
 
@@ -180,7 +180,7 @@ async def test_define_type(client: AsyncClient, container: Container) -> None:
     assert data["ok"] is True
     assert data["type"]["name"] == "TestWidget"
 
-    ot = await container.ontology_store.get_object_type("TestWidget")
+    ot = await container.knowledge_graph.get_object_type("TestWidget")
     assert ot is not None
     assert len(ot.properties) == 2
     assert ot.provenance == KnowledgeProvenance.USER_STATED

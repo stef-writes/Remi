@@ -7,12 +7,12 @@ from typing import Any
 
 from remi.knowledge.entailment.base import MakeSignalFn
 from remi.models.properties import PropertyStore
-from remi.models.signals import DomainOntology, Signal, SignalDefinition
+from remi.models.signals import DomainRulebook, Signal, SignalDefinition
 
 
 async def eval_manager_concentration_risk(
     defn: SignalDefinition,
-    domain: DomainOntology,
+    domain: DomainRulebook,
     ps: PropertyStore,
     make_signal: MakeSignalFn,
 ) -> list[Signal]:
@@ -82,7 +82,7 @@ async def eval_manager_concentration_risk(
 
 async def eval_below_percentile(
     defn: SignalDefinition,
-    domain: DomainOntology,
+    domain: DomainRulebook,
     ps: PropertyStore,
     make_signal: MakeSignalFn,
 ) -> list[Signal]:

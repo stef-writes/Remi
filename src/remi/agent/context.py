@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from remi.knowledge.context_builder import ContextBuilder
 from remi.llm.factory import LLMProviderFactory
 from remi.models.memory import MemoryStore
-from remi.models.signals import DomainOntology, SignalStore
+from remi.models.signals import DomainRulebook, SignalStore
 from remi.models.tools import ToolRegistry
 from remi.observability.tracer import Tracer
 
@@ -28,7 +28,7 @@ class RunDeps:
     tracer: Tracer | None = None
     memory_store: MemoryStore | None = None
     signal_store: SignalStore | None = None
-    domain_ontology: DomainOntology | None = None
+    domain_rulebook: DomainRulebook | None = None
     context_builder: ContextBuilder | None = None
     default_provider: str = ""
     default_model: str = ""

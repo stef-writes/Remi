@@ -55,7 +55,7 @@ async def _search(
 ) -> None:
     container = await get_container_async()
     filters = parse_params(raw_filters) if raw_filters else None
-    results = await container.ontology_store.search_objects(
+    results = await container.knowledge_graph.search_objects(
         type_name,
         filters=filters,
         order_by=order_by,
@@ -86,7 +86,7 @@ def get(
 
 async def _get(type_name: str, object_id: str, fmt_json: bool) -> None:
     container = await get_container_async()
-    obj = await container.ontology_store.get_object(type_name, object_id)
+    obj = await container.knowledge_graph.get_object(type_name, object_id)
     if obj is None:
         data = {"ok": False, "error": f"{type_name} '{object_id}' not found"}
         if fmt_json:
@@ -129,7 +129,7 @@ async def _related(
     container = await get_container_async()
     if max_depth > 1:
         link_types = [link_type] if link_type else None
-        results = await container.ontology_store.traverse(
+        results = await container.knowledge_graph.traverse(
             object_id,
             link_types=link_types,
             max_depth=max_depth,
@@ -143,7 +143,7 @@ async def _related(
             for node in results:
                 typer.echo(f"  {node.get('id', '?'):20s}  {node.get('type', '?'):15s}")
     else:
-        links = await container.ontology_store.get_links(
+        links = await container.knowledge_graph.get_links(
             object_id,
             link_type=link_type,
             direction=direction,
@@ -189,7 +189,7 @@ async def _aggregate(
 ) -> None:
     container = await get_container_async()
     filters = parse_params(raw_filters) if raw_filters else None
-    result = await container.ontology_store.aggregate(
+    result = await container.knowledge_graph.aggregate(
         type_name,
         metric,
         field,
@@ -227,7 +227,7 @@ async def _timeline(
     fmt_json: bool,
 ) -> None:
     container = await get_container_async()
-    events = await container.ontology_store.get_timeline(
+    events = await container.knowledge_graph.get_timeline(
         type_name,
         object_id,
         event_types=event_types,
@@ -267,14 +267,14 @@ def schema(
 async def _schema(type_name: str | None, fmt_json: bool) -> None:
     container = await get_container_async()
     if type_name:
-        ot = await container.ontology_store.get_object_type(type_name)
+        ot = await container.knowledge_graph.get_object_type(type_name)
         if ot is None:
             json_out(
                 {"ok": False, "error": f"Unknown type '{type_name}'"}
             ) if fmt_json else typer.echo(f"Unknown type: {type_name}")
             raise typer.Exit(1)
         data = ot.model_dump(mode="json")
-        links = await container.ontology_store.list_link_types()
+        links = await container.knowledge_graph.list_link_types()
         related_links = [
             lnk.model_dump(mode="json")
             for lnk in links
@@ -293,8 +293,8 @@ async def _schema(type_name: str | None, fmt_json: bool) -> None:
                     req = " (required)" if p.required else ""
                     typer.echo(f"    {p.name}: {p.data_type}{req}")
     else:
-        types = await container.ontology_store.list_object_types()
-        links = await container.ontology_store.list_link_types()
+        types = await container.knowledge_graph.list_object_types()
+        links = await container.knowledge_graph.list_link_types()
         if fmt_json:
             json_out(
                 {
@@ -348,7 +348,7 @@ async def _codify(
     data_dict = parse_params(raw_data) if raw_data else {}
     provenance = KnowledgeProvenance(provenance_str)
 
-    entity_id = await container.ontology_store.codify(
+    entity_id = await container.knowledge_graph.codify(
         knowledge_type,
         data_dict,
         provenance=provenance,
@@ -356,7 +356,7 @@ async def _codify(
 
     if source_id and target_id:
         link_type = "CAUSES" if knowledge_type == "causal_link" else "RELATED_TO"
-        await container.ontology_store.put_link(
+        await container.knowledge_graph.put_link(
             source_id,
             link_type,
             target_id,
@@ -408,7 +408,7 @@ async def _define(
         properties=tuple(props),
         provenance=KnowledgeProvenance.USER_STATED,
     )
-    await container.ontology_store.define_object_type(type_def)
+    await container.knowledge_graph.define_object_type(type_def)
 
     if fmt_json:
         json_out({"ok": True, "type": type_def.model_dump(mode="json")})

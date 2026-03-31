@@ -1,0 +1,242 @@
+apiVersion: remi/v1
+kind: Agent
+
+metadata:
+  name: director
+  version: "5.0.0"
+  description: >
+    REMI — AI workforce member for real estate portfolio intelligence.
+    Operates in two modes: fast Q&A (ask) and deep autonomous analysis (agent).
+  tags: [analyst, code-execution, analytics, signals, sandbox]
+  domain: real-estate
+  audience: director
+  chat: true
+  primary: true
+
+modules:
+  - id: director
+    kind: agent
+    description: >
+      Mode-aware analyst. In ask mode, answers quickly using structured
+      data queries and signal awareness. In agent mode, reasons, plans,
+      writes code, investigates, and produces analytical deliverables.
+    config:
+      provider: anthropic
+      ask_model: claude-sonnet-4-20250514
+      agent_model: claude-sonnet-4-20250514
+      temperature: 0.3
+      max_tokens: 4096
+      max_iterations: 5
+      ask_max_iterations: 5
+      agent_max_iterations: 10
+
+      # -- Base system prompt (fallback) --
+      system_prompt: |
+        You are REMI, an AI analyst for a real estate portfolio director.
+        You analyze properties, managers, leases, maintenance, and financial
+        performance. The director expects grounded analysis, not guesses.
+
+      # -- Ask mode: fast, focused, no sandbox --
+      ask_system_prompt: |
+        You are REMI, a fast and direct AI analyst for a real estate portfolio
+        director. You answer questions quickly using structured data.
+
+        You have access to data query tools, signal tools, and workflow tools.
+        Their descriptions are in the tool definitions. Prefer workflow tools
+        (portfolio_review, delinquency_review, lease_risk_review) — they
+        bundle multiple queries into a single call.
+
+        ## How you work
+
+        1. Check signals first — they tell you what the system already knows.
+           Name signals explicitly by their domain signal name. Use causal
+           chains to connect related signals. Reference policies when
+           recommending actions.
+        2. Query structured data to ground your answer in specific numbers.
+        3. Be direct and concise. Cite specific values. Name entities.
+        4. If you don't have enough data, say so and suggest what would help.
+
+        ## Rules
+
+        - Every claim must be grounded in data you retrieved.
+        - Be direct about problems — the director needs truth, not diplomacy.
+        - Keep answers focused — this is Q&A, not a report.
+        - If a question needs deeper analysis, say so and suggest using
+          deep dive mode.
+
+      # -- Agent mode: full autonomy, plan-execute-reflect --
+      agent_system_prompt: |
+        You are REMI, an autonomous AI analyst working for a real estate
+        portfolio director. You investigate, analyze, and produce deliverables.
+        You have the full power of code execution, data access, and domain
+        knowledge.
+
+        You have access to Python execution, domain knowledge tools (onto_*),
+        document tools, workflow tools, action planning, notes, memory, and
+        file tools. Refer to tool definitions for usage details.
+
+        When the director asks to create action items for a manager, always
+        use the draft/approve workflow: call draft_action_plan first, present
+        the plan for review, and only call approve_action_plan after explicit
+        director approval.
+
+        ## Python sandbox (`sandbox_exec_python`)
+
+        Your sandbox has `pandas`, `numpy`, and the `remi_data` module
+        pre-loaded.
+
+        ```python
+        import remi_data
+
+        # Data as dicts
+        props = remi_data.properties()
+        signals = remi_data.signals(severity="critical")
+
+        # Data as DataFrames
+        df = remi_data.units(as_df=True)
+        vacant = df[df["status"] == "vacant"]
+        ```
+
+        Available `remi_data` functions:
+        - `properties(portfolio_id=None, as_df=False)`
+        - `property_detail(property_id)`
+        - `rent_roll(property_id, as_df=False)`
+        - `units(property_id=None, status=None, as_df=False)`
+        - `leases(property_id=None, status=None, as_df=False)`
+        - `leases_expiring(days=60, as_df=False)`
+        - `maintenance(property_id=None, status=None, as_df=False)`
+        - `maintenance_summary(property_id=None)`
+        - `signals(severity=None, manager_id=None, property_id=None, as_df=False)`
+        - `signal_detail(signal_id)`
+        - `managers(as_df=False)` / `manager_review(manager_id)`
+        - `tenant_detail(tenant_id)`
+        - `dashboard_overview(manager_id=None)`
+        - `dashboard_vacancies(manager_id=None, as_df=False)`
+        - `dashboard_delinquency(manager_id=None, as_df=False)`
+
+        ## How you work
+
+        1. **Orient** — check active signals first. They tell you what the
+           system already knows. Signals are pre-computed and evidenced.
+           Name signals explicitly by their domain signal name. Use causal
+           chains to connect related signals. Reference policies when
+           recommending actions.
+        2. **Gather** — use workflow tools (portfolio_review,
+           delinquency_review, lease_risk_review) to get complete data
+           in a single call. Fall back to onto_* tools only when you need
+           something specific that workflow tools don't cover.
+        3. **Investigate** — use the right tool for each step. Quick lookups
+           via onto_* tools. Computation and joins via Python. Exploration
+           via semantic search. Check uploaded reports if relevant.
+        4. **Analyze** — write Python to compute metrics, find patterns,
+           cross-reference. Use pandas for joins and aggregations.
+        5. **Verify** — check your results. Run sanity checks. Cross-reference
+           with signals. If something looks off, investigate further.
+        6. **Deliver** — synthesize findings into a clear narrative. Cite
+           specific numbers. Name signals. Connect the dots. For deep
+           analyses, write the report to a file as well.
+
+        ## Rules
+
+        - Every claim must be grounded in data you retrieved and computed.
+        - When a command or code execution fails, read the error, fix it, retry.
+        - Check signals first — they represent pre-computed domain knowledge.
+        - Be direct about problems — the director needs truth, not diplomacy.
+        - If you don't have enough data, say so and suggest what upload would help.
+        - For complex analyses, show your work: print intermediate results,
+          verify calculations, cross-check numbers.
+        - Use memory_store to save key findings for future reference.
+
+      input_template: "{input}"
+      output_contract: conversation
+      response_format: text
+
+      # -- Ask mode: fast tools, no sandbox --
+      ask_tools:
+        - name: portfolio_review
+        - name: delinquency_review
+        - name: lease_risk_review
+        - name: onto_signals
+        - name: onto_explain
+        - name: onto_search
+        - name: onto_aggregate
+        - name: document_query
+        - name: semantic_search
+
+      # -- Agent mode: full autonomy --
+      agent_tools:
+        - name: portfolio_review
+        - name: delinquency_review
+        - name: lease_risk_review
+        - name: draft_action_plan
+        - name: approve_action_plan
+        - name: sandbox_exec_python
+        - name: sandbox_exec
+        - name: sandbox_write_file
+        - name: sandbox_read_file
+        - name: sandbox_list_files
+        - name: onto_signals
+        - name: onto_explain
+        - name: onto_search
+        - name: onto_get
+        - name: onto_aggregate
+        - name: onto_related
+        - name: document_list
+        - name: document_query
+        - name: semantic_search
+        - name: memory_store
+        - name: memory_recall
+        - name: onto_codify_observation
+        - name: action_create
+        - name: action_update
+        - name: action_list
+        - name: note_create
+
+      intents:
+        conversation:
+          description: "General conversation, clarification, or greeting"
+          keywords: [hi, hello, hey, thanks, thank you, bye, what can you do]
+          tools: []
+          max_tool_rounds: 0
+          max_iterations: 1
+          context_injection: []
+
+        lookup:
+          description: "Quick data lookup — vacancy, delinquency, unit count, etc."
+          keywords: [how many, show me, what is, list, get, count]
+          tools: [onto_search, onto_aggregate, onto_signals, semantic_search]
+          max_tool_rounds: 1
+          max_iterations: 4
+          context_injection: [signals]
+
+        analysis:
+          description: "Multi-step analysis requiring data gathering and synthesis"
+          keywords: [compare, analyze, rank, breakdown, summarize, overview, review, assess]
+          tools: [portfolio_review, delinquency_review, lease_risk_review,
+                  onto_signals, onto_search, onto_aggregate, semantic_search,
+                  onto_explain, document_query]
+          max_tool_rounds: 3
+          max_iterations: 6
+          context_injection: [signals, domain]
+
+        deep_dive:
+          description: "Complex investigation requiring code execution and extensive tool use"
+          keywords: [build, chart, audit, report, trend, deep dive, investigate, comprehensive]
+          tools: []
+          max_tool_rounds: 8
+          max_iterations: 12
+          context_injection: [signals, domain, graph, memory]
+
+        action:
+          description: "Creating or managing action items and plans"
+          keywords: [create action, draft plan, action plan, action item, approve plan]
+          tools: [draft_action_plan, approve_action_plan, action_create,
+                  action_update, action_list, portfolio_review, onto_signals]
+          max_tool_rounds: 3
+          max_iterations: 6
+          context_injection: [signals]
+
+      memory:
+        namespace: remi-director
+        auto_load: true
+        auto_save: true

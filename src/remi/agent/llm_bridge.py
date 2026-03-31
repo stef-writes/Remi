@@ -13,6 +13,7 @@ from remi.llm.ports import LLMProvider, LLMRequest, LLMResponse, TokenUsage, Too
 from remi.models.chat import Message
 from remi.models.tools import ToolDefinition
 from remi.models.trace import SpanKind
+from remi.observability.events import Event
 from remi.observability.tracer import Tracer
 
 logger = structlog.get_logger("remi.agent.llm")
@@ -106,7 +107,7 @@ async def stream_llm_response(
                 await _do_stream()
             except Exception:
                 logger.error(
-                    "llm_stream_error",
+                    Event.LLM_STREAM_ERROR,
                     provider=cfg.provider,
                     model=cfg.model,
                     iteration=iteration,
@@ -122,7 +123,7 @@ async def stream_llm_response(
             await _do_stream()
         except Exception:
             logger.error(
-                "llm_stream_error",
+                Event.LLM_STREAM_ERROR,
                 provider=cfg.provider,
                 model=cfg.model,
                 iteration=iteration,
@@ -135,6 +136,12 @@ async def stream_llm_response(
         try:
             arguments = json.loads(acc.arguments_json)
         except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                Event.LLM_TOOL_ARGS_ERROR,
+                tool_name=acc.name,
+                call_id=acc.id,
+                raw_length=len(acc.arguments_json),
+            )
             arguments = {"raw": acc.arguments_json}
         assembled_tool_calls.append(
             ToolCallRequest(

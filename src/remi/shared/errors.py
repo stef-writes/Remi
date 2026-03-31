@@ -1,4 +1,10 @@
-"""Base error types for the framework."""
+"""Typed error hierarchy for the framework.
+
+Every application-level exception inherits from ``RemiError`` so that
+global handlers (HTTP, JSON-RPC, CLI) can translate errors into
+structured responses with a machine-readable ``code``, human-readable
+message, and contextual attributes for logging/tracing.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +15,15 @@ class RemiError(Exception):
     def __init__(self, message: str, *, code: str | None = None) -> None:
         super().__init__(message)
         self.code = code or self.__class__.__name__
+
+    def to_dict(self) -> dict[str, object]:
+        """Structured representation for logging and API responses."""
+        return {"code": self.code, "message": str(self)}
+
+
+# ---------------------------------------------------------------------------
+# Domain errors — bad input, missing entities, logic violations
+# ---------------------------------------------------------------------------
 
 
 class DomainError(RemiError):
@@ -47,12 +62,97 @@ class AppNotFoundError(DomainError):
         self.app_id = app_id
 
 
+class SessionNotFoundError(DomainError):
+    """Chat session does not exist."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(f"Session not found: {session_id}", code="SESSION_NOT_FOUND")
+        self.session_id = session_id
+
+
+class AgentConfigError(DomainError):
+    """Agent YAML or runtime config is invalid."""
+
+    def __init__(self, agent_id: str, reason: str) -> None:
+        super().__init__(f"Agent config invalid ({agent_id}): {reason}", code="AGENT_CONFIG_ERROR")
+        self.agent_id = agent_id
+        self.reason = reason
+
+
+# ---------------------------------------------------------------------------
+# Execution errors — runtime failures during processing
+# ---------------------------------------------------------------------------
+
+
 class ExecutionError(RemiError):
     """Errors during module execution."""
 
     def __init__(self, message: str, *, module_id: str | None = None) -> None:
         super().__init__(message, code="EXECUTION_ERROR")
         self.module_id = module_id
+
+
+class LLMError(ExecutionError):
+    """LLM provider call failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        model: str | None = None,
+        transient: bool = False,
+    ) -> None:
+        super().__init__(message, module_id=None)
+        self.code = "LLM_ERROR"
+        self.provider = provider
+        self.model = model
+        self.transient = transient
+
+
+class ToolError(ExecutionError):
+    """Tool invocation failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        tool_name: str,
+        call_id: str | None = None,
+    ) -> None:
+        super().__init__(message, module_id=None)
+        self.code = "TOOL_ERROR"
+        self.tool_name = tool_name
+        self.call_id = call_id
+
+
+class RetryExhaustedError(ExecutionError):
+    """All retry attempts failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        attempts: int,
+        last_error: Exception | None = None,
+    ) -> None:
+        super().__init__(message, module_id=None)
+        self.code = "RETRY_EXHAUSTED"
+        self.attempts = attempts
+        self.last_error = last_error
+
+
+class IngestionError(RemiError):
+    """Document ingestion or classification failed."""
+
+    def __init__(self, message: str, *, doc_id: str | None = None) -> None:
+        super().__init__(message, code="INGESTION_ERROR")
+        self.doc_id = doc_id
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure errors
+# ---------------------------------------------------------------------------
 
 
 class StateStoreError(RemiError):

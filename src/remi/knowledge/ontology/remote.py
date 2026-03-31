@@ -1,12 +1,12 @@
-"""RemoteOntologyStore — OntologyStore adapter that delegates to the REMI API.
+"""RemoteKnowledgeGraph — KnowledgeGraph adapter that delegates to the REMI API.
 
-Drop-in replacement for BridgedOntologyStore: any code that takes an
-OntologyStore works identically whether backed by local stores or by
+Drop-in replacement for BridgedKnowledgeGraph: any code that takes a
+KnowledgeGraph works identically whether backed by local stores or by
 HTTP calls to a running REMI server.
 
 Used by:
   - CLI commands running in the agent sandbox (via REMI_API_URL)
-  - Any external process that needs typed ontology access
+  - Any external process that needs typed knowledge graph access
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ from typing import Any
 import httpx
 
 from remi.models.ontology import (
+    KnowledgeGraph,
     KnowledgeProvenance,
     LinkTypeDef,
     ObjectTypeDef,
-    OntologyStore,
 )
 
 
-class RemoteOntologyStore(OntologyStore):
-    """OntologyStore implementation over HTTP — calls the ontology REST API."""
+class RemoteKnowledgeGraph(KnowledgeGraph):
+    """KnowledgeGraph implementation over HTTP — calls the knowledge graph REST API."""
 
     def __init__(
         self,
@@ -42,7 +42,7 @@ class RemoteOntologyStore(OntologyStore):
         if self._owns_client:
             await self._client.aclose()
 
-    async def __aenter__(self) -> RemoteOntologyStore:
+    async def __aenter__(self) -> RemoteKnowledgeGraph:
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -237,3 +237,7 @@ class RemoteOntologyStore(OntologyStore):
         resp = await self._client.post(f"{self._prefix}{path}", json=body)
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
+
+
+# Backward compatibility
+RemoteOntologyStore = RemoteKnowledgeGraph

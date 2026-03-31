@@ -188,6 +188,9 @@ export function useSessions(agent: string) {
                 model: p.model as string | undefined,
                 provider: p.provider as string | undefined,
                 cost: rawCost,
+                latency_ms: p.latency_ms as number | undefined,
+                trace_id: p.trace_id as string | undefined,
+                intent: p.intent as string | undefined,
               }
             : undefined;
           updateState(sid, (s) => {
@@ -503,6 +506,9 @@ export function useSessions(agent: string) {
   const stopGenerating = useCallback(() => {
     const sid = activeSessionIdRef.current;
     if (!sid) return;
+
+    rpc("chat.stop", { session_id: sid }).catch(() => {});
+
     updateState(sid, (s) => ({
       ...s,
       streaming: false,
@@ -514,7 +520,7 @@ export function useSessions(agent: string) {
         ss.id === sid ? { ...ss, streaming: false } : ss
       )
     );
-  }, [updateState]);
+  }, [rpc, updateState]);
 
   const activeSession = activeSessionId
     ? sessionStates.get(activeSessionId) ?? null

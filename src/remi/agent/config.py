@@ -15,6 +15,28 @@ class ToolRef(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
+class IntentConfig(BaseModel):
+    """Execution profile for a classified user intent.
+
+    Declared in agent YAML under ``intents:``. The intent classifier
+    selects one before the agent loop starts, narrowing tools, iterations,
+    and context injection to what that intent actually needs.
+
+    ``max_tool_rounds`` caps how many loop iterations may include tool
+    calls.  After the budget is spent the LLM gets one more call with
+    tools disabled so it always produces a text response.
+    ``max_iterations`` is retained as an optional hard safety ceiling.
+    """
+
+    description: str = ""
+    examples: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    max_tool_rounds: int | None = None
+    max_iterations: int | None = None
+    context_injection: list[str] = Field(default_factory=lambda: ["signals", "domain", "graph", "memory"])
+
+
 class MemoryConfig(BaseModel):
     """Memory settings for an agent node."""
 
@@ -68,7 +90,11 @@ class AgentConfig(BaseModel):
     max_iterations: int = 10
     ask_max_iterations: int | None = None
     agent_max_iterations: int | None = None
+    max_history_turns: int = 10
     stop_when: str = "no_tool_calls"
+
+    # Intent-based routing
+    intents: dict[str, IntentConfig] = Field(default_factory=dict)
 
     # Output
     output_contract: str = "conversation"
@@ -131,6 +157,13 @@ class AgentConfig(BaseModel):
         raw_memory = data.get("memory", {})
         memory = MemoryConfig(**raw_memory) if isinstance(raw_memory, dict) else MemoryConfig()
 
+        raw_intents = data.get("intents", {})
+        intents: dict[str, IntentConfig] = {}
+        if isinstance(raw_intents, dict):
+            for intent_name, intent_data in raw_intents.items():
+                if isinstance(intent_data, dict):
+                    intents[intent_name] = IntentConfig(**intent_data)
+
         return cls(
             name=data.get("name", "unknown"),
             provider=data.get("provider"),
@@ -150,9 +183,11 @@ class AgentConfig(BaseModel):
             ask_tools=ask_tools,
             agent_tools=agent_tools,
             memory=memory,
+            intents=intents,
             max_iterations=data.get("max_iterations", 10),
             ask_max_iterations=data.get("ask_max_iterations"),
             agent_max_iterations=data.get("agent_max_iterations"),
+            max_history_turns=data.get("max_history_turns", 10),
             stop_when=data.get("stop_when", "no_tool_calls"),
             output_contract=data.get("output_contract", "conversation"),
         )

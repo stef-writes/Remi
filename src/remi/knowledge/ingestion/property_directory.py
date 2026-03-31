@@ -19,6 +19,7 @@ from typing import Any
 
 import structlog
 
+from remi.documents.appfolio_schema import parse_property_name
 from remi.knowledge.ingestion.base import IngestionResult
 from remi.knowledge.ingestion.helpers import parse_address
 from remi.models.documents import Document
@@ -34,7 +35,14 @@ logger = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _PROPERTY_COL_CANDIDATES = ["Property", "Property Name", "Building", "Address", "Location"]
-_MANAGER_COL_CANDIDATES = ["Property Manager", "Manager", "Managed By", "PM", "Tags"]
+_MANAGER_COL_CANDIDATES = [
+    "Site Manager Name",
+    "Property Manager",
+    "Manager",
+    "Managed By",
+    "PM",
+    "Tags",
+]
 _ADDRESS_COL_CANDIDATES = ["Address", "Full Address", "Street", "Property Address"]
 _STATUS_COL_CANDIDATES = ["Status", "Active", "Property Status"]
 
@@ -74,21 +82,25 @@ async def ingest_property_directory(
     rows_with_manager = 0
     rows_without_manager = 0
 
+    _SKIP_PATTERNS = ("do not use", "admin", "test property")
+
     for row in doc.rows:
         prop_raw = _first_match(row, _PROPERTY_COL_CANDIDATES)
         if not prop_raw:
             result.ambiguous_rows.append(row)
             continue
 
-        # Use the property value as both name and address hint until we know
-        # which column is the canonical address in this export.
+        prop_name = parse_property_name(prop_raw)
+        if any(pat in prop_name.lower() for pat in _SKIP_PATTERNS):
+            logger.debug("property_directory_skip_inactive", prop_name=prop_name)
+            continue
         addr_raw = _first_match(row, _ADDRESS_COL_CANDIDATES) or prop_raw
         manager_raw = _first_match(row, _MANAGER_COL_CANDIDATES)
 
-        prop_id = slugify(f"property:{prop_raw}")
+        prop_id = slugify(f"property:{prop_name}")
 
         prop_kb_props: dict[str, Any] = {
-            "name": prop_raw,
+            "name": prop_name,
             "address": addr_raw,
             "source_doc": doc.id,
         }
@@ -110,7 +122,7 @@ async def ingest_property_directory(
             rows_without_manager += 1
 
         addr = parse_address(addr_raw)
-        await upsert_property_safe(prop_id, prop_raw, addr, portfolio_id=portfolio_id)
+        await upsert_property_safe(prop_id, prop_name, addr, portfolio_id=portfolio_id)
 
     logger.info(
         "property_directory_ingest_complete",

@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { fmt$ } from "@/lib/format";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import { MetricCard } from "@/components/ui/MetricCard";
+import { MetricStrip } from "@/components/ui/MetricStrip";
+import { PageContainer } from "@/components/ui/PageContainer";
 import { Badge } from "@/components/ui/Badge";
 import type {
   PropertyDetail,
@@ -19,10 +23,6 @@ interface FinancialSummary {
   maintenance_costs: number;
   vacancy_loss: number;
   noi: number;
-}
-
-function fmt$(n: number) {
-  return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
 const ISSUE_LABELS: Record<UnitIssue, { label: string; color: string }> = {
@@ -210,25 +210,23 @@ function UnitRow({ row, expanded, onToggle }: { row: RentRollRow; expanded: bool
 }
 
 export function PropertyDetailView({ propertyId }: { propertyId: string }) {
-  const [property, setProperty] = useState<PropertyDetail | null>(null);
-  const [rentRoll, setRentRoll] = useState<RentRollResponse | null>(null);
   const [financials, setFinancials] = useState<FinancialSummary[]>([]);
-  const [loading, setLoading] = useState(true);
   const [expandedUnit, setExpandedUnit] = useState<string | null>(null);
   const [issueFilter, setIssueFilter] = useState<IssueFilter>("all");
 
-  useEffect(() => {
-    Promise.all([
+  const { data, loading } = useApiQuery<{
+    property: PropertyDetail;
+    rentRoll: RentRollResponse;
+  }>(async () => {
+    const [property, rentRoll] = await Promise.all([
       api.getProperty(propertyId),
       api.getRentRoll(propertyId),
-    ])
-      .then(([prop, roll]) => {
-        setProperty(prop);
-        setRentRoll(roll);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    ]);
+    return { property, rentRoll };
   }, [propertyId]);
+
+  const property = data?.property ?? null;
+  const rentRoll = data?.rentRoll ?? null;
 
   if (loading) {
     return (
@@ -269,8 +267,7 @@ export function PropertyDetailView({ propertyId }: { propertyId: string }) {
   const unitsWithIssues = rentRoll.rows.filter((r) => r.issues.length > 0).length;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-8 py-8 space-y-6">
+    <PageContainer>
         {/* Breadcrumb + header */}
         <div>
           <Link href="/" className="text-xs text-fg-faint hover:text-fg-secondary transition-colors">
@@ -291,7 +288,7 @@ export function PropertyDetailView({ propertyId }: { propertyId: string }) {
         </div>
 
         {/* KPI row — revenue-focused */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <MetricStrip>
           <MetricCard
             label="Occupancy"
             value={`${rentRoll.total_units > 0 ? Math.round((rentRoll.occupied / rentRoll.total_units) * 100) : 0}%`}
@@ -316,7 +313,7 @@ export function PropertyDetailView({ propertyId }: { propertyId: string }) {
             alert={rentRoll.total_vacancy_loss > 0}
             sub={`${rentRoll.vacant} vacant units`}
           />
-        </div>
+        </MetricStrip>
 
         {/* Financial period (if available) */}
         {latestFin && (
@@ -324,7 +321,7 @@ export function PropertyDetailView({ propertyId }: { propertyId: string }) {
             <h2 className="text-xs font-semibold text-fg-secondary uppercase tracking-wide mb-4">
               Financial Period <span className="text-fg-faint font-normal">&middot; {latestFin.period}</span>
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <div>
                 <p className="text-[10px] text-fg-faint">Gross Revenue</p>
                 <p className="text-sm font-semibold text-fg">{fmt$(latestFin.gross_revenue)}</p>
@@ -427,7 +424,6 @@ export function PropertyDetailView({ propertyId }: { propertyId: string }) {
             </table>
           </div>
         </section>
-      </div>
-    </div>
+    </PageContainer>
   );
 }

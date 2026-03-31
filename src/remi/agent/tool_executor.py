@@ -125,6 +125,33 @@ def build_tool_set(
     return definitions, execute
 
 
+def build_tool_set_for_names(
+    tool_names: list[str],
+    context: RuntimeContext,
+) -> tuple[list[ToolDefinition], ToolExecuteFn | None]:
+    """Build a tool set from an explicit list of tool names (used by intent routing)."""
+    registry = context.deps.tool_registry or context.extras.get("tool_registry")
+    if not registry or not tool_names:
+        return [], None
+
+    definitions = registry.list_definitions(names=tool_names)
+    sandbox_session_id = context.params.sandbox_session_id or context.extras.get(
+        "sandbox_session_id"
+    )
+
+    async def execute(name: str, arguments: dict[str, Any]) -> Any:
+        entry = registry.get(name)
+        if entry is None:
+            return {"error": f"Tool '{name}' not found"}
+        fn, _ = entry
+        merged = dict(arguments)
+        if name.startswith("sandbox_") and sandbox_session_id:
+            merged.setdefault("session_id", sandbox_session_id)
+        return await fn(merged)
+
+    return definitions, execute
+
+
 def _truncate(value: Any, max_len: int = 500) -> str:
     text = value if isinstance(value, str) else json.dumps(value, default=str)
     return text[:max_len] + ("..." if len(text) > max_len else "")

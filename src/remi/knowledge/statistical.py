@@ -1,4 +1,4 @@
-"""StatisticalProducer — data-driven signal detection over OntologyStore.
+"""StatisticalProducer — data-driven signal detection over KnowledgeGraph.
 
 Domain-agnostic: works on any object type with numeric fields. Detects:
 
@@ -9,7 +9,7 @@ Domain-agnostic: works on any object type with numeric fields. Detects:
    highly concentrated (single value > threshold % of total)
 
 No hand-authored rules. No domain knowledge required. Operates purely
-through the OntologyStore port. Produces signals with
+through the KnowledgeGraph port. Produces signals with
 ``provenance=DATA_DERIVED``.
 """
 
@@ -20,7 +20,7 @@ from typing import Any
 
 import structlog
 
-from remi.models.ontology import OntologyStore
+from remi.models.ontology import KnowledgeGraph
 from remi.models.signals import ProducerResult, Provenance, Severity, Signal, SignalProducer
 
 _log = structlog.get_logger(__name__)
@@ -31,7 +31,7 @@ def _signal_id(detection_type: str, type_name: str, field: str, entity_id: str) 
 
 
 class StatisticalProducer(SignalProducer):
-    """Detects statistical anomalies across OntologyStore data.
+    """Detects statistical anomalies across KnowledgeGraph data.
 
     Scans every registered object type, computes descriptive stats on
     numeric fields, and flags outliers. No rules, no thresholds from YAML —
@@ -40,13 +40,13 @@ class StatisticalProducer(SignalProducer):
 
     def __init__(
         self,
-        ontology_store: OntologyStore,
+        knowledge_graph: KnowledgeGraph,
         *,
         zscore_threshold: float = 2.5,
         concentration_threshold: float = 0.80,
         min_sample_size: int = 5,
     ) -> None:
-        self._os = ontology_store
+        self._kg = knowledge_graph
         self._zscore_threshold = zscore_threshold
         self._concentration_threshold = concentration_threshold
         self._min_sample_size = min_sample_size
@@ -57,11 +57,11 @@ class StatisticalProducer(SignalProducer):
 
     async def evaluate(self) -> ProducerResult:
         result = ProducerResult(source=self.name)
-        types = await self._os.list_object_types()
+        types = await self._kg.list_object_types()
 
         for type_def in types:
             try:
-                objects = await self._os.search_objects(
+                objects = await self._kg.search_objects(
                     type_def.name,
                     limit=10_000,
                 )

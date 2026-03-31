@@ -7,7 +7,9 @@ agent loop, and output formatting to thread utilities.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -16,10 +18,11 @@ import structlog
 from remi.agent.base import BaseModule, Message, ModuleOutput
 from remi.agent.config import AgentConfig
 from remi.agent.context import RuntimeContext
+from remi.agent.intent import classify_intent
 from remi.agent.llm_bridge import OnEventCallback
 from remi.agent.loop import run_agent_loop
-from remi.agent.thread import build_initial_thread, format_output, last_assistant_content
-from remi.agent.tool_executor import ToolExecutor, build_tool_set
+from remi.agent.thread import build_initial_thread, format_output, last_assistant_content, trim_thread
+from remi.agent.tool_executor import ToolExecutor, build_tool_set, build_tool_set_for_names
 from remi.knowledge.context_builder import extract_signal_references
 from remi.llm.ports import LLMProvider
 from remi.llm.pricing import estimate_cost
@@ -49,6 +52,7 @@ class AgentNode(BaseModule):
     kind = "agent"
 
     async def run(self, inputs: dict[str, Any], context: RuntimeContext) -> ModuleOutput:
+        _t0 = time.monotonic()
         cfg = AgentConfig.from_dict(self.config)
 
         mode = context.params.mode or context.extras.get("mode", "agent")
@@ -95,21 +99,47 @@ class AgentNode(BaseModule):
         )
         tracer: Tracer | None = context.deps.tracer or context.extras.get("tracer")
 
+        thread = build_initial_thread(cfg, inputs)
+
+        # --- Intent-based routing ---
+        # Default: inject everything.  Intent can narrow this.
+        injection_phases: set[str] = {"signals", "domain", "graph", "memory"}
+        max_tool_rounds: int | None = None
+        user_question = _extract_user_question(thread)
+        intent_result = classify_intent(user_question, cfg.intents)
+        intent_name: str | None = None
+        if intent_result is not None:
+            intent_name, intent_cfg = intent_result
+            if intent_cfg.max_iterations is not None:
+                cfg = cfg.model_copy(update={"max_iterations": intent_cfg.max_iterations})
+            max_tool_rounds = intent_cfg.max_tool_rounds
+            if intent_cfg.tools:
+                allowed = {t.name for t in cfg.tools_for_mode(mode)}
+                scoped = [n for n in intent_cfg.tools if n in allowed]
+                if scoped:
+                    tool_defs, tool_execute = build_tool_set_for_names(scoped, context)
+            elif max_tool_rounds == 0:
+                tool_defs, tool_execute = [], None
+            injection_phases = set(intent_cfg.context_injection)
+
         log = logger.bind(
             run_id=context.run_id,
             agent=cfg.name or "unknown",
             mode=mode,
             provider=cfg.provider,
             model=cfg.model,
+            intent=intent_name,
         )
         log.info(
             "agent_run_start",
             max_iterations=cfg.max_iterations,
             tool_count=len(tool_defs),
+            intent=intent_name,
+            injection_phases=sorted(injection_phases),
         )
 
         tool_executor = ToolExecutor(tool_defs, tool_execute, tracer, log)
-        thread = build_initial_thread(cfg, inputs)
+        thread = trim_thread(thread, cfg.max_history_turns)
 
         mgr_id = context.extras.get("manager_id")
         mgr_name = context.extras.get("manager_name")
@@ -148,15 +178,43 @@ class AgentNode(BaseModule):
             else _noop_trace()
         )
         async with trace_cm:
-            domain = context.deps.domain_ontology or context.extras.get("domain_ontology")
+            domain = context.deps.domain_rulebook or context.extras.get("domain_rulebook")
             ctx_builder = context.deps.context_builder
             signal_store = context.deps.signal_store or context.extras.get("signal_store")
 
-            if ctx_builder is not None:
-                frame = await ctx_builder.build(tracer=tracer)
+            needs_domain = "domain" in injection_phases
+            needs_signals = "signals" in injection_phases
+            needs_graph = "graph" in injection_phases
+            needs_memory = "memory" in injection_phases
+
+            # Run context building and memory loading concurrently
+            async def _load_memory() -> str | None:
+                if not (needs_memory and memory and cfg.memory.auto_load and cfg.memory.namespace):
+                    return None
+                keys = await memory.list_keys(cfg.memory.namespace)
+                if not keys:
+                    return None
+                entries: list[str] = []
+                for key in keys[:10]:
+                    val = await memory.recall(cfg.memory.namespace, key)
+                    if val is not None:
+                        entries.append(f"- {key}: {val}")
+                return "\n".join(entries) if entries else None
+
+            if ctx_builder is not None and (needs_domain or needs_signals or needs_graph):
+                frame, memory_text = await asyncio.gather(
+                    ctx_builder.build(
+                        question=user_question,
+                        tracer=tracer,
+                        phases=injection_phases,
+                    ),
+                    _load_memory(),
+                )
                 ctx_builder.inject_into_thread(thread, frame)
             else:
-                if domain is not None:
+                memory_text_coro = _load_memory()
+
+                if needs_domain and domain is not None:
                     from remi.knowledge.context_builder import render_domain_context
 
                     ctx_block = render_domain_context(domain)
@@ -173,7 +231,7 @@ class AgentNode(BaseModule):
                             ):
                                 pass
 
-                if signal_store is not None:
+                if needs_signals and signal_store is not None:
                     from remi.knowledge.context_builder import render_active_signals
 
                     signal_summary = await render_active_signals(signal_store)
@@ -206,17 +264,10 @@ class AgentNode(BaseModule):
                             except Exception:
                                 pass
 
-            if memory and cfg.memory.auto_load and cfg.memory.namespace:
-                keys = await memory.list_keys(cfg.memory.namespace)
-                if keys:
-                    entries = []
-                    for key in keys[:10]:
-                        val = await memory.recall(cfg.memory.namespace, key)
-                        if val is not None:
-                            entries.append(f"- {key}: {val}")
-                    if entries:
-                        past = "\n".join(entries)
-                        thread.insert(1, Message(role="system", content=f"Past context:\n{past}"))
+                memory_text = await memory_text_coro
+
+            if memory_text:
+                thread.insert(1, Message(role="system", content=f"Past context:\n{memory_text}"))
 
             thread, run_usage = await run_agent_loop(
                 cfg=cfg,
@@ -226,6 +277,7 @@ class AgentNode(BaseModule):
                 emit=emit,
                 tracer=tracer,
                 log=log,
+                max_tool_rounds=max_tool_rounds,
             )
 
             final = format_output(thread, cfg)
@@ -234,18 +286,26 @@ class AgentNode(BaseModule):
                 run_usage.prompt_tokens,
                 run_usage.completion_tokens,
             )
+            latency_ms = round((time.monotonic() - _t0) * 1000)
+
             done_payload: dict[str, Any] = {
                 "response": last_assistant_content(thread) or "",
                 "usage": run_usage.to_dict(),
                 "model": cfg.model,
                 "provider": cfg.provider,
+                "latency_ms": latency_ms,
+                "trace_id": get_current_trace_id(),
             }
+            if intent_name:
+                done_payload["intent"] = intent_name
             if cost is not None:
                 done_payload["cost"] = round(cost, 6)
             await emit("done", done_payload)
 
             log.info(
                 "agent_run_done",
+                latency_ms=latency_ms,
+                intent=intent_name,
                 prompt_tokens=run_usage.prompt_tokens,
                 completion_tokens=run_usage.completion_tokens,
                 total_tokens=run_usage.total_tokens,
@@ -288,6 +348,14 @@ class AgentNode(BaseModule):
                 contract=cfg.output_contract,
                 metadata=run_metadata,
             )
+
+
+def _extract_user_question(thread: list[Message]) -> str | None:
+    """Return the content of the last user message in the thread."""
+    for msg in reversed(thread):
+        if msg.role == "user" and msg.content:
+            return str(msg.content)
+    return None
 
 
 def _resolve_provider(provider_name: str, context: RuntimeContext) -> LLMProvider:

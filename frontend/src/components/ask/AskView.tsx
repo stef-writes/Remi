@@ -17,7 +17,7 @@ export function AskView() {
   const [agent, setAgent] = useState(FALLBACK_AGENT);
   const [modelsConfig, setModelsConfig] = useState<ModelsConfig | null>(null);
   const [provider, setProvider] = useState("anthropic");
-  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [model, setModel] = useState("claude-sonnet-4-20250514");
   const [mode, setMode] = useState<"ask" | "agent">("ask");
   const [managers, setManagers] = useState<ManagerListItem[]>([]);
   const [managerId, setManagerId] = useState("");

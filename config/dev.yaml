@@ -1,0 +1,15 @@
+environment: development
+
+state_store:
+  backend: postgres
+  dsn: ${DATABASE_URL}
+
+logging:
+  level: DEBUG
+  format: structured
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins:
+    - "http://localhost:3000"

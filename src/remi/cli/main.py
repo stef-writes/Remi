@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import typer
 
-from remi.cli.agents import ask_cmd, chat_cmd
+from remi.cli.agents import ai_cmd
+from remi.cli.bench import cmd as bench_cmd
 from remi.cli.documents import cmd as documents_cmd
 from remi.cli.ontology import cmd as onto_cmd
 from remi.cli.properties import (
@@ -17,6 +18,7 @@ from remi.cli.properties import (
     units_cmd,
 )
 from remi.cli.seed import cmd as seed_cmd
+from remi.cli.trace import cmd as trace_cmd
 
 cli = typer.Typer(
     name="remi",
@@ -25,8 +27,7 @@ cli = typer.Typer(
 )
 
 # Agent commands
-cli.add_typer(ask_cmd)
-cli.add_typer(chat_cmd)
+cli.add_typer(ai_cmd)
 
 # Property management commands
 cli.add_typer(portfolio_cmd)
@@ -39,6 +40,8 @@ cli.add_typer(report_cmd)
 cli.add_typer(documents_cmd)
 cli.add_typer(onto_cmd)
 cli.add_typer(seed_cmd)
+cli.add_typer(trace_cmd)
+cli.add_typer(bench_cmd)
 
 
 @cli.command()

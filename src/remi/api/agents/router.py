@@ -1,40 +1,22 @@
-"""REST endpoints for AI-powered questions and agent discovery."""
+"""REST endpoints for agent discovery and model listing."""
 
 from __future__ import annotations
 
 from typing import Any
 
+import structlog
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
-from remi.agent.runner import ChatAgentService
-from remi.api.agents.schemas import AskRequest, AskResponse
-from remi.api.dependencies import get_chat_agent, get_provider_factory, get_settings
+from remi.api.dependencies import get_provider_factory, get_settings
 from remi.config.settings import RemiSettings
 from remi.llm.factory import LLMProviderFactory
-from remi.shared.paths import APPS_DIR as AGENTS_DIR
+from remi.observability.events import Event
+from remi.shared.paths import AGENTS_DIR
+
+logger = structlog.get_logger("remi.api.agents")
 
 router = APIRouter(prefix="/agents", tags=["ai"])
-
-
-@router.post("/ask", response_model=AskResponse)
-async def ask(
-    req: AskRequest,
-    agent: ChatAgentService = Depends(get_chat_agent),
-) -> AskResponse:
-    try:
-        answer, run_id = await agent.ask(req.agent, req.question, mode="ask")
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(500, str(exc)) from exc
-
-    return AskResponse(
-        agent=req.agent,
-        question=req.question,
-        answer=answer,
-        run_id=run_id,
-    )
 
 
 @router.get("/models")
@@ -57,10 +39,9 @@ async def list_models(
             "o4-mini",
         ],
         "anthropic": [
-            "claude-opus-4-6",
-            "claude-sonnet-4-6",
-            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-20250514",
             "claude-sonnet-4-20250514",
+            "claude-sonnet-4-5-20250929",
             "claude-haiku-4-5-20251001",
         ],
         "gemini": [
@@ -115,6 +96,7 @@ async def list_agents() -> dict[str, Any]:
                 }
             )
         except Exception:
+            logger.warning(Event.AGENT_CONFIG_INVALID, agent_dir=app_dir.name, exc_info=True)
             continue
 
     agents.sort(key=lambda a: (not a["primary"], a["name"]))

@@ -1,13 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { fmt$ } from "@/lib/format";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import type { ManagerListItem } from "@/lib/types";
-
-function fmt$(n: number) {
-  return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-}
 
 function getTimeOfDay(): "morning" | "afternoon" | "evening" {
   const h = new Date().getHours();
@@ -74,19 +71,11 @@ const TONE_DOT: Record<string, string> = {
 };
 
 export function DashboardBrief() {
-  const [managers, setManagers] = useState<ManagerListItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    try {
-      const mgrs = await api.listManagers().catch(() => []);
-      setManagers(mgrs);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  const { data, loading } = useApiQuery<ManagerListItem[]>(
+    () => api.listManagers().catch(() => []),
+    []
+  );
+  const managers = data ?? [];
 
   const timeOfDay = getTimeOfDay();
   const brief = buildOneLiner(managers);

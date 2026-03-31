@@ -1,5 +1,5 @@
 apiVersion: remi/v1
-kind: DomainOntology
+kind: DomainRulebook
 
 # =============================================================================
 # TBox — Terminological Box
@@ -237,6 +237,41 @@ tbox:
     - cause: below_market_rent
       effect: missed_revenue
       description: Below-market rents lead to missed revenue opportunities
+
+  # ---------------------------------------------------------------------------
+  # Compositions — compound signals from co-occurring constituent signals
+  # ---------------------------------------------------------------------------
+
+  compositions:
+    - name: DelinquencyLeaseCliff
+      description: >
+        A manager has both high delinquency AND a lease expiration cliff,
+        creating compounding cash flow risk. Revenue is leaking now and
+        a wave of potential turnover is approaching.
+      constituents: [DelinquencyConcentration, LeaseExpirationCliff]
+      scope: PropertyManager
+      severity: critical
+      require_same_entity: true
+
+    - name: OperationalBreakdown
+      description: >
+        A manager has policy breaches AND a communication gap — required
+        actions are being missed AND the director isn't being told.
+        Strongest indicator of a manager needing immediate intervention.
+      constituents: [PolicyBreach, CommunicationGap]
+      scope: PropertyManager
+      severity: critical
+      require_same_entity: true
+
+    - name: DecliningPortfolio
+      description: >
+        A manager shows both occupancy drift AND below-percentile
+        performance. The portfolio is deteriorating and the manager is
+        already an outlier among peers.
+      constituents: [OccupancyDrift, OutlierPerformance]
+      scope: PropertyManager
+      severity: high
+      require_same_entity: true
 
 # =============================================================================
 # ABox Seeds — operational knowledge seeded at bootstrap

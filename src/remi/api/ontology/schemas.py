@@ -2,7 +2,7 @@
 
 Typed request/response models for every ontology endpoint. These are the
 wire format — the API router serializes domain types into these, and the
-RemoteOntologyStore deserializes them back.
+RemoteKnowledgeGraph deserializes them back.
 """
 
 from __future__ import annotations

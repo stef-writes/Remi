@@ -1,4 +1,12 @@
-"""Think-act-observe loop — the core agent iteration logic."""
+"""Think-act-observe loop — the core agent iteration logic.
+
+Uses a **tool-call budget** rather than a pure iteration cap.
+``max_tool_rounds`` (from the intent or config) limits how many
+iterations may include tool calls.  After the budget is spent the loop
+makes one final LLM call *with tools disabled* so the agent always
+produces a proper synthesis rather than being silently truncated.
+``max_iterations`` remains as a hard safety ceiling.
+"""
 
 from __future__ import annotations
 
@@ -26,21 +34,43 @@ async def run_agent_loop(
     emit: OnEventCallback,
     tracer: Tracer | None,
     log: structlog.stdlib.BoundLogger,
+    max_tool_rounds: int | None = None,
 ) -> tuple[list[Message], TokenUsage]:
     """Execute the think-act-observe loop.
 
+    *max_tool_rounds* caps how many iterations may invoke tools.
+    After that many tool-using iterations, the next LLM call is sent
+    without tools so the model must produce a text response.
+    Falls back to ``cfg.max_iterations`` when not set.
+
     Returns the updated thread and cumulative token usage.
     """
+    tool_round_budget = max_tool_rounds if max_tool_rounds is not None else cfg.max_iterations
+    hard_cap = cfg.max_iterations
     total_iterations = 0
+    tool_rounds_used = 0
     run_usage = TokenUsage()
     tool_defs = tool_executor.definitions
-    loop_exhausted = True
+    produced_answer = False
 
-    for iteration in range(cfg.max_iterations):
+    for iteration in range(hard_cap):
         total_iterations = iteration + 1
-        log.debug("iteration_start", iteration=iteration, thread_length=len(thread))
 
-        request = build_llm_request(cfg, thread, tool_defs or None)
+        # When the tool budget is spent, disable tools so the LLM
+        # synthesizes a text answer instead of requesting more calls.
+        budget_exhausted = tool_rounds_used >= tool_round_budget
+        active_tools = None if budget_exhausted else (tool_defs or None)
+
+        log.debug(
+            "iteration_start",
+            iteration=iteration,
+            thread_length=len(thread),
+            tools_enabled=active_tools is not None,
+            tool_rounds_used=tool_rounds_used,
+            tool_round_budget=tool_round_budget,
+        )
+
+        request = build_llm_request(cfg, thread, active_tools)
 
         response = await stream_llm_response(
             provider,
@@ -65,9 +95,10 @@ async def run_agent_loop(
             if cfg.response_format == "json":
                 content = try_parse_json(content)
             thread.append(Message(role="assistant", content=content))
-            loop_exhausted = False
+            produced_answer = True
             break
 
+        tool_rounds_used += 1
         thread.append(
             Message(
                 role="assistant",
@@ -99,9 +130,10 @@ async def run_agent_loop(
                 },
             )
 
-    # Synthesis turn only when the loop exhausted via tool calls with no final text response
-    if loop_exhausted:
-        log.info("max_iterations_reached", iterations=total_iterations)
+    # Safety net: if the hard cap was hit without an answer (shouldn't
+    # normally happen with the budget logic above), force a synthesis.
+    if not produced_answer:
+        log.info("hard_cap_synthesis", iterations=total_iterations)
         synth_request = LLMRequest(
             model=cfg.model or "",
             messages=thread,

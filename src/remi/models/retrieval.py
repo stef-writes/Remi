@@ -109,6 +109,21 @@ class VectorStore(abc.ABC):
     async def stats(self) -> dict[str, int]:
         """Record counts grouped by source_entity_type."""
 
+    async def metadata_text_search(
+        self,
+        query: str,
+        *,
+        fields: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """Find records where metadata string values contain *query* (case-insensitive).
+
+        If *fields* is given, only those metadata keys are checked.
+        Default implementation returns an empty list; in-memory stores
+        can override with a full scan.
+        """
+        return []
+
 
 class Embedder(abc.ABC):
     """Turns text into vectors. Model-agnostic port."""

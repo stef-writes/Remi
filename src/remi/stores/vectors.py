@@ -91,3 +91,26 @@ class InMemoryVectorStore(VectorStore):
         for record in self._records.values():
             counts[record.source_entity_type] += 1
         return dict(counts)
+
+    async def metadata_text_search(
+        self,
+        query: str,
+        *,
+        fields: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[SearchResult]:
+        """Find records where metadata string values contain *query* (case-insensitive)."""
+        if not query:
+            return []
+        query_lower = query.lower()
+        results: list[SearchResult] = []
+        for record in self._records.values():
+            for key, value in record.metadata.items():
+                if fields and key not in fields:
+                    continue
+                if isinstance(value, str) and query_lower in value.lower():
+                    results.append(SearchResult(record=record, score=1.0))
+                    break
+            if len(results) >= limit:
+                break
+        return results

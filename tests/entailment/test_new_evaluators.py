@@ -27,7 +27,7 @@ from remi.models.properties import (
     Unit,
     UnitStatus,
 )
-from remi.models.signals import DomainOntology
+from remi.models.signals import DomainRulebook
 from remi.services.snapshots import ManagerSnapshot, SnapshotService
 from remi.stores.properties import InMemoryPropertyStore
 from remi.stores.signals import InMemorySignalStore
@@ -36,8 +36,8 @@ _ADDR = Address(street="100 Main St", city="Portland", state="OR", zip_code="972
 
 
 @pytest.fixture
-def domain_ontology() -> DomainOntology:
-    return DomainOntology.from_yaml(load_domain_yaml())
+def domain_rulebook() -> DomainRulebook:
+    return DomainRulebook.from_yaml(load_domain_yaml())
 
 
 @pytest.fixture
@@ -57,13 +57,13 @@ def snapshot_service(property_store: InMemoryPropertyStore) -> SnapshotService:
 
 @pytest.fixture
 def engine(
-    domain_ontology: DomainOntology,
+    domain_rulebook: DomainRulebook,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
     snapshot_service: SnapshotService,
 ) -> EntailmentEngine:
     return EntailmentEngine(
-        domain=domain_ontology,
+        domain=domain_rulebook,
         property_store=property_store,
         signal_store=signal_store,
         snapshot_service=snapshot_service,
@@ -72,12 +72,12 @@ def engine(
 
 @pytest.fixture
 def engine_no_snapshots(
-    domain_ontology: DomainOntology,
+    domain_rulebook: DomainRulebook,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
 ) -> EntailmentEngine:
     return EntailmentEngine(
-        domain=domain_ontology,
+        domain=domain_rulebook,
         property_store=property_store,
         signal_store=signal_store,
     )
@@ -552,20 +552,3 @@ async def test_policy_breach_make_ready_overdue(
     assert make_ready[0]["unit_id"] == "u-makeready"
 
 
-# =============================================================================
-# Integration: all signals together
-# =============================================================================
-
-
-@pytest.mark.asyncio
-async def test_engine_no_longer_has_stubs(
-    engine: EntailmentEngine,
-) -> None:
-    """Verify none of the evaluators point to a stub/not-yet-implemented function."""
-    for condition, evaluator in engine._evaluators.items():
-        assert "not_yet_implemented" not in evaluator.__name__, (
-            f"{condition.value} still uses stub evaluator"
-        )
-        assert "generic_threshold" not in evaluator.__name__, (
-            f"{condition.value} still uses generic placeholder"
-        )

@@ -193,7 +193,7 @@ async def main() -> None:
     console.print(Rule("[bold yellow]Phase 6: Ontology Queries[/bold yellow]", style="yellow"))
     console.print()
 
-    os = container.ontology_store
+    os = container.knowledge_graph
     types = await os.list_object_types()
     console.print(f"  Object types: {len(types)}")
     for t in types:
@@ -212,7 +212,7 @@ async def main() -> None:
     console.print(Rule("[bold yellow]Phase 7: TBox Summary[/bold yellow]", style="yellow"))
     console.print()
 
-    domain = container.domain_ontology
+    domain = container.domain_rulebook
     console.print(f"  Signal definitions: {len(domain.signals)}")
     for name, defn in domain.signals.items():
         console.print(f"    {name}: {defn.severity.value} | {defn.rule.condition.value} | entity={defn.entity}")

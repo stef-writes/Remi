@@ -6,6 +6,6 @@ from pathlib import Path
 
 REMI_PACKAGE_DIR = Path(__file__).resolve().parent.parent
 
-APPS_DIR = REMI_PACKAGE_DIR / "apps"
+AGENTS_DIR = REMI_PACKAGE_DIR / "agents"
 
 DOMAIN_YAML_PATH = REMI_PACKAGE_DIR / "config" / "domain.yaml"

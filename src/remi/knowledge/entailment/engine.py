@@ -1,6 +1,6 @@
 """EntailmentEngine — evaluates TBox rules against ABox facts to derive signals.
 
-Rule-driven: the engine iterates every SignalDefinition in the DomainOntology,
+Rule-driven: the engine iterates every SignalDefinition in the DomainRulebook,
 reads its InferenceRule, dispatches on the RuleCondition enum, and produces
 Signal instances. Adding a new signal to domain.yaml is sufficient for any
 condition the engine already understands. No per-signal Python methods.
@@ -33,7 +33,7 @@ from remi.knowledge.entailment.trend import (
 )
 from remi.models.properties import PropertyStore
 from remi.models.signals import (
-    DomainOntology,
+    DomainRulebook,
     ProducerResult,
     RuleCondition,
     Signal,
@@ -53,7 +53,7 @@ class EntailmentEngine(SignalProducer):
 
     def __init__(
         self,
-        domain: DomainOntology,
+        domain: DomainRulebook,
         property_store: PropertyStore,
         signal_store: SignalStore | None = None,
         tracer: Tracer | None = None,

@@ -5,6 +5,7 @@ Pure PropertyStore read-model: no LLM, no document store.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from decimal import Decimal
 
@@ -67,6 +68,8 @@ class ManagerSummary(BaseModel):
     expiring_leases_90d: int
     expired_leases: int
     below_market_units: int
+    delinquent_count: int
+    total_delinquent_balance: float
     properties: list[PropertySummary]
     top_issues: list[UnitIssue]
 
@@ -110,147 +113,179 @@ class ManagerReviewService:
         property_summaries: list[PropertySummary] = []
         top_issues: list[UnitIssue] = []
 
-        for portfolio in portfolios:
-            properties = await self._ps.list_properties(portfolio_id=portfolio.id)
+        # Gather all properties across portfolios concurrently
+        portfolio_props = await asyncio.gather(*[
+            self._ps.list_properties(portfolio_id=p.id) for p in portfolios
+        ])
+        all_props_with_portfolio = [
+            (prop, portfolio)
+            for portfolio, props in zip(portfolios, portfolio_props)
+            for prop in props
+        ]
 
-            for prop in properties:
-                property_count += 1
-                units = await self._ps.list_units(property_id=prop.id)
-                leases = await self._ps.list_leases(property_id=prop.id)
-                maint = await self._ps.list_maintenance_requests(property_id=prop.id)
+        # Gather units/leases/maint for all properties concurrently
+        async def _load_prop(prop_id: str) -> tuple:
+            u, l, m = await asyncio.gather(
+                self._ps.list_units(property_id=prop_id),
+                self._ps.list_leases(property_id=prop_id),
+                self._ps.list_maintenance_requests(property_id=prop_id),
+            )
+            return u, l, m
 
-                p_units = len(units)
-                p_occ = sum(1 for u in units if u.status == UnitStatus.OCCUPIED)
-                p_vac = sum(1 for u in units if u.status == UnitStatus.VACANT)
-                p_market = sum((u.market_rent for u in units), Decimal("0"))
-                p_actual = sum((u.current_rent for u in units), Decimal("0"))
-                p_ltl = sum(
-                    (
-                        u.market_rent - u.current_rent
-                        for u in units
-                        if u.current_rent < u.market_rent
-                    ),
-                    Decimal("0"),
-                )
-                p_vloss = sum(
-                    (u.market_rent for u in units if u.status == UnitStatus.VACANT),
-                    Decimal("0"),
-                )
-                p_open_maint = sum(
-                    1
-                    for m in maint
-                    if m.status in (MaintenanceStatus.OPEN, MaintenanceStatus.IN_PROGRESS)
-                )
-                p_emergency = sum(
-                    1
-                    for m in maint
-                    if m.status in (MaintenanceStatus.OPEN, MaintenanceStatus.IN_PROGRESS)
-                    and m.priority.value == "emergency"
-                )
+        prop_data = await asyncio.gather(*[
+            _load_prop(prop.id) for prop, _ in all_props_with_portfolio
+        ])
 
-                p_expiring = 0
-                p_expired = 0
-                for le in leases:
-                    if le.status == LeaseStatus.ACTIVE:
-                        days_left = (le.end_date - today).days
-                        if 0 < days_left <= 90:
-                            p_expiring += 1
-                    elif le.status == LeaseStatus.EXPIRED:
-                        p_expired += 1
+        for (prop, portfolio), (units, leases, maint) in zip(all_props_with_portfolio, prop_data):
+            property_count += 1
 
-                p_below = sum(
-                    1
+            p_units = len(units)
+            p_occ = sum(1 for u in units if u.status == UnitStatus.OCCUPIED)
+            p_vac = sum(1 for u in units if u.status == UnitStatus.VACANT)
+            p_market = sum((u.market_rent for u in units), Decimal("0"))
+            p_actual = sum((u.current_rent for u in units), Decimal("0"))
+            p_ltl = sum(
+                (
+                    u.market_rent - u.current_rent
                     for u in units
-                    if u.market_rent > 0
+                    if u.current_rent < u.market_rent
+                ),
+                Decimal("0"),
+            )
+            p_vloss = sum(
+                (u.market_rent for u in units if u.status == UnitStatus.VACANT),
+                Decimal("0"),
+            )
+            p_open_maint = sum(
+                1
+                for m in maint
+                if m.status in (MaintenanceStatus.OPEN, MaintenanceStatus.IN_PROGRESS)
+            )
+            p_emergency = sum(
+                1
+                for m in maint
+                if m.status in (MaintenanceStatus.OPEN, MaintenanceStatus.IN_PROGRESS)
+                and m.priority.value == "emergency"
+            )
+
+            p_expiring = 0
+            p_expired = 0
+            for le in leases:
+                if le.status == LeaseStatus.ACTIVE:
+                    days_left = (le.end_date - today).days
+                    if 0 < days_left <= 90:
+                        p_expiring += 1
+                elif le.status == LeaseStatus.EXPIRED:
+                    p_expired += 1
+
+            p_below = sum(
+                1
+                for u in units
+                if u.market_rent > 0
+                and u.current_rent < u.market_rent
+                and float((u.market_rent - u.current_rent) / u.market_rent)
+                > _BELOW_MARKET_THRESHOLD
+            )
+
+            total_units += p_units
+            occupied += p_occ
+            vacant += p_vac
+            total_market += p_market
+            total_actual += p_actual
+            total_loss_to_lease += p_ltl
+            total_vacancy_loss += p_vloss
+            open_maintenance += p_open_maint
+            emergency_maintenance += p_emergency
+            expiring_leases_90d += p_expiring
+            expired_leases += p_expired
+            below_market_units += p_below
+
+            issue_count = p_vac + p_open_maint + p_expiring + p_expired + p_below
+            property_summaries.append(
+                PropertySummary(
+                    property_id=prop.id,
+                    property_name=prop.name,
+                    portfolio_id=portfolio.id,
+                    portfolio_name=portfolio.name,
+                    total_units=p_units,
+                    occupied=p_occ,
+                    vacant=p_vac,
+                    occupancy_rate=round(p_occ / p_units, 3) if p_units else 0,
+                    monthly_actual=float(p_actual),
+                    monthly_market=float(p_market),
+                    loss_to_lease=float(p_ltl),
+                    vacancy_loss=float(p_vloss),
+                    open_maintenance=p_open_maint,
+                    emergency_maintenance=p_emergency,
+                    expiring_leases=p_expiring,
+                    expired_leases=p_expired,
+                    below_market_units=p_below,
+                    issue_count=issue_count,
+                )
+            )
+
+            for u in units:
+                unit_issues: list[str] = []
+                if u.status == UnitStatus.VACANT:
+                    unit_issues.append("vacant")
+                if (
+                    u.market_rent > 0
                     and u.current_rent < u.market_rent
                     and float((u.market_rent - u.current_rent) / u.market_rent)
                     > _BELOW_MARKET_THRESHOLD
+                ):
+                    unit_issues.append("below_market")
+
+                unit_leases = [le for le in leases if le.unit_id == u.id]
+                active = next(
+                    (le for le in unit_leases if le.status == LeaseStatus.ACTIVE), None
                 )
+                if active and 0 < (active.end_date - today).days <= 90:
+                    unit_issues.append("expiring_soon")
+                exp = next((le for le in unit_leases if le.status == LeaseStatus.EXPIRED), None)
+                if exp:
+                    unit_issues.append("expired_lease")
 
-                total_units += p_units
-                occupied += p_occ
-                vacant += p_vac
-                total_market += p_market
-                total_actual += p_actual
-                total_loss_to_lease += p_ltl
-                total_vacancy_loss += p_vloss
-                open_maintenance += p_open_maint
-                emergency_maintenance += p_emergency
-                expiring_leases_90d += p_expiring
-                expired_leases += p_expired
-                below_market_units += p_below
+                unit_maint = [
+                    m
+                    for m in maint
+                    if m.unit_id == u.id
+                    and m.status in (MaintenanceStatus.OPEN, MaintenanceStatus.IN_PROGRESS)
+                ]
+                if unit_maint:
+                    unit_issues.append("open_maintenance")
 
-                issue_count = p_vac + p_open_maint + p_expiring + p_expired + p_below
-                property_summaries.append(
-                    PropertySummary(
-                        property_id=prop.id,
-                        property_name=prop.name,
-                        portfolio_id=portfolio.id,
-                        portfolio_name=portfolio.name,
-                        total_units=p_units,
-                        occupied=p_occ,
-                        vacant=p_vac,
-                        occupancy_rate=round(p_occ / p_units, 3) if p_units else 0,
-                        monthly_actual=float(p_actual),
-                        monthly_market=float(p_market),
-                        loss_to_lease=float(p_ltl),
-                        vacancy_loss=float(p_vloss),
-                        open_maintenance=p_open_maint,
-                        emergency_maintenance=p_emergency,
-                        expiring_leases=p_expiring,
-                        expired_leases=p_expired,
-                        below_market_units=p_below,
-                        issue_count=issue_count,
-                    )
-                )
-
-                for u in units:
-                    unit_issues: list[str] = []
-                    if u.status == UnitStatus.VACANT:
-                        unit_issues.append("vacant")
-                    if (
-                        u.market_rent > 0
-                        and u.current_rent < u.market_rent
-                        and float((u.market_rent - u.current_rent) / u.market_rent)
-                        > _BELOW_MARKET_THRESHOLD
-                    ):
-                        unit_issues.append("below_market")
-
-                    unit_leases = [le for le in leases if le.unit_id == u.id]
-                    active = next(
-                        (le for le in unit_leases if le.status == LeaseStatus.ACTIVE), None
-                    )
-                    if active and 0 < (active.end_date - today).days <= 90:
-                        unit_issues.append("expiring_soon")
-                    exp = next((le for le in unit_leases if le.status == LeaseStatus.EXPIRED), None)
-                    if exp:
-                        unit_issues.append("expired_lease")
-
-                    unit_maint = [
-                        m
-                        for m in maint
-                        if m.unit_id == u.id
-                        and m.status in (MaintenanceStatus.OPEN, MaintenanceStatus.IN_PROGRESS)
-                    ]
-                    if unit_maint:
-                        unit_issues.append("open_maintenance")
-
-                    if unit_issues:
-                        top_issues.append(
-                            UnitIssue(
-                                property_id=prop.id,
-                                property_name=prop.name,
-                                unit_id=u.id,
-                                unit_number=u.unit_number,
-                                issues=unit_issues,
-                                monthly_impact=float(u.market_rent - u.current_rent)
-                                if u.current_rent < u.market_rent
-                                else 0,
-                            )
+                if unit_issues:
+                    top_issues.append(
+                        UnitIssue(
+                            property_id=prop.id,
+                            property_name=prop.name,
+                            unit_id=u.id,
+                            unit_number=u.unit_number,
+                            issues=unit_issues,
+                            monthly_impact=float(u.market_rent - u.current_rent)
+                            if u.current_rent < u.market_rent
+                            else 0,
                         )
+                    )
 
         property_summaries.sort(key=lambda p: p.issue_count, reverse=True)
         top_issues.sort(key=lambda i: len(i.issues), reverse=True)
+
+        all_property_ids = {p.property_id for p in property_summaries}
+        all_tenants = await self._ps.list_tenants()
+        delinquent_tenants = [t for t in all_tenants if t.balance_owed > 0]
+
+        delinquent_leases = await asyncio.gather(*[
+            self._ps.list_leases(tenant_id=t.id) for t in delinquent_tenants
+        ])
+
+        delinquent_count = 0
+        delinquent_balance = Decimal("0")
+        for t, t_leases in zip(delinquent_tenants, delinquent_leases):
+            if any(le.property_id in all_property_ids for le in t_leases):
+                delinquent_count += 1
+                delinquent_balance += t.balance_owed
 
         return ManagerSummary(
             manager_id=manager.id,
@@ -272,6 +307,8 @@ class ManagerReviewService:
             expiring_leases_90d=expiring_leases_90d,
             expired_leases=expired_leases,
             below_market_units=below_market_units,
+            delinquent_count=delinquent_count,
+            total_delinquent_balance=float(delinquent_balance),
             properties=property_summaries,
             top_issues=top_issues[:50],
         )

@@ -5,6 +5,8 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from remi.models.properties import (
+    ActionItem,
+    ActionItemStatus,
     Lease,
     LeaseStatus,
     MaintenanceRequest,
@@ -46,6 +48,7 @@ class InMemoryPropertyStore(PropertyStore):
         self._leases: dict[str, Lease] = {}
         self._tenants: dict[str, Tenant] = {}
         self._maintenance: dict[str, MaintenanceRequest] = {}
+        self._action_items: dict[str, ActionItem] = {}
 
     # -- PropertyManager --
     async def get_manager(self, manager_id: str) -> PropertyManager | None:
@@ -183,3 +186,67 @@ class InMemoryPropertyStore(PropertyStore):
     async def upsert_maintenance_request(self, request: MaintenanceRequest) -> None:
         existing = self._maintenance.get(request.id)
         self._maintenance[request.id] = _merge(existing, request) if existing else request  # type: ignore[assignment]
+
+    # -- Deletes --
+    async def delete_manager(self, manager_id: str) -> bool:
+        if manager_id not in self._managers:
+            return False
+        del self._managers[manager_id]
+        pf_ids = [p.id for p in self._portfolios.values() if p.manager_id == manager_id]
+        for pf_id in pf_ids:
+            del self._portfolios[pf_id]
+        for prop in list(self._properties.values()):
+            if prop.portfolio_id in pf_ids:
+                self._properties[prop.id] = prop.model_copy(update={"portfolio_id": ""})
+        return True
+
+    async def delete_property(self, property_id: str) -> bool:
+        if property_id not in self._properties:
+            return False
+        del self._properties[property_id]
+        unit_ids = [u.id for u in self._units.values() if u.property_id == property_id]
+        for uid in unit_ids:
+            del self._units[uid]
+        lease_ids = [le.id for le in self._leases.values() if le.property_id == property_id]
+        for lid in lease_ids:
+            del self._leases[lid]
+        return True
+
+    async def delete_tenant(self, tenant_id: str) -> bool:
+        if tenant_id not in self._tenants:
+            return False
+        del self._tenants[tenant_id]
+        lease_ids = [le.id for le in self._leases.values() if le.tenant_id == tenant_id]
+        for lid in lease_ids:
+            del self._leases[lid]
+        return True
+
+    # -- Action Items --
+    async def get_action_item(self, item_id: str) -> ActionItem | None:
+        return self._action_items.get(item_id)
+
+    async def list_action_items(
+        self,
+        *,
+        manager_id: str | None = None,
+        property_id: str | None = None,
+        tenant_id: str | None = None,
+        status: ActionItemStatus | None = None,
+    ) -> list[ActionItem]:
+        items = list(self._action_items.values())
+        if manager_id:
+            items = [i for i in items if i.manager_id == manager_id]
+        if property_id:
+            items = [i for i in items if i.property_id == property_id]
+        if tenant_id:
+            items = [i for i in items if i.tenant_id == tenant_id]
+        if status:
+            items = [i for i in items if i.status == status]
+        return items
+
+    async def upsert_action_item(self, item: ActionItem) -> None:
+        existing = self._action_items.get(item.id)
+        self._action_items[item.id] = _merge(existing, item) if existing else item  # type: ignore[assignment]
+
+    async def delete_action_item(self, item_id: str) -> bool:
+        return self._action_items.pop(item_id, None) is not None

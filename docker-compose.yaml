@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: remi
+      POSTGRES_USER: remi
+      POSTGRES_PASSWORD: remi
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

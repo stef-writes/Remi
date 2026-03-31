@@ -1,4 +1,4 @@
-"""BridgedOntologyStore — routes ontology calls to a domain store
+"""BridgedKnowledgeGraph — routes knowledge graph calls to a domain store
 and KnowledgeStore without replacing them.
 
 Part of the **Incline** framework. Domain-agnostic: the caller provides
@@ -18,15 +18,14 @@ from typing import Any
 
 from remi.models.memory import Entity, KnowledgeStore, Relationship
 from remi.models.ontology import (
+    KnowledgeGraph,
     KnowledgeProvenance,
     LinkTypeDef,
     ObjectTypeDef,
-    OntologyStore,
 )
 
 _NS = "ontology"
 
-# Type alias for core type bindings: {type_name: (get_one_fn, list_all_fn)}
 CoreTypeBindings = dict[str, tuple[Any, Any]]
 
 
@@ -47,8 +46,8 @@ def _match_filters(obj: dict[str, Any], filters: dict[str, Any]) -> bool:
     return True
 
 
-class BridgedOntologyStore(OntologyStore):
-    """Routes ontology calls to domain-specific stores + KnowledgeStore.
+class BridgedKnowledgeGraph(KnowledgeGraph):
+    """Routes knowledge graph calls to domain-specific stores + KnowledgeStore.
 
     ``core_types`` maps entity type names to ``(get_one, list_all)``
     callables on the domain store. Everything else falls through to
@@ -302,3 +301,7 @@ class BridgedOntologyStore(OntologyStore):
         )
         await self._ks.put_entity(entity)
         return entity_id
+
+
+# Backward compatibility
+BridgedOntologyStore = BridgedKnowledgeGraph

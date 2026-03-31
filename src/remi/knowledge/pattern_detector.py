@@ -1,6 +1,6 @@
 """PatternDetector — discovers candidate TBox entries from data patterns.
 
-This is the induction layer. It examines ABox facts through the OntologyStore
+This is the induction layer. It examines ABox facts through the KnowledgeGraph
 and proposes new domain knowledge as Hypothesis objects:
 
 - Outlier patterns → proposed SignalDefinitions ("this metric regularly
@@ -14,7 +14,7 @@ The detector does NOT produce Signals. It produces Hypotheses — candidate
 laws that must be confirmed before they affect the system's deductive
 reasoning.
 
-Domain-agnostic: operates through OntologyStore, works on any object types.
+Domain-agnostic: operates through KnowledgeGraph, works on any object types.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from typing import Any
 
 import structlog
 
-from remi.models.ontology import OntologyStore
+from remi.models.ontology import KnowledgeGraph
 from remi.models.signals import (
     Hypothesis,
     HypothesisKind,
@@ -53,14 +53,14 @@ class DetectorResult:
 class PatternDetector:
     """Discovers candidate domain knowledge from data patterns.
 
-    Scans OntologyStore data, computes statistics, and proposes Hypothesis
+    Scans KnowledgeGraph data, computes statistics, and proposes Hypothesis
     objects that represent potential new TBox entries. These must be
     reviewed and confirmed before becoming part of the domain's known physics.
     """
 
     def __init__(
         self,
-        ontology_store: OntologyStore,
+        knowledge_graph: KnowledgeGraph,
         hypothesis_store: HypothesisStore,
         *,
         zscore_threshold: float = 2.5,
@@ -68,7 +68,7 @@ class PatternDetector:
         correlation_threshold: float = 0.70,
         min_sample_size: int = 5,
     ) -> None:
-        self._os = ontology_store
+        self._kg = knowledge_graph
         self._hs = hypothesis_store
         self._zscore_threshold = zscore_threshold
         self._concentration_threshold = concentration_threshold
@@ -78,12 +78,12 @@ class PatternDetector:
     async def run(self) -> DetectorResult:
         """Scan all object types and propose hypotheses from patterns."""
         result = DetectorResult()
-        types = await self._os.list_object_types()
+        types = await self._kg.list_object_types()
         result.types_scanned = len(types)
 
         for type_def in types:
             try:
-                objects = await self._os.search_objects(
+                objects = await self._kg.search_objects(
                     type_def.name,
                     limit=10_000,
                 )

@@ -29,6 +29,11 @@ class TenantDetailResponse(BaseModel, frozen=True):
     leases: list[LeaseInfo]
 
 
+class UpdateTenantRequest(BaseModel):
+    email: str | None = None
+    phone: str | None = None
+
+
 @router.get("/{tenant_id}", response_model=TenantDetailResponse)
 async def get_tenant(
     tenant_id: str,
@@ -59,3 +64,35 @@ async def get_tenant(
         phone=tenant.phone,
         leases=lease_info,
     )
+
+
+@router.patch("/{tenant_id}")
+async def update_tenant(
+    tenant_id: str,
+    body: UpdateTenantRequest,
+    ps: PropertyStore = Depends(get_property_store),
+) -> dict[str, str]:
+    tenant = await ps.get_tenant(tenant_id)
+    if not tenant:
+        raise HTTPException(404, f"Tenant '{tenant_id}' not found")
+
+    updates: dict[str, str | None] = {}
+    if body.email is not None:
+        updates["email"] = body.email
+    if body.phone is not None:
+        updates["phone"] = body.phone
+
+    updated = tenant.model_copy(update=updates)
+    await ps.upsert_tenant(updated)
+    return {"id": tenant_id, "name": updated.name}
+
+
+@router.delete("/{tenant_id}", status_code=200)
+async def delete_tenant(
+    tenant_id: str,
+    ps: PropertyStore = Depends(get_property_store),
+) -> dict[str, bool]:
+    deleted = await ps.delete_tenant(tenant_id)
+    if not deleted:
+        raise HTTPException(404, f"Tenant '{tenant_id}' not found")
+    return {"deleted": True}

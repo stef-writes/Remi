@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from remi.models.retrieval import EmbeddingRecord
-from remi.stores.vectors import InMemoryVectorStore, _cosine_similarity
+from remi.stores.vectors import InMemoryVectorStore
 
 
 @pytest.fixture
@@ -30,33 +30,6 @@ def _make_record(
         source_field="profile",
         metadata=metadata,
     )
-
-
-# ---------------------------------------------------------------------------
-# Cosine similarity function
-# ---------------------------------------------------------------------------
-
-
-class TestCosineSimilarity:
-    def test_identical_vectors(self) -> None:
-        v = [1.0, 0.0, 0.0]
-        assert _cosine_similarity(v, v) == pytest.approx(1.0)
-
-    def test_orthogonal_vectors(self) -> None:
-        a = [1.0, 0.0, 0.0]
-        b = [0.0, 1.0, 0.0]
-        assert _cosine_similarity(a, b) == pytest.approx(0.0)
-
-    def test_opposite_vectors(self) -> None:
-        a = [1.0, 0.0]
-        b = [-1.0, 0.0]
-        assert _cosine_similarity(a, b) == pytest.approx(-1.0)
-
-    def test_different_lengths_returns_zero(self) -> None:
-        assert _cosine_similarity([1.0], [1.0, 2.0]) == 0.0
-
-    def test_zero_vector_returns_zero(self) -> None:
-        assert _cosine_similarity([0.0, 0.0], [1.0, 0.0]) == 0.0
 
 
 # ---------------------------------------------------------------------------

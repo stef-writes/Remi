@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from remi.api.actions.router import router as actions_router
+from remi.api.notes.router import router as notes_router
 from remi.api.agents.router import router as agents_router
 from remi.api.dashboard.router import router as dashboard_router
 from remi.api.documents.router import router as documents_router
@@ -26,8 +28,11 @@ from remi.api.seed.router import router as seed_router
 from remi.api.signals.router import router as signals_router
 from remi.api.tenants.router import router as tenants_router
 from remi.api.units.router import router as units_router
+from remi.api.error_handler import install_error_handlers
+from remi.api.middleware import RequestIDMiddleware
 from remi.config.container import Container
 from remi.config.settings import RemiSettings, load_settings
+from remi.observability.events import Event
 from remi.observability.logging import configure_logging
 
 
@@ -45,6 +50,8 @@ def _attach_routers(application: FastAPI) -> None:
     application.include_router(units_router, prefix="/api/v1")
     application.include_router(ontology_router, prefix="/api/v1")
     application.include_router(seed_router, prefix="/api/v1")
+    application.include_router(actions_router, prefix="/api/v1")
+    application.include_router(notes_router, prefix="/api/v1")
     application.include_router(realtime_router)
 
 
@@ -78,7 +85,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await container.ensure_bootstrapped()
 
     log.info(
-        "server_ready",
+        Event.SERVER_READY,
         provider=settings.llm.default_provider,
         model=settings.llm.default_model,
         tools=len(container.tool_registry.list_tools()),
@@ -91,9 +98,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await seed_into(container.property_store)
         result = await container.signal_pipeline.run_all()
         log.info("seed_signals_complete", produced=result.produced)
+        embed_result = await container.embedding_pipeline.run_full()
+        log.info("seed_embeddings_complete", embedded=embed_result.embedded)
 
     yield
-    log.info("server_shutdown")
+    log.info(Event.SERVER_SHUTDOWN)
 
 
 def create_app() -> FastAPI:
@@ -105,9 +114,38 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    install_error_handlers(application)
+    application.add_middleware(RequestIDMiddleware)
     _add_cors(application, load_settings())
     _attach_routers(application)
+    _attach_health(application)
     return application
+
+
+def _attach_health(application: FastAPI) -> None:
+    """Add ``/health`` endpoint for live assessment."""
+    import time as _time
+
+    _boot_time = _time.time()
+
+    @application.get("/health", tags=["ops"])
+    async def health() -> dict:
+        container: Container | None = getattr(application.state, "container", None)
+        trace_count = 0
+        span_count = 0
+        if container is not None:
+            store = container.trace_store
+            if hasattr(store, "_by_trace"):
+                trace_count = len(store._by_trace)
+                span_count = len(store._spans)
+        uptime_s = round(_time.time() - _boot_time)
+        return {
+            "status": "ok",
+            "version": application.version,
+            "uptime_s": uptime_s,
+            "traces": trace_count,
+            "spans": span_count,
+        }
 
 
 app = create_app()

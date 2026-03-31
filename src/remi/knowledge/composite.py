@@ -5,7 +5,7 @@ EntailmentEngine, supporting a pluggable pipeline of signal sources:
 
     composite = CompositeProducer(signal_store, [
         RuleBasedProducer(domain, property_store),
-        StatisticalProducer(ontology_store),
+        StatisticalProducer(knowledge_graph=knowledge_graph),
     ])
     result = await composite.run_all()
 

@@ -1,4 +1,4 @@
-"""Bootstrap the ontology — register core types, link types, and seed
+"""Bootstrap the knowledge graph — register core types, link types, and seed
 operational PM knowledge from domain.yaml (TBox + ABox seeds).
 
 Called once during container initialization.
@@ -12,10 +12,10 @@ from typing import Any
 import yaml
 
 from remi.models.ontology import (
+    KnowledgeGraph,
     KnowledgeProvenance,
     LinkTypeDef,
     ObjectTypeDef,
-    OntologyStore,
     PropertyDef,
 )
 from remi.shared.paths import DOMAIN_YAML_PATH
@@ -156,6 +156,48 @@ _CORE_TYPES: list[ObjectTypeDef] = [
             PropertyDef(name="vendor", data_type="string"),
         ),
     ),
+    ObjectTypeDef(
+        name="ActionItem",
+        plural_name="ActionItems",
+        description="A director-created action item for tracking follow-ups on managers, properties, or tenants",
+        properties=(
+            PropertyDef(name="id", data_type="string", required=True),
+            PropertyDef(name="title", data_type="string", required=True),
+            PropertyDef(name="description", data_type="string"),
+            PropertyDef(
+                name="status",
+                data_type="enum",
+                enum_values=["open", "in_progress", "done", "cancelled"],
+            ),
+            PropertyDef(
+                name="priority",
+                data_type="enum",
+                enum_values=["low", "medium", "high", "urgent"],
+            ),
+            PropertyDef(name="manager_id", data_type="string"),
+            PropertyDef(name="property_id", data_type="string"),
+            PropertyDef(name="tenant_id", data_type="string"),
+            PropertyDef(name="due_date", data_type="date"),
+        ),
+    ),
+    ObjectTypeDef(
+        name="Note",
+        plural_name="Notes",
+        description="An observation or note attached to any entity — from the director, AI, or ingested reports",
+        properties=(
+            PropertyDef(name="id", data_type="string", required=True),
+            PropertyDef(name="content", data_type="string", required=True),
+            PropertyDef(name="entity_type", data_type="string"),
+            PropertyDef(name="entity_id", data_type="string"),
+            PropertyDef(
+                name="provenance",
+                data_type="enum",
+                enum_values=["user_stated", "data_derived", "inferred"],
+            ),
+            PropertyDef(name="source_doc", data_type="string"),
+            PropertyDef(name="created_by", data_type="string"),
+        ),
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -204,6 +246,12 @@ _STRUCTURAL_LINKS: list[LinkTypeDef] = [
         target_type="Unit",
         cardinality="many_to_one",
         description="Work order affects a unit",
+    ),
+    LinkTypeDef(
+        name="HAS_NOTE",
+        source_type="*",
+        target_type="Note",
+        description="Entity has an attached note or observation",
     ),
 ]
 
@@ -287,7 +335,7 @@ _OPERATIONAL_LINKS: list[LinkTypeDef] = [
 
 
 def load_domain_yaml(path: Path | None = None) -> dict[str, Any]:
-    """Load and parse the domain ontology YAML. Returns the full dict."""
+    """Load and parse the domain rulebook YAML. Returns the full dict."""
     yaml_path = path or DOMAIN_YAML_PATH
     if not yaml_path.exists():
         return {}
@@ -300,8 +348,8 @@ def load_domain_yaml(path: Path | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def bootstrap_ontology(
-    store: OntologyStore,
+async def bootstrap_knowledge_graph(
+    store: KnowledgeGraph,
     domain_yaml_path: Path | None = None,
 ) -> None:
     """Register core types, link types, and seed operational knowledge."""
@@ -316,13 +364,11 @@ async def bootstrap_ontology(
     for link_def in _OPERATIONAL_LINKS:
         await store.define_link_type(link_def)
 
-    # Seed ABox workflows from domain.yaml
     abox = domain.get("abox", {})
     for wf in abox.get("workflows", []):
         steps = [(s["id"], s["description"]) for s in wf.get("steps", [])]
         await _seed_workflow(store, wf["name"], steps)
 
-    # Seed causal chains from domain.yaml TBox
     tbox = domain.get("tbox", {})
     for chain in tbox.get("causal_chains", []):
         source_id = f"cause:{chain['cause']}"
@@ -335,7 +381,6 @@ async def bootstrap_ontology(
             source_id, "CAUSES", target_id, properties={"description": description}
         )
 
-    # Seed policies from domain.yaml TBox
     for policy in tbox.get("policies", []):
         await store.codify(
             "policy",
@@ -348,8 +393,12 @@ async def bootstrap_ontology(
         )
 
 
+# Backward compatibility
+bootstrap_ontology = bootstrap_knowledge_graph
+
+
 async def _seed_workflow(
-    store: OntologyStore,
+    store: KnowledgeGraph,
     workflow_name: str,
     steps: list[tuple[str, str]],
 ) -> None:

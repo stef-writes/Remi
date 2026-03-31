@@ -108,7 +108,7 @@ async def seed_reports(
     # Auto-assign: wire properties to managers from embedded tags
     assigned = 0
     try:
-        assign_result = await auto_assign.assign()
+        assign_result = await auto_assign.auto_assign()
         assigned = assign_result.assigned
         logger.info("seed_auto_assign_complete", assigned=assigned)
     except Exception:
@@ -148,6 +148,7 @@ async def seed_demo(
     try:
         summary = await seed_into(container.property_store)
         await container.signal_pipeline.run_all()
+        await container.embedding_pipeline.run_full()
         return DemoSeedResult(ok=True, summary=summary)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

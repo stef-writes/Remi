@@ -19,6 +19,8 @@ export interface ManagerListItem {
   expiring_leases_90d: number;
   expired_leases: number;
   below_market_units: number;
+  delinquent_count: number;
+  total_delinquent_balance: number;
 }
 
 export interface ManagerPropertySummary {
@@ -71,6 +73,8 @@ export interface ManagerReview {
   expiring_leases_90d: number;
   expired_leases: number;
   below_market_units: number;
+  delinquent_count: number;
+  total_delinquent_balance: number;
   properties: ManagerPropertySummary[];
   top_issues: ManagerUnitIssue[];
 }
@@ -118,6 +122,7 @@ export interface DelinquentTenant {
   balance_30_plus: number;
   last_payment_date: string | null;
   tags: string[];
+  delinquency_notes: string | null;
 }
 
 export interface DelinquencyBoard {
@@ -373,6 +378,9 @@ export interface UsageInfo {
   model?: string;
   provider?: string;
   cost?: number;
+  latency_ms?: number;
+  trace_id?: string;
+  intent?: string;
 }
 
 export interface ChatMessage {
@@ -468,6 +476,44 @@ export interface ProfileView {
   entity_type: string;
   entity_id: string;
   sections: ProfileSection[];
+}
+
+// --- Action Items ---
+
+export interface ActionItemResponse {
+  id: string;
+  title: string;
+  description: string;
+  status: "open" | "in_progress" | "done" | "cancelled";
+  priority: "low" | "medium" | "high" | "urgent";
+  manager_id: string | null;
+  property_id: string | null;
+  tenant_id: string | null;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManagerNoteResponse {
+  id: string;
+  manager_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Entity Notes (KnowledgeGraph-backed) ---
+
+export interface EntityNoteResponse {
+  id: string;
+  content: string;
+  entity_type: string;
+  entity_id: string;
+  provenance: "user_stated" | "data_derived" | "inferred";
+  source_doc?: string | null;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 // --- Agents ---

@@ -60,12 +60,31 @@ class IngestionService:
         self._classify_fn = classify_fn
 
     async def _ensure_manager(self, manager_tag: str) -> str:
-        """Create or retrieve a manager + portfolio for a given tag. Returns portfolio_id."""
+        """Create or retrieve a manager + portfolio for a given tag. Returns portfolio_id.
+
+        When the resolved name doesn't match an existing manager exactly, we
+        check for a first-name match (e.g. "Denise Shoemaker" matches existing
+        "Denise") and merge into that record rather than creating a duplicate.
+        The longer name wins so the record becomes more complete over time.
+        """
         mgr_name = manager_name_from_tag(manager_tag)
         manager_id = slugify(f"manager:{mgr_name}")
-        await self._ps.upsert_manager(
-            PropertyManager(id=manager_id, name=mgr_name, manager_tag=manager_tag)
-        )
+
+        existing = await self._ps.get_manager(manager_id)
+        if existing:
+            await self._ps.upsert_manager(
+                PropertyManager(id=manager_id, name=mgr_name, manager_tag=manager_tag)
+            )
+        else:
+            resolved_id, resolved_name = await self._resolve_manager_alias(mgr_name)
+            if resolved_id:
+                manager_id = resolved_id
+                mgr_name = resolved_name  # type: ignore[assignment]
+            else:
+                await self._ps.upsert_manager(
+                    PropertyManager(id=manager_id, name=mgr_name, manager_tag=manager_tag)
+                )
+
         portfolio_id = slugify(f"portfolio:{mgr_name}")
         await self._ps.upsert_portfolio(
             Portfolio(
@@ -75,6 +94,32 @@ class IngestionService:
             )
         )
         return portfolio_id
+
+    async def _resolve_manager_alias(self, name: str) -> tuple[str | None, str | None]:
+        """Find an existing manager whose name is a prefix of or prefixed by the given name.
+
+        Returns (manager_id, canonical_name) if found, else (None, None).
+        When a match is found, the longer name becomes canonical so the record
+        improves (e.g. "Denise" is upgraded to "Denise Shoemaker").
+        """
+        first_name = name.split()[0].lower() if name else ""
+        if not first_name:
+            return None, None
+
+        managers = await self._ps.list_managers()
+        for m in managers:
+            m_first = m.name.split()[0].lower() if m.name else ""
+            if m_first != first_name:
+                continue
+            if m.name.lower().startswith(name.lower()) or name.lower().startswith(m.name.lower()):
+                canonical = name if len(name) > len(m.name) else m.name
+                if len(canonical) > len(m.name):
+                    await self._ps.upsert_manager(
+                        PropertyManager(id=m.id, name=canonical, manager_tag=m.manager_tag)
+                    )
+                return m.id, canonical
+
+        return None, None
 
     async def _upsert_property_safe(
         self,

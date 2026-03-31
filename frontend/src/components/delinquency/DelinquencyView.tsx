@@ -1,39 +1,117 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { fmt$ } from "@/lib/format";
 import { MetricCard } from "@/components/ui/MetricCard";
+import { MetricStrip } from "@/components/ui/MetricStrip";
+import { PageContainer } from "@/components/ui/PageContainer";
 import { Badge } from "@/components/ui/Badge";
 import { ManagerFilter } from "@/components/ui/ManagerFilter";
+import { useApiQuery } from "@/hooks/useApiQuery";
 import type { DelinquencyBoard } from "@/lib/types";
 
-function fmt$(n: number) {
-  return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+function InlineNoteCell({ tenantId, reportNote }: { tenantId: string; reportNote?: string | null }) {
+  const [userNote, setUserNote] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [noteId, setNoteId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listEntityNotes("Tenant", tenantId)
+      .then((r) => {
+        if (cancelled) return;
+        const first = r.notes.find((n) => n.provenance === "user_stated");
+        setUserNote(first?.content || "");
+        setNoteId(first?.id || null);
+      })
+      .catch(() => { if (!cancelled) setUserNote(""); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (noteId && draft) {
+        await api.updateEntityNote(noteId, draft);
+      } else if (noteId && !draft) {
+        await api.deleteEntityNote(noteId);
+        setNoteId(null);
+      } else if (draft) {
+        const created = await api.createEntityNote("Tenant", tenantId, draft);
+        setNoteId(created.id);
+      }
+      setUserNote(draft);
+      setEditing(false);
+    } catch {
+      /* keep editing */
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (userNote === null) return <span className="text-fg-ghost text-[10px]">...</span>;
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-1 min-w-[140px]">
+        {reportNote && (
+          <p className="text-[10px] text-fg-ghost italic mb-0.5" title="From report">{reportNote}</p>
+        )}
+        <textarea
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          rows={2}
+          className="bg-surface border border-border rounded px-2 py-1 text-xs text-fg resize-none focus:outline-none focus:border-accent"
+          autoFocus
+        />
+        <div className="flex gap-1">
+          <button onClick={save} disabled={saving} className="text-[10px] text-accent hover:underline">
+            {saving ? "..." : "Save"}
+          </button>
+          <button onClick={() => setEditing(false)} className="text-[10px] text-fg-ghost hover:underline">
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const display = userNote || reportNote;
+  return (
+    <button
+      onClick={() => { setDraft(userNote); setEditing(true); }}
+      className="text-left text-xs max-w-[200px] truncate"
+      title={display || "Click to add note"}
+    >
+      {reportNote && !userNote && (
+        <span className="text-fg-ghost italic">{reportNote}</span>
+      )}
+      {userNote && (
+        <span className="text-fg-muted">{userNote}</span>
+      )}
+      {!display && <span className="text-fg-ghost italic">+ note</span>}
+    </button>
+  );
 }
 
 export function DelinquencyView() {
-  const [data, setData] = useState<DelinquencyBoard | null>(null);
   const [managerId, setManagerId] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setData(await api.delinquencyBoard(managerId || undefined));
-    } catch {
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [managerId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data, loading } = useApiQuery<DelinquencyBoard>(
+    () => api.delinquencyBoard(managerId || undefined),
+    [managerId]
+  );
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-6xl mx-auto px-8 py-8 space-y-6">
+    <PageContainer>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-fg">Delinquency</h1>
@@ -45,7 +123,7 @@ export function DelinquencyView() {
         </div>
 
         {data && (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <MetricStrip className="lg:grid-cols-3">
             <MetricCard
               label="Delinquent Tenants"
               value={data.total_delinquent}
@@ -60,7 +138,7 @@ export function DelinquencyView() {
               label="Avg Balance"
               value={data.total_delinquent > 0 ? fmt$(data.total_balance / data.total_delinquent) : "$0"}
             />
-          </div>
+          </MetricStrip>
         )}
 
         {loading && (
@@ -82,6 +160,7 @@ export function DelinquencyView() {
                     <th className="text-right px-4 py-2.5 text-[11px] font-semibold text-fg-muted uppercase tracking-wide">30+</th>
                     <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-fg-muted uppercase tracking-wide">Last Payment</th>
                     <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-fg-muted uppercase tracking-wide">Tags</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold text-fg-muted uppercase tracking-wide">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -106,6 +185,9 @@ export function DelinquencyView() {
                           ))}
                         </div>
                       </td>
+                      <td className="px-4 py-2.5">
+                        <InlineNoteCell tenantId={t.tenant_id} reportNote={t.delinquency_notes} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -119,7 +201,6 @@ export function DelinquencyView() {
             No delinquent tenants found
           </div>
         )}
-      </div>
-    </div>
+    </PageContainer>
   );
 }

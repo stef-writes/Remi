@@ -10,13 +10,30 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from typing import Any
 
 import sqlalchemy as sa
 from sqlmodel import Field, SQLModel
 
 
+_TZDateTime = sa.DateTime(timezone=True)
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+class DocumentRow(SQLModel, table=True):
+    __tablename__ = "documents"
+
+    id: str = Field(primary_key=True)
+    filename: str
+    content_type: str = ""
+    uploaded_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
+    row_count: int = 0
+    column_names: list[str] = Field(default_factory=list, sa_type=sa.JSON)
+    rows: list[dict[str, Any]] = Field(default_factory=list, sa_type=sa.JSON)
+    doc_metadata: dict[str, Any] = Field(default_factory=dict, sa_type=sa.JSON)
 
 
 class PropertyManagerRow(SQLModel, table=True):
@@ -29,7 +46,7 @@ class PropertyManagerRow(SQLModel, table=True):
     phone: str | None = None
     manager_tag: str | None = None
     portfolio_ids: list[str] = Field(default_factory=list, sa_type=sa.JSON)
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
 
 
 class PortfolioRow(SQLModel, table=True):
@@ -40,7 +57,7 @@ class PortfolioRow(SQLModel, table=True):
     name: str
     description: str = ""
     property_ids: list[str] = Field(default_factory=list, sa_type=sa.JSON)
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
 
 
 class PropertyRow(SQLModel, table=True):
@@ -57,7 +74,7 @@ class PropertyRow(SQLModel, table=True):
     address_state: str = ""
     address_zip_code: str = ""
     address_country: str = "US"
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
 
 
 class UnitRow(SQLModel, table=True):
@@ -109,7 +126,7 @@ class TenantRow(SQLModel, table=True):
     last_payment_date: date | None = None
     tags: list[str] = Field(default_factory=list, sa_type=sa.JSON)
     lease_ids: list[str] = Field(default_factory=list, sa_type=sa.JSON)
-    created_at: datetime = Field(default_factory=_utcnow)
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
 
 
 class MaintenanceRequestRow(SQLModel, table=True):
@@ -124,7 +141,25 @@ class MaintenanceRequestRow(SQLModel, table=True):
     title: str = ""
     description: str = ""
     status: str = "open"
-    created_at: datetime = Field(default_factory=_utcnow)
-    resolved_at: datetime | None = None
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
+    resolved_at: datetime | None = Field(default=None, sa_type=_TZDateTime)
     cost: Decimal | None = Field(default=None, sa_type=sa.Numeric(12, 2))
     vendor: str | None = None
+
+
+class ActionItemRow(SQLModel, table=True):
+    __tablename__ = "action_items"
+
+    id: str = Field(primary_key=True)
+    title: str
+    description: str = ""
+    status: str = "open"
+    priority: str = "medium"
+    manager_id: str | None = Field(default=None, index=True)
+    property_id: str | None = Field(default=None, index=True)
+    tenant_id: str | None = Field(default=None, index=True)
+    due_date: date | None = None
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
+    updated_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
+
+
