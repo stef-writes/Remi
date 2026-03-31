@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from remi.domain.state.models import ExecutionRecord, ModuleState, RunRecord
-from remi.domain.state.ports import StateStore
-from remi.shared.ids import AppId, ModuleId, RunId
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from remi.domain.state.models import ExecutionRecord, ModuleState, RunRecord
+    from remi.domain.state.ports import StateStore
+    from remi.shared.ids import AppId, ModuleId, RunId
 
 
 class StateQueryService:

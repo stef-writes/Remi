@@ -7,13 +7,13 @@ tracking for knowledge that enters the system.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
-class KnowledgeProvenance(str, Enum):
+class KnowledgeProvenance(StrEnum):
     """Tracks how a piece of knowledge entered the system."""
 
     CORE = "core"

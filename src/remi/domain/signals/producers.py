@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from remi.domain.signals.types import Signal
+if TYPE_CHECKING:
+    from remi.domain.signals.types import Signal
 
 
 @dataclass

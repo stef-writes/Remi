@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from remi.domain.memory.ports import (
@@ -136,13 +136,7 @@ class InMemoryKnowledgeStore(KnowledgeStore):
         rels = self._relationships.get(namespace, [])
         result = []
         for r in rels:
-            if direction == "outgoing" and r.source_id == entity_id:
-                if relation_type is None or r.relation_type == relation_type:
-                    result.append(r)
-            elif direction == "incoming" and r.target_id == entity_id:
-                if relation_type is None or r.relation_type == relation_type:
-                    result.append(r)
-            elif direction == "both" and (r.source_id == entity_id or r.target_id == entity_id):
+            if direction == "outgoing" and r.source_id == entity_id or direction == "incoming" and r.target_id == entity_id or direction == "both" and (r.source_id == entity_id or r.target_id == entity_id):
                 if relation_type is None or r.relation_type == relation_type:
                     result.append(r)
         return result

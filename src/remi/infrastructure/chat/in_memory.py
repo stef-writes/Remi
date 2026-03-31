@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from remi.domain.chat.models import ChatSession
 from remi.domain.chat.ports import ChatSessionStore
-from remi.domain.modules.base import Message
+
+if TYPE_CHECKING:
+    from remi.domain.modules.base import Message
 
 
 class InMemoryChatSessionStore(ChatSessionStore):

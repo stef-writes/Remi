@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
-from remi.domain.state.models import ExecutionRecord, ModuleState, RunRecord
-from remi.shared.ids import AppId, ModuleId, RunId
+if TYPE_CHECKING:
+    from remi.domain.state.models import ExecutionRecord, ModuleState, RunRecord
+    from remi.shared.ids import AppId, ModuleId, RunId
 
 
 class StateStore(abc.ABC):

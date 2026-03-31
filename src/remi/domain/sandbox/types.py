@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, UTC
-from enum import Enum, unique
-from typing import Any
+from datetime import UTC, datetime
+from enum import StrEnum, unique
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +13,7 @@ def _utcnow() -> datetime:
 
 
 @unique
-class ExecStatus(str, Enum):
+class ExecStatus(StrEnum):
     SUCCESS = "success"
     ERROR = "error"
     TIMEOUT = "timeout"

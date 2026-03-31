@@ -7,7 +7,8 @@ with message types, error codes, and a lightweight method dispatcher.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from pydantic import BaseModel, Field
 

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from remi.application.app_management.ports import AppRegistry
-from remi.domain.graph.definitions import AppDefinition
-from remi.shared.ids import AppId
+
+if TYPE_CHECKING:
+    from remi.domain.graph.definitions import AppDefinition
+    from remi.shared.ids import AppId
 
 
 class InMemoryAppRegistry(AppRegistry):

@@ -1,0 +1,191 @@
+"""In-memory stores for signals, feedback, and hypotheses."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from remi.models.signals import (
+    FeedbackStore,
+    Hypothesis,
+    HypothesisStatus,
+    HypothesisStore,
+    Severity,
+    Signal,
+    SignalFeedback,
+    SignalFeedbackSummary,
+    SignalOutcome,
+    SignalStore,
+)
+
+_SEVERITY_ORDER = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+}
+
+
+class InMemorySignalStore(SignalStore):
+    def __init__(self) -> None:
+        self._signals: dict[str, Signal] = {}
+
+    async def put_signal(self, signal: Signal) -> None:
+        self._signals[signal.signal_id] = signal
+
+    async def get_signal(self, signal_id: str) -> Signal | None:
+        return self._signals.get(signal_id)
+
+    async def list_signals(
+        self,
+        *,
+        manager_id: str | None = None,
+        property_id: str | None = None,
+        severity: str | None = None,
+        signal_type: str | None = None,
+    ) -> list[Signal]:
+        results = list(self._signals.values())
+
+        if manager_id is not None:
+            results = [
+                s
+                for s in results
+                if s.entity_id == manager_id or s.evidence.get("manager_id") == manager_id
+            ]
+        if property_id is not None:
+            results = [
+                s
+                for s in results
+                if s.entity_id == property_id or s.evidence.get("property_id") == property_id
+            ]
+        if severity is not None:
+            results = [s for s in results if s.severity.value == severity]
+        if signal_type is not None:
+            results = [s for s in results if s.signal_type == signal_type]
+
+        results.sort(key=lambda s: (_SEVERITY_ORDER.get(s.severity, 9), s.signal_type))
+        return results
+
+    async def retire_signal(self, signal_id: str) -> None:
+        self._signals.pop(signal_id, None)
+
+    async def clear_all(self) -> None:
+        self._signals.clear()
+
+
+class InMemoryFeedbackStore(FeedbackStore):
+    """Simple dict-backed feedback store for development and testing."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, SignalFeedback] = {}
+
+    async def record_feedback(self, feedback: SignalFeedback) -> None:
+        self._entries[feedback.feedback_id] = feedback
+
+    async def get_feedback(self, feedback_id: str) -> SignalFeedback | None:
+        return self._entries.get(feedback_id)
+
+    async def list_feedback(
+        self,
+        *,
+        signal_id: str | None = None,
+        signal_type: str | None = None,
+        outcome: str | None = None,
+        limit: int = 100,
+    ) -> list[SignalFeedback]:
+        results: list[SignalFeedback] = []
+        for fb in self._entries.values():
+            if signal_id and fb.signal_id != signal_id:
+                continue
+            if signal_type and fb.signal_type != signal_type:
+                continue
+            if outcome and fb.outcome.value != outcome:
+                continue
+            results.append(fb)
+            if len(results) >= limit:
+                break
+        return sorted(results, key=lambda f: f.recorded_at, reverse=True)
+
+    async def summarize(self, signal_type: str) -> SignalFeedbackSummary:
+        relevant = [fb for fb in self._entries.values() if fb.signal_type == signal_type]
+        total = len(relevant)
+        if total == 0:
+            return SignalFeedbackSummary(signal_type=signal_type)
+
+        counts: dict[str, int] = {}
+        for fb in relevant:
+            key = fb.outcome.value
+            counts[key] = counts.get(key, 0) + 1
+
+        acted = counts.get(SignalOutcome.ACTED_ON.value, 0)
+        escalated = counts.get(SignalOutcome.ESCALATED.value, 0)
+        dismissed = counts.get(SignalOutcome.DISMISSED.value, 0)
+        false_pos = counts.get(SignalOutcome.FALSE_POSITIVE.value, 0)
+
+        act_rate = (acted + escalated) / total if total else 0.0
+        dismiss_rate = (dismissed + false_pos) / total if total else 0.0
+
+        return SignalFeedbackSummary(
+            signal_type=signal_type,
+            total_feedback=total,
+            outcome_counts=counts,
+            act_rate=round(act_rate, 4),
+            dismiss_rate=round(dismiss_rate, 4),
+        )
+
+
+class InMemoryHypothesisStore(HypothesisStore):
+    """Dict-backed hypothesis store for development and testing."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, Hypothesis] = {}
+
+    async def put(self, hypothesis: Hypothesis) -> None:
+        self._entries[hypothesis.hypothesis_id] = hypothesis
+
+    async def get(self, hypothesis_id: str) -> Hypothesis | None:
+        return self._entries.get(hypothesis_id)
+
+    async def list_hypotheses(
+        self,
+        *,
+        kind: str | None = None,
+        status: str | None = None,
+        min_confidence: float | None = None,
+        limit: int = 50,
+    ) -> list[Hypothesis]:
+        results: list[Hypothesis] = []
+        for h in self._entries.values():
+            if kind and h.kind.value != kind:
+                continue
+            if status and h.status.value != status:
+                continue
+            if min_confidence is not None and h.confidence < min_confidence:
+                continue
+            results.append(h)
+            if len(results) >= limit:
+                break
+        return sorted(results, key=lambda h: h.proposed_at, reverse=True)
+
+    async def update_status(
+        self,
+        hypothesis_id: str,
+        status: HypothesisStatus,
+        *,
+        reviewed_by: str = "",
+        review_notes: str = "",
+    ) -> Hypothesis | None:
+        existing = self._entries.get(hypothesis_id)
+        if existing is None:
+            return None
+
+        updated = Hypothesis(
+            **{
+                **existing.model_dump(),
+                "status": status,
+                "reviewed_by": reviewed_by,
+                "review_notes": review_notes,
+                "reviewed_at": datetime.now(UTC),
+            }
+        )
+        self._entries[hypothesis_id] = updated
+        return updated

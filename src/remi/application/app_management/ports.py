@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
-from remi.domain.graph.definitions import AppDefinition
-from remi.shared.ids import AppId
+if TYPE_CHECKING:
+    from remi.domain.graph.definitions import AppDefinition
+    from remi.shared.ids import AppId
 
 
 class AppRegistry(abc.ABC):

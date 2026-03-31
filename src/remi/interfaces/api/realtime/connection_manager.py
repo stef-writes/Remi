@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi import WebSocket
-
-from remi.infrastructure.config.container import Container
 from remi.runtime.events.lifecycle import LifecycleEvent, ModuleEvent
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
+
+    from remi.infrastructure.config.container import Container
 
 
 class ConnectionManager:

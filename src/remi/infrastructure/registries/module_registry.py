@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from remi.domain.graph.definitions import ModuleDefinition
-from remi.domain.modules.base import BaseModule
+from typing import TYPE_CHECKING
+
 from remi.domain.modules.ports import ModuleRegistry
 from remi.shared.errors import ModuleNotFoundError
+
+if TYPE_CHECKING:
+    from remi.domain.graph.definitions import ModuleDefinition
+    from remi.domain.modules.base import BaseModule
 
 
 class InMemoryModuleRegistry(ModuleRegistry):

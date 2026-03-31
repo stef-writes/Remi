@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Optional
+from typing import Any
 
 import typer
 
@@ -25,7 +25,7 @@ cmd = typer.Typer(name="onto", help="Query and extend the REMI ontology.", no_ar
 def search(
     type_name: str = typer.Argument(..., help="Object type to search"),
     filter_: list[str] = typer.Option([], "--filter", "-f", help="Field filters as key=value"),
-    order_by: Optional[str] = typer.Option(None, "--order-by", "-o", help="Sort field (prefix with - for desc)"),
+    order_by: str | None = typer.Option(None, "--order-by", "-o", help="Sort field (prefix with - for desc)"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max results"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
@@ -90,7 +90,7 @@ async def _get(type_name: str, object_id: str, fmt_json: bool) -> None:
 @cmd.command("related")
 def related(
     object_id: str = typer.Argument(..., help="Object ID to find relationships for"),
-    link_type: Optional[str] = typer.Option(None, "--link-type", "-t", help="Filter by link type"),
+    link_type: str | None = typer.Option(None, "--link-type", "-t", help="Filter by link type"),
     direction: str = typer.Option("both", "--direction", "-d", help="both|outgoing|incoming"),
     max_depth: int = typer.Option(1, "--max-depth", "-D", help="Traversal depth (1 = direct links only)"),
     json_output: bool = typer.Option(False, "--json", "-j"),
@@ -138,9 +138,9 @@ async def _related(
 def aggregate(
     type_name: str = typer.Argument(..., help="Object type"),
     metric: str = typer.Argument(..., help="Metric: count|sum|avg|min|max"),
-    field: Optional[str] = typer.Option(None, "--field", help="Field to aggregate on (required for sum/avg/min/max)"),
+    field: str | None = typer.Option(None, "--field", help="Field to aggregate on (required for sum/avg/min/max)"),
     filter_: list[str] = typer.Option([], "--filter", "-f", help="Field filters as key=value"),
-    group_by: Optional[str] = typer.Option(None, "--group-by", "-g", help="Group results by field"),
+    group_by: str | None = typer.Option(None, "--group-by", "-g", help="Group results by field"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """Compute aggregate metrics across objects."""
@@ -207,7 +207,7 @@ async def _timeline(
 
 @cmd.command("schema")
 def schema(
-    type_name: Optional[str] = typer.Argument(None, help="Object type (omit to list all)"),
+    type_name: str | None = typer.Argument(None, help="Object type (omit to list all)"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """Describe object types and their properties."""
@@ -262,8 +262,8 @@ def codify(
     knowledge_type: str = typer.Argument(..., help="Knowledge type: observation|policy|causal_link|..."),
     data: list[str] = typer.Option([], "--data", "-d", help="Data fields as key=value"),
     provenance: str = typer.Option("inferred", "--provenance", "-p", help="Provenance tag"),
-    source_id: Optional[str] = typer.Option(None, "--source-id", help="Source ID for causal links"),
-    target_id: Optional[str] = typer.Option(None, "--target-id", help="Target ID for causal links"),
+    source_id: str | None = typer.Option(None, "--source-id", help="Source ID for causal links"),
+    target_id: str | None = typer.Option(None, "--target-id", help="Target ID for causal links"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """Codify operational knowledge into the ontology."""
@@ -352,10 +352,10 @@ async def _define(
 
 @cmd.command("signals")
 def signals(
-    manager: Optional[str] = typer.Option(None, "--manager", "-m", help="Filter by manager ID"),
-    property_id: Optional[str] = typer.Option(None, "--property", "-p", help="Filter by property ID"),
-    severity: Optional[str] = typer.Option(None, "--severity", "-s", help="Filter by severity"),
-    signal_type: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by signal type"),
+    manager: str | None = typer.Option(None, "--manager", "-m", help="Filter by manager ID"),
+    property_id: str | None = typer.Option(None, "--property", "-p", help="Filter by property ID"),
+    severity: str | None = typer.Option(None, "--severity", "-s", help="Filter by severity"),
+    signal_type: str | None = typer.Option(None, "--type", "-t", help="Filter by signal type"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """List active entailed signals across the portfolio."""
@@ -446,7 +446,7 @@ async def _explain(signal_id: str, fmt_json: bool) -> None:
         typer.echo(f"  Entity: {signal.entity_name} ({signal.entity_type}/{signal.entity_id})")
         typer.echo(f"  {signal.description}")
         typer.echo(f"  Provenance: {signal.provenance.value}")
-        typer.echo(f"\n  Evidence:")
+        typer.echo("\n  Evidence:")
         for k, v in signal.evidence.items():
             if isinstance(v, list) and len(v) > 3:
                 typer.echo(f"    {k}: [{len(v)} items]")
@@ -479,7 +479,7 @@ async def _infer(fmt_json: bool) -> None:
     if fmt_json:
         json_out(data)
     else:
-        typer.echo(f"\nSignal pipeline complete:")
+        typer.echo("\nSignal pipeline complete:")
         typer.echo(f"  Signals produced: {result.produced}")
         for source, pr in result.per_source.items():
             typer.echo(f"    {source}: {pr.produced} signals, {pr.errors} errors")
@@ -487,6 +487,6 @@ async def _infer(fmt_json: bool) -> None:
             typer.echo(f"  Trace:            {result.trace_id}")
             typer.echo(f"                    remi trace show {result.trace_id}")
         if result.signals:
-            typer.echo(f"\n  Active signals:")
+            typer.echo("\n  Active signals:")
             for s in result.signals:
                 typer.echo(f"    [{s.severity.value.upper():8s}] {s.signal_type}: {s.entity_name}")

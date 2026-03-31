@@ -11,26 +11,14 @@ ontology bindings, RE entailment evaluators, and the RE ingestion pipeline.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from remi.application.app_management.ports import AppRegistry
 from remi.application.app_management.register_app import RegisterAppUseCase
 from remi.application.app_management.validate_app import ValidateAppUseCase
 from remi.application.chat.agent_runner import ChatAgentService
 from remi.application.execution.run_app import RunAppUseCase
 from remi.application.state_access.queries import StateQueryService
-from remi.domain.chat.ports import ChatSessionStore
-from remi.domain.documents.models import DocumentStore
-from remi.domain.memory.ports import KnowledgeStore, MemoryStore
-from remi.domain.modules.ports import ModuleRegistry
-from remi.domain.retrieval.ports import Embedder, VectorStore
-from remi.domain.sandbox.ports import Sandbox
-from remi.domain.signals.feedback import FeedbackStore
-from remi.domain.signals.ports import SignalStore
 from remi.domain.signals.types import DomainOntology
-from remi.domain.state.ports import StateStore
-from remi.domain.tools.ports import ToolRegistry
-from remi.domain.trace.ports import TraceStore
 from remi.infrastructure.chat.in_memory import InMemoryChatSessionStore
 from remi.infrastructure.config.settings import RemiSettings
 from remi.infrastructure.documents.in_memory import InMemoryDocumentStore
@@ -59,6 +47,21 @@ from remi.runtime.engine.graph_runner import GraphRunner
 from remi.runtime.events.bus import EventBus, InMemoryEventBus
 from remi.runtime.policies.retry import RetryPolicy
 from remi.shared.clock import Clock, SystemClock
+
+if TYPE_CHECKING:
+    from remi.application.app_management.ports import AppRegistry
+    from remi.domain.chat.ports import ChatSessionStore
+    from remi.domain.documents.models import DocumentStore
+    from remi.domain.memory.ports import KnowledgeStore, MemoryStore
+    from remi.domain.modules.ports import ModuleRegistry
+    from remi.domain.properties.ports import PropertyStore
+    from remi.domain.retrieval.ports import Embedder, VectorStore
+    from remi.domain.sandbox.ports import Sandbox
+    from remi.domain.signals.feedback import FeedbackStore
+    from remi.domain.signals.ports import SignalStore
+    from remi.domain.state.ports import StateStore
+    from remi.domain.tools.ports import ToolRegistry
+    from remi.domain.trace.ports import TraceStore
 
 
 class InclineContainer:
@@ -291,7 +294,6 @@ class Container(InclineContainer):
         from remi.application.property_management.property_queries import PropertyQueryService
         from remi.application.property_management.rent_roll import RentRollService
         from remi.application.snapshots.service import SnapshotService
-        from remi.domain.properties.ports import PropertyStore
         from remi.infrastructure.entailment.engine import EntailmentEngine
         from remi.infrastructure.knowledge.ingestion import IngestionService
         from remi.infrastructure.properties.in_memory import InMemoryPropertyStore

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
-from remi.domain.sandbox.types import ExecResult, SandboxSession
+if TYPE_CHECKING:
+    from remi.domain.sandbox.types import ExecResult, SandboxSession
 
 
 class Sandbox(abc.ABC):

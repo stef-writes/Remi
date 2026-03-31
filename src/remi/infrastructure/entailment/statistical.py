@@ -16,13 +16,15 @@ through the OntologyStore port. Produces signals with
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from remi.domain.ontology.ports import OntologyStore
 from remi.domain.signals.producers import ProducerResult, SignalProducer
 from remi.domain.signals.types import Provenance, Severity, Signal
+
+if TYPE_CHECKING:
+    from remi.domain.ontology.ports import OntologyStore
 
 _log = structlog.get_logger(__name__)
 

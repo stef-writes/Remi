@@ -5,7 +5,6 @@ from __future__ import annotations
 from remi.domain.signals.ports import SignalStore
 from remi.domain.signals.types import Severity, Signal
 
-
 _SEVERITY_ORDER = {
     Severity.CRITICAL: 0,
     Severity.HIGH: 1,

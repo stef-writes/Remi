@@ -16,8 +16,6 @@ from remi.interfaces.cli.documents import cmd as documents_cmd
 from remi.interfaces.cli.framework import app_cmd, node_cmd, provider_cmd, tool_cmd
 from remi.interfaces.cli.knowledge import cmd as kb_cmd
 from remi.interfaces.cli.ontology import cmd as onto_cmd
-from remi.interfaces.cli.trace import cmd as trace_cmd
-from remi.interfaces.cli.vectors import cmd as vectors_cmd
 from remi.interfaces.cli.properties import (
     leases_cmd,
     maintenance_cmd,
@@ -27,6 +25,8 @@ from remi.interfaces.cli.properties import (
     tenants_cmd,
     units_cmd,
 )
+from remi.interfaces.cli.trace import cmd as trace_cmd
+from remi.interfaces.cli.vectors import cmd as vectors_cmd
 
 cli = typer.Typer(
     name="remi",

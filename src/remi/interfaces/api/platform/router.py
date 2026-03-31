@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException
 
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
 from remi.interfaces.api.platform.schemas import (
     AppSummary,
@@ -20,6 +21,9 @@ from remi.interfaces.api.platform.schemas import (
 )
 from remi.shared.errors import AppNotFoundError
 from remi.shared.ids import AppId, ModuleId, RunId
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(tags=["platform"])
 

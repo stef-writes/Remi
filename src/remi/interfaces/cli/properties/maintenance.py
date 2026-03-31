@@ -88,9 +88,9 @@ async def _summary(property_id: str | None, fmt_json: bool) -> None:
     else:
         typer.echo(f"\nMaintenance Summary ({len(requests)} total requests)")
         typer.echo(f"Total Cost: ${float(total_cost):,.0f}")
-        typer.echo(f"\nBy Status:")
+        typer.echo("\nBy Status:")
         for s, c in sorted(by_status.items()):
             typer.echo(f"  {s:15s}  {c}")
-        typer.echo(f"\nBy Category:")
+        typer.echo("\nBy Category:")
         for cat, c in sorted(by_category.items()):
             typer.echo(f"  {cat:15s}  {c}")

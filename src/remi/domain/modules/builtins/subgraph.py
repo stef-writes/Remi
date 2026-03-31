@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from remi.domain.modules.base import BaseModule, ModuleOutput
-from remi.runtime.context.runtime_context import RuntimeContext
 from remi.shared.ids import AppId
+
+if TYPE_CHECKING:
+    from remi.runtime.context.runtime_context import RuntimeContext
 
 
 class SubgraphModule(BaseModule):

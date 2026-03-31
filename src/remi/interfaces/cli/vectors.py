@@ -7,7 +7,6 @@ to fuzzy, meaning-based lookups across all domain entities.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
 import typer
 
@@ -27,14 +26,14 @@ cmd = typer.Typer(
 @cmd.command("search")
 def search(
     query: str = typer.Argument(..., help="Natural language search query"),
-    entity_type: Optional[str] = typer.Option(
+    entity_type: str | None = typer.Option(
         None, "--type", "-t",
         help="Filter by entity type: Tenant, Unit, Property, MaintenanceRequest",
     ),
     limit: int = typer.Option(10, "--limit", "-l", help="Max results"),
     min_score: float = typer.Option(0.3, "--min-score", "-s", help="Minimum similarity (0-1)"),
-    manager_id: Optional[str] = typer.Option(None, "--manager", "-m", help="Filter by manager"),
-    property_id: Optional[str] = typer.Option(None, "--property", "-p", help="Filter by property"),
+    manager_id: str | None = typer.Option(None, "--manager", "-m", help="Filter by manager"),
+    property_id: str | None = typer.Option(None, "--property", "-p", help="Filter by property"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """Search for entities by meaning, not exact text."""
@@ -128,12 +127,12 @@ async def _stats(as_json: bool) -> None:
         })
         return
 
-    typer.echo(f"\n  Vector Index Stats")
+    typer.echo("\n  Vector Index Stats")
     typer.echo(f"  {'─' * 40}")
     typer.echo(f"  Total embeddings:   {total}")
     typer.echo(f"  Embedder dimension: {container.embedder.dimension}")
     if by_type:
-        typer.echo(f"\n  By entity type:")
+        typer.echo("\n  By entity type:")
         for etype, count in sorted(by_type.items()):
             typer.echo(f"    {etype:25s} {count:>6}")
     else:
@@ -166,13 +165,13 @@ async def _embed(as_json: bool) -> None:
         })
         return
 
-    typer.echo(f"\n  Embedding pipeline complete")
+    typer.echo("\n  Embedding pipeline complete")
     typer.echo(f"  {'─' * 40}")
     typer.echo(f"  Embedded:  {result.embedded}")
     typer.echo(f"  Skipped:   {result.skipped}")
     typer.echo(f"  Errors:    {result.errors}")
     if result.by_type:
-        typer.echo(f"\n  By entity type:")
+        typer.echo("\n  By entity type:")
         for etype, count in sorted(result.by_type.items()):
             typer.echo(f"    {etype:25s} {count:>6}")
     typer.echo("")

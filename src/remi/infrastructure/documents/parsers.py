@@ -93,7 +93,7 @@ def parse_excel(filename: str, content: bytes) -> Document:
         if all(c is None for c in raw_row):
             continue
         row_dict = {}
-        for col_name, val in zip(columns, raw_row):
+        for col_name, val in zip(columns, raw_row, strict=False):
             row_dict[col_name] = _coerce_value(val)
         rows.append(row_dict)
 

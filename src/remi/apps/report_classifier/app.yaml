@@ -1,0 +1,67 @@
+apiVersion: remi/v1
+kind: App
+
+metadata:
+  name: report-classifier
+  version: "1.0.0"
+  description: >
+    REMI Report Classifier — an internal agent that identifies the type of an
+    uploaded real-estate report based on its column names and a sample of rows.
+    Used as a fallback when structural fingerprint detection returns UNKNOWN.
+  tags: [ingestion, classification, internal]
+  domain: real-estate
+  audience: system
+  chat: false
+
+modules:
+  - id: user-input
+    kind: input
+    description: Receives JSON with column_names, sample_rows, and known_types.
+    config:
+      prompt: "Classify this report."
+
+  - id: classifier
+    kind: agent
+    description: >
+      Identifies the type of a real-estate report from its columns and a
+      small data sample. Returns strict JSON output — no prose.
+    config:
+      provider: openai
+      model: gpt-4o-mini
+      temperature: 0.0
+      max_tokens: 512
+      max_iterations: 1
+      system_prompt: |
+        You are a data classification agent for a real-estate management system.
+
+        You will receive:
+          - column_names: the header columns of an uploaded report
+          - sample_rows: up to 5 data rows from the report
+          - known_types: a list of known report types with their descriptions
+
+        Your job is to identify which report type best matches the data.
+        If the data matches a known type, use that type's exact identifier string.
+        If the data does not match any known type, invent a short snake_case
+        identifier (e.g. "vendor_invoice", "inspection_report") that describes
+        what the data contains.
+
+        RESPOND ONLY WITH VALID JSON in this exact format — no markdown, no prose:
+        {
+          "report_type": "the_type_identifier",
+          "confidence": 0.0,
+          "reasoning": "one sentence explaining why"
+        }
+
+        confidence must be a float between 0.0 (no idea) and 1.0 (certain).
+
+      input_template: |
+        Classify this report:
+
+        {input}
+
+      output_contract: json
+      response_format: json
+
+edges:
+  - from: user-input
+    to: classifier

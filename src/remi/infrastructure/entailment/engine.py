@@ -11,7 +11,6 @@ and learned producers via ``CompositeProducer``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -19,21 +18,22 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from remi.domain.properties.ports import PropertyStore
-from remi.domain.signals.ports import SignalStore
 from remi.domain.signals.producers import ProducerResult, SignalProducer
 from remi.domain.signals.types import (
     DomainOntology,
-    Provenance,
     RuleCondition,
     Signal,
     SignalDefinition,
 )
 from remi.domain.trace.types import SpanKind
-from remi.infrastructure.trace.tracer import Tracer
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
     from remi.application.snapshots.service import SnapshotService
+    from remi.domain.properties.ports import PropertyStore
+    from remi.domain.signals.ports import SignalStore
+    from remi.infrastructure.trace.tracer import Tracer
 
 _log = structlog.get_logger(__name__)
 
@@ -273,7 +273,7 @@ class EntailmentEngine(SignalProducer):
                     defn=defn,
                     entity_id=t.id,
                     entity_name=t.name,
-                    description=f"Tenant in legal/eviction track",
+                    description="Tenant in legal/eviction track",
                     evidence={
                         "tenant_status": t.status.value,
                         "balance_owed": float(t.balance_owed),
@@ -930,9 +930,8 @@ class EntailmentEngine(SignalProducer):
     def _read_unit_metric(self, unit: Any, metric: str) -> float | None:
         if metric == "days_vacant":
             return unit.days_vacant
-        if metric == "rent_gap_pct":
-            if unit.market_rent > 0 and unit.current_rent > 0:
-                return float((unit.market_rent - unit.current_rent) / unit.market_rent)
+        if metric == "rent_gap_pct" and unit.market_rent > 0 and unit.current_rent > 0:
+            return float((unit.market_rent - unit.current_rent) / unit.market_rent)
         return None
 
     async def _resolve_manager_id(self, property_id: str) -> str:

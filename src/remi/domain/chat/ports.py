@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
-from remi.domain.chat.models import ChatSession
-from remi.domain.modules.base import Message
+if TYPE_CHECKING:
+    from remi.domain.chat.models import ChatSession
+    from remi.domain.modules.base import Message
 
 
 class ChatSessionStore(abc.ABC):

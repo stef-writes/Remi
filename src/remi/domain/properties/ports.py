@@ -8,23 +8,25 @@ data. Infrastructure adapters provide concrete implementations
 from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
-from remi.domain.properties.enums import (
-    LeaseStatus,
-    MaintenanceStatus,
-    OccupancyStatus,
-    TenantStatus,
-    UnitStatus,
-)
-from remi.domain.properties.models import (
-    Lease,
-    MaintenanceRequest,
-    Portfolio,
-    Property,
-    PropertyManager,
-    Tenant,
-    Unit,
-)
+if TYPE_CHECKING:
+    from remi.domain.properties.enums import (
+        LeaseStatus,
+        MaintenanceStatus,
+        OccupancyStatus,
+        TenantStatus,
+        UnitStatus,
+    )
+    from remi.domain.properties.models import (
+        Lease,
+        MaintenanceRequest,
+        Portfolio,
+        Property,
+        PropertyManager,
+        Tenant,
+        Unit,
+    )
 
 
 class PropertyStore(abc.ABC):

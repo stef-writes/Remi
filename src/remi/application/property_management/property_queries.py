@@ -6,12 +6,14 @@ Pure PropertyStore read-model: no LLM, no document store.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from remi.domain.properties.enums import LeaseStatus, UnitStatus
-from remi.domain.properties.ports import PropertyStore
 
+if TYPE_CHECKING:
+    from remi.domain.properties.ports import PropertyStore
 
 # ---------------------------------------------------------------------------
 # Response models

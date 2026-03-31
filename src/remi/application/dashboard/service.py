@@ -7,12 +7,14 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from remi.domain.properties.enums import LeaseStatus, MaintenanceStatus, OccupancyStatus, UnitStatus
-from remi.domain.properties.ports import PropertyStore
+from remi.domain.properties.enums import LeaseStatus, OccupancyStatus, UnitStatus
 
+if TYPE_CHECKING:
+    from remi.domain.properties.ports import PropertyStore
 
 # ---------------------------------------------------------------------------
 # Response models

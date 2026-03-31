@@ -5,6 +5,7 @@ Wraps scripts/dashboard.py so it can be imported by the CLI entry point.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Any
 
@@ -286,12 +287,10 @@ class RemiDashboard(App):  # type: ignore[type-arg]
 
             signals = await self._container.signal_store.list_signals()
             self.signal_count = len(signals)
-            try:
+            with contextlib.suppress(NoMatches):
                 self.query_one(_SignalPanel).refresh_signals(
                     signals, self._container.domain_ontology
                 )
-            except NoMatches:
-                pass
         except Exception as exc:
             self._log_activity(f"  [red]✗ Pipeline error:[/red] {exc}")
 
@@ -316,10 +315,8 @@ class RemiDashboard(App):  # type: ignore[type-arg]
     def _refresh_tbox(self) -> None:
         if self._container is None:
             return
-        try:
+        with contextlib.suppress(NoMatches, Exception):
             self.query_one(_TBoxPanel).refresh_tbox(self._container.domain_ontology)
-        except (NoMatches, Exception):
-            pass
 
     @on(Input.Submitted, "#chat-input")
     def on_chat_submit(self, event: Input.Submitted) -> None:
@@ -426,23 +423,17 @@ class RemiDashboard(App):  # type: ignore[type-arg]
             pass
 
     def _log_activity(self, msg: str) -> None:
-        try:
+        with contextlib.suppress(NoMatches):
             self.query_one("#activity-log", RichLog).write(msg)
-        except NoMatches:
-            pass
 
     def _log_chat(self, msg: str) -> None:
-        try:
+        with contextlib.suppress(NoMatches):
             self.query_one("#chat-log", RichLog).write(msg)
-        except NoMatches:
-            pass
 
     async def on_unmount(self) -> None:
         if self._container is not None and self._sandbox_session_id is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await self._container.sandbox.destroy_session(self._sandbox_session_id)
-            except Exception:
-                pass
 
 
 def run(agent: str = "director", verbose: bool = False) -> None:

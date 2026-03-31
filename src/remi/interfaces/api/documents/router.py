@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
 from remi.interfaces.api.documents.schemas import (
     DeleteResponse,
@@ -15,6 +16,9 @@ from remi.interfaces.api.documents.schemas import (
     KnowledgeInfo,
     UploadResponse,
 )
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 

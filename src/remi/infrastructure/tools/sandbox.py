@@ -10,11 +10,12 @@ restricted environment.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from remi.domain.sandbox.ports import Sandbox
 from remi.domain.tools.ports import ToolArg, ToolDefinition, ToolRegistry
 
+if TYPE_CHECKING:
+    from remi.domain.sandbox.ports import Sandbox
 
 _DEFAULT_SESSION = "agent-default"
 

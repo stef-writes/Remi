@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -13,10 +15,11 @@ from remi.application.dashboard.service import (
     RentRollView,
     VacancyTracker,
 )
-from remi.application.snapshots.service import ManagerSnapshot
 from remi.domain.properties.models import Portfolio, PropertyManager
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 
 def _slugify(text: str) -> str:
@@ -199,10 +202,8 @@ async def auto_assign(
         assigned += 1
 
     # Capture a fresh snapshot so Performance tab reflects the new assignments
-    try:
+    with contextlib.suppress(Exception):
         await container.snapshot_service.capture()
-    except Exception:
-        pass
 
     return {
         "assigned": assigned,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from typing import Any
 
 import typer
 
@@ -102,7 +101,7 @@ async def _inspect(property_id: str, fmt_json: bool) -> None:
         typer.echo(f"Units:    {data['total_units']}  |  Occupied: {occupied}  |  Vacant: {vacant}")
         typer.echo(f"Occupancy: {data['occupancy_rate']}%")
         typer.echo(f"Revenue:   ${data['monthly_revenue']:,.0f}/mo")
-        typer.echo(f"\nUnits:")
+        typer.echo("\nUnits:")
         for u in unit_data:
             bed_str = f"{u['bedrooms']}BR" if u['bedrooms'] else "N/A"
             typer.echo(

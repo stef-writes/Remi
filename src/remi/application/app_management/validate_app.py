@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from remi.domain.graph.definitions import AppDefinition
+from typing import TYPE_CHECKING
+
 from remi.domain.graph.validation import validate_graph
-from remi.domain.modules.ports import ModuleRegistry
 from remi.shared.result import Err, Ok, Result
+
+if TYPE_CHECKING:
+    from remi.domain.graph.definitions import AppDefinition
+    from remi.domain.modules.ports import ModuleRegistry
 
 
 class ValidateAppUseCase:

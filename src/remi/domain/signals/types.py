@@ -13,7 +13,7 @@ for conditions the engine already understands.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -28,14 +28,14 @@ def _utcnow() -> datetime:
 # ---------------------------------------------------------------------------
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
 
 
-class EntityType(str, Enum):
+class EntityType(StrEnum):
     """Well-known entity types for the REMI real-estate product.
 
     This enum is REMI-specific, not part of Incline's framework contract.
@@ -55,7 +55,7 @@ class EntityType(str, Enum):
     MAINTENANCE_REQUEST = "MaintenanceRequest"
 
 
-class Horizon(str, Enum):
+class Horizon(StrEnum):
     CURRENT = "current"
     CURRENT_PERIOD = "current_period"
     TRAILING_60_DAYS = "trailing_60_days"
@@ -64,7 +64,7 @@ class Horizon(str, Enum):
     EVENT_DRIVEN = "event_driven"
 
 
-class RuleCondition(str, Enum):
+class RuleCondition(StrEnum):
     """The finite set of evaluation strategies the engine understands."""
     EXCEEDS_THRESHOLD = "exceeds_threshold"
     AGING_PAST_THRESHOLD = "aging_past_threshold"
@@ -76,12 +76,12 @@ class RuleCondition(str, Enum):
     BREACH_DETECTED = "breach_detected"
 
 
-class Deontic(str, Enum):
+class Deontic(StrEnum):
     MUST = "MUST"
     SHOULD = "SHOULD"
 
 
-class Provenance(str, Enum):
+class Provenance(StrEnum):
     CORE = "CORE"
     SEEDED = "SEEDED"
     DATA_DERIVED = "DATA_DERIVED"

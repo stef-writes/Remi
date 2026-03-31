@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from remi.domain.modules.base import BaseModule, ModuleOutput
-from remi.runtime.context.runtime_context import RuntimeContext
+
+if TYPE_CHECKING:
+    from remi.runtime.context.runtime_context import RuntimeContext
 
 
 class ConditionalRouterModule(BaseModule):
@@ -29,10 +31,7 @@ class ConditionalRouterModule(BaseModule):
         conditions = self.config.get("conditions", [])
         default_label = self.config.get("default", "default")
 
-        if isinstance(upstream, dict):
-            field_value = upstream.get(field)
-        else:
-            field_value = upstream
+        field_value = upstream.get(field) if isinstance(upstream, dict) else upstream
 
         matched_label = default_label
         for cond in conditions:

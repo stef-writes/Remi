@@ -18,11 +18,10 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from remi.domain.documents.models import Document
 from remi.domain.memory.ports import Entity, KnowledgeStore, Relationship
 from remi.domain.properties.enums import OccupancyStatus, TenantStatus, UnitStatus
 from remi.domain.properties.models import (
@@ -34,18 +33,18 @@ from remi.domain.properties.models import (
     Tenant,
     Unit,
 )
-from remi.domain.properties.ports import PropertyStore
 from remi.infrastructure.documents.appfolio_schema import (
     AppFolioReportType,
-    DelinquencyRow,
-    LeaseExpirationRow,
-    RentRollRow,
     detect_report_type,
     parse_delinquency_rows,
     parse_lease_expiration_rows,
     parse_property_name,
     parse_rent_roll_rows,
 )
+
+if TYPE_CHECKING:
+    from remi.domain.documents.models import Document
+    from remi.domain.properties.ports import PropertyStore
 
 logger = structlog.get_logger(__name__)
 

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from remi.application.app_management.ports import AppRegistry
 from remi.shared.enums import RunStatus
 from remi.shared.errors import AppNotFoundError
 from remi.shared.ids import AppId, ModuleId, RunId, new_run_id
 
 if TYPE_CHECKING:
+    from remi.application.app_management.ports import AppRegistry
     from remi.runtime.engine.graph_runner import GraphRunner
 
 

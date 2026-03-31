@@ -6,12 +6,10 @@ Called once during container initialization.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from remi.domain.ontology.ports import OntologyStore
 from remi.domain.ontology.types import (
     KnowledgeProvenance,
     LinkTypeDef,
@@ -19,6 +17,11 @@ from remi.domain.ontology.types import (
     PropertyDef,
 )
 from remi.shared.paths import DOMAIN_YAML_PATH
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from remi.domain.ontology.ports import OntologyStore
 
 # ---------------------------------------------------------------------------
 # Core object type definitions (matching domain models)

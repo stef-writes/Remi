@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import abc
 from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from remi.runtime.events.lifecycle import InterAppEvent, LifecycleEvent
-from remi.shared.ids import AppId
+
+if TYPE_CHECKING:
+    from remi.shared.ids import AppId
 
 EventHandler = Callable[[LifecycleEvent], Any]
 AppTriggerHandler = Callable[[InterAppEvent], Any]

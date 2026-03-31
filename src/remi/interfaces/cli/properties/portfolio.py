@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
-from typing import Any
 
 import typer
 
@@ -104,7 +103,7 @@ async def _summary(portfolio_id: str, fmt_json: bool) -> None:
         typer.echo(f"Properties: {data['total_properties']}  |  Units: {data['total_units']}  |  Occupied: {data['occupied_units']}")
         typer.echo(f"Occupancy:  {data['occupancy_rate']}%")
         typer.echo(f"Monthly Revenue: ${data['monthly_revenue']:,.0f}")
-        typer.echo(f"\nProperties:")
+        typer.echo("\nProperties:")
         for p in prop_details:
             occ_pct = round(p["occupied"] / p["units"] * 100) if p["units"] else 0
             typer.echo(f"  {p['id']:8s}  {p['name']:30s}  {p['type']:12s}  {p['occupied']}/{p['units']} units ({occ_pct}%)  ${p['monthly_revenue']:,.0f}/mo")

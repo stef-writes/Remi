@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class AppFolioReportType(str, Enum):
+class AppFolioReportType(StrEnum):
     RENT_ROLL = "rent_roll"
     DELINQUENCY = "delinquency"
     LEASE_EXPIRATION = "lease_expiration"
@@ -348,10 +348,7 @@ def parse_lease_expiration_rows(
 
         is_section_header = not str(property_val).strip() and not tenant_val
         if is_section_header:
-            if tags_val == "Month-To-Month":
-                current_is_mtm = True
-            else:
-                current_is_mtm = False
+            current_is_mtm = tags_val == "Month-To-Month"
             continue
 
         if not str(property_val).strip() or not tenant_val:

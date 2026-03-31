@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from remi.domain.properties.enums import OccupancyStatus, UnitStatus
-from remi.domain.properties.ports import PropertyStore
+
+if TYPE_CHECKING:
+    from remi.domain.properties.ports import PropertyStore
 
 
 class ManagerSnapshot(BaseModel, frozen=True):

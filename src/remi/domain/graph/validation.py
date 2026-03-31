@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from typing import TYPE_CHECKING
 
-from remi.domain.graph.definitions import AppDefinition
-from remi.shared.errors import GraphCycleError, ValidationError
-from remi.shared.ids import ModuleId
+from remi.shared.errors import GraphCycleError
 from remi.shared.result import Err, Ok, Result
+
+if TYPE_CHECKING:
+    from remi.domain.graph.definitions import AppDefinition
+    from remi.shared.ids import ModuleId
 
 
 def validate_graph(app: AppDefinition) -> Result[AppDefinition, list[str]]:

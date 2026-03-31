@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
 from remi.interfaces.api.realtime.chat_runner import build_chat_dispatcher
 from remi.interfaces.api.realtime.connection_manager import manager
 from remi.interfaces.api.realtime.jsonrpc import JsonRpcError, JsonRpcResponse
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(tags=["ws"])
 

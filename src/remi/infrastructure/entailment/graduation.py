@@ -16,11 +16,10 @@ and is evaluated on every subsequent entailment run.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from remi.domain.ontology.ports import OntologyStore
 from remi.domain.ontology.types import KnowledgeProvenance
 from remi.domain.signals.hypothesis import (
     Hypothesis,
@@ -37,6 +36,9 @@ from remi.domain.signals.types import (
     Severity,
     SignalDefinition,
 )
+
+if TYPE_CHECKING:
+    from remi.domain.ontology.ports import OntologyStore
 
 _log = structlog.get_logger(__name__)
 

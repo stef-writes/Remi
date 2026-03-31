@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json as _json
 
 import typer
@@ -57,10 +58,8 @@ def query(
     """Search uploaded document rows by text, filters, or document ID."""
     parsed_filters: dict = {}
     if filters:
-        try:
+        with contextlib.suppress(_json.JSONDecodeError, TypeError):
             parsed_filters = _json.loads(filters)
-        except (_json.JSONDecodeError, TypeError):
-            pass
     asyncio.run(_query(doc_id, query_text, parsed_filters, limit, use_json(json_output)))
 
 

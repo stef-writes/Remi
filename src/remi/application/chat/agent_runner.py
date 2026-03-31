@@ -10,15 +10,18 @@ the container-level extras.
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from remi.application.app_management.register_app import RegisterAppUseCase
-from remi.application.execution.run_app import RunAppUseCase
-from remi.application.state_access.queries import StateQueryService
-from remi.domain.chat.ports import ChatSessionStore
 from remi.infrastructure.loaders.yaml_loader import YamlAppLoader
 from remi.shared.ids import AppId, ModuleId
 from remi.shared.paths import WORKFLOWS_DIR
+
+if TYPE_CHECKING:
+    from remi.application.app_management.register_app import RegisterAppUseCase
+    from remi.application.execution.run_app import RunAppUseCase
+    from remi.application.state_access.queries import StateQueryService
+    from remi.domain.chat.ports import ChatSessionStore
+    from remi.domain.graph.definitions import AppDefinition
 
 
 class EventCallback(Protocol):
@@ -48,7 +51,6 @@ class ChatAgentService:
 
     def _load_and_register(self, agent_name: str) -> Any:
         """Load app YAML and register it. Returns the AppDefinition."""
-        from remi.domain.graph.definitions import AppDefinition
 
         app_path = WORKFLOWS_DIR / agent_name / "app.yaml"
         if not app_path.exists():

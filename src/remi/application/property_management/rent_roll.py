@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 from remi.domain.properties.enums import LeaseStatus, MaintenanceStatus, UnitStatus
-from remi.domain.properties.ports import PropertyStore
 
+if TYPE_CHECKING:
+    from remi.domain.properties.ports import PropertyStore
 
 # ---------------------------------------------------------------------------
 # Response models

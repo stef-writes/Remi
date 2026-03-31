@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from remi.domain.modules.base import BaseModule, ModuleOutput
-from remi.runtime.context.runtime_context import RuntimeContext
+
+if TYPE_CHECKING:
+    from remi.runtime.context.runtime_context import RuntimeContext
 
 
 class ContextExtractorModule(BaseModule):

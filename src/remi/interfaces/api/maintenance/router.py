@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends
 
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
 from remi.interfaces.api.maintenance.schemas import (
     MaintenanceItem,
     MaintenanceListResponse,
     MaintenanceSummaryResponse,
 )
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 

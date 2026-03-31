@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import typer
 
@@ -23,10 +22,10 @@ def ask(
 
 
 async def _run_ask(question: str, fmt_json: bool, verbose: bool = False) -> None:
-    from remi.interfaces.cli.live_display import LiveAgentDisplay
-    from remi.shared.paths import WORKFLOWS_DIR
     from remi.infrastructure.loaders.yaml_loader import YamlAppLoader
+    from remi.interfaces.cli.live_display import LiveAgentDisplay
     from remi.shared.ids import AppId, ModuleId
+    from remi.shared.paths import WORKFLOWS_DIR
 
     container = get_container()
     app_name = "director"

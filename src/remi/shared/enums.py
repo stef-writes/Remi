@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from enum import Enum, unique
+from enum import StrEnum, unique
 
 
 @unique
-class ExecutionMode(str, Enum):
+class ExecutionMode(StrEnum):
     FULL = "full"
     PARTIAL = "partial"
     REPLAY = "replay"
@@ -15,7 +15,7 @@ class ExecutionMode(str, Enum):
 
 
 @unique
-class ModuleStatus(str, Enum):
+class ModuleStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -24,7 +24,7 @@ class ModuleStatus(str, Enum):
 
 
 @unique
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -33,7 +33,7 @@ class RunStatus(str, Enum):
 
 
 @unique
-class ModuleCategory(str, Enum):
+class ModuleCategory(StrEnum):
     DATA_ACQUISITION = "data_acquisition"
     TRANSFORM = "transform"
     METRIC = "metric"
@@ -46,7 +46,7 @@ class ModuleCategory(str, Enum):
 
 
 @unique
-class StateStoreBackend(str, Enum):
+class StateStoreBackend(StrEnum):
     IN_MEMORY = "in_memory"
     POSTGRES = "postgres"
     REDIS = "redis"

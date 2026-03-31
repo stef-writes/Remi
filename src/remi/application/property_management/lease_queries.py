@@ -6,12 +6,14 @@ Pure PropertyStore read-model.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from remi.domain.properties.enums import LeaseStatus
-from remi.domain.properties.ports import PropertyStore
 
+if TYPE_CHECKING:
+    from remi.domain.properties.ports import PropertyStore
 
 # ---------------------------------------------------------------------------
 # Response models

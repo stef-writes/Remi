@@ -2,31 +2,31 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class PropertyType(str, Enum):
+class PropertyType(StrEnum):
     RESIDENTIAL = "residential"
     COMMERCIAL = "commercial"
     MIXED = "mixed"
     INDUSTRIAL = "industrial"
 
 
-class UnitStatus(str, Enum):
+class UnitStatus(StrEnum):
     VACANT = "vacant"
     OCCUPIED = "occupied"
     MAINTENANCE = "maintenance"
     OFFLINE = "offline"
 
 
-class LeaseStatus(str, Enum):
+class LeaseStatus(StrEnum):
     ACTIVE = "active"
     EXPIRED = "expired"
     TERMINATED = "terminated"
     PENDING = "pending"
 
 
-class MaintenanceCategory(str, Enum):
+class MaintenanceCategory(StrEnum):
     PLUMBING = "plumbing"
     ELECTRICAL = "electrical"
     HVAC = "hvac"
@@ -36,21 +36,21 @@ class MaintenanceCategory(str, Enum):
     OTHER = "other"
 
 
-class Priority(str, Enum):
+class Priority(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
     EMERGENCY = "emergency"
 
 
-class MaintenanceStatus(str, Enum):
+class MaintenanceStatus(StrEnum):
     OPEN = "open"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
 
-class OccupancyStatus(str, Enum):
+class OccupancyStatus(StrEnum):
     OCCUPIED = "occupied"
     NOTICE_RENTED = "notice_rented"
     NOTICE_UNRENTED = "notice_unrented"
@@ -58,7 +58,7 @@ class OccupancyStatus(str, Enum):
     VACANT_UNRENTED = "vacant_unrented"
 
 
-class TenantStatus(str, Enum):
+class TenantStatus(StrEnum):
     CURRENT = "current"
     NOTICE = "notice"
     EVICT = "evict"

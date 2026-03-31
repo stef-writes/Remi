@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from remi.domain.modules.base import Message
+if TYPE_CHECKING:
+    from remi.domain.modules.base import Message
 
 
 def _utcnow() -> datetime:

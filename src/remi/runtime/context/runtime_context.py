@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from remi.shared.enums import ExecutionMode
-from remi.shared.ids import ActorId, AppId, RunId
+
+if TYPE_CHECKING:
+    from remi.shared.ids import ActorId, AppId, RunId
 
 
 @dataclass(frozen=True)

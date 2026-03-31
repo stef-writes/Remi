@@ -1,0 +1,306 @@
+apiVersion: remi/v1
+kind: DomainOntology
+
+# =============================================================================
+# TBox — Terminological Box
+#
+# What things mean in this business. Domain expertise formalized.
+# This is the single file a domain expert reads, corrects, and extends.
+# =============================================================================
+
+tbox:
+
+  # ---------------------------------------------------------------------------
+  # Signals — named domain states the entailment engine detects
+  # ---------------------------------------------------------------------------
+
+  signals:
+
+    # -- Portfolio Health --
+
+    - name: OccupancyDrift
+      description: >
+        A manager's occupancy has been declining across 2 or more consecutive
+        reporting periods. Direction matters more than absolute level.
+      severity: medium
+      entity: PropertyManager
+      horizon: trailing_90_days
+      rule:
+        metric: occupancy_rate
+        condition: declining_consecutive_periods
+        periods: 2
+
+    - name: DelinquencyConcentration
+      description: >
+        Delinquency rate exceeds threshold of gross rent roll, or the same
+        tenants are delinquent month after month. Chronic delinquency is a
+        manager process problem, not a tenant problem.
+      severity: high
+      entity: PropertyManager
+      horizon: current
+      rule:
+        metric: delinquency_rate
+        condition: exceeds_threshold
+        threshold_key: delinquency_critical_pct
+
+    - name: LeaseExpirationCliff
+      description: >
+        More than 30% of a manager's leases expire within 60 days with no
+        renewals underway. Forward-looking concentration risk.
+      severity: high
+      entity: PropertyManager
+      horizon: next_60_days
+      rule:
+        metric: expiring_lease_pct
+        condition: exceeds_threshold
+        threshold_key: lease_cliff_pct
+        window_key: lease_cliff_window_days
+
+    - name: VacancyDuration
+      description: >
+        Units vacant beyond the market-normal window. Signals pricing,
+        condition, or leasing process failure.
+      severity: medium
+      entity: Unit
+      horizon: current
+      rule:
+        metric: days_vacant
+        condition: exceeds_threshold
+        threshold_key: vacancy_chronic_days
+
+    - name: MaintenanceBacklog
+      description: >
+        Open work orders aging without resolution, especially in occupied
+        units. Tenant retention risk and liability risk.
+      severity: medium
+      entity: PropertyManager
+      horizon: current
+      rule:
+        metric: open_work_orders
+        condition: aging_past_threshold
+        threshold_key: maintenance_backlog_days
+
+    # -- Manager Performance --
+
+    - name: OutlierPerformance
+      description: >
+        A manager whose key metrics are significantly below peer group.
+        Coaching signal, not a crisis signal.
+      severity: low
+      entity: PropertyManager
+      horizon: current_period
+      rule:
+        metric: composite_rank
+        condition: below_percentile
+        percentile: 25
+
+    - name: PerformanceTrend
+      description: >
+        A manager whose metrics are moving in a consistent direction —
+        improving or deteriorating — over recent periods. Direction of change
+        matters as much as absolute level.
+      severity: medium
+      entity: PropertyManager
+      horizon: trailing_60_days
+      rule:
+        metric: composite_trend
+        condition: consistent_direction
+        periods: 2
+
+    - name: CommunicationGap
+      description: >
+        Situations visible in the data that the director hasn't been told
+        about. Tenants with long delinquency note histories, legal situations,
+        problem properties not raised in reviews.
+      severity: high
+      entity: PropertyManager
+      horizon: current
+      rule:
+        metric: unreported_situations
+        condition: exists
+
+    # -- Operational --
+
+    - name: PolicyBreach
+      description: >
+        A required action didn't happen within the prescribed timeline.
+        Renewal offer not sent, notice not filed, make-ready overdue.
+      severity: high
+      entity: PropertyManager
+      horizon: event_driven
+      rule:
+        metric: policy_compliance
+        condition: breach_detected
+
+    - name: LegalEscalationRisk
+      description: >
+        A tenant situation is approaching or already in a legal track —
+        eviction filing, court hearing, judgment — requiring director
+        awareness. Not for her to manage, but to know about.
+      severity: high
+      entity: Tenant
+      horizon: current
+      rule:
+        metric: tenant_status
+        condition: in_legal_track
+        statuses: [evict]
+
+    - name: BelowMarketRent
+      description: >
+        Units significantly below current market rent with a long-tenured
+        tenant and no renewal conversation planned. Revenue leakage.
+      severity: low
+      entity: Unit
+      horizon: current
+      rule:
+        metric: rent_gap_pct
+        condition: exceeds_threshold
+        threshold_key: below_market_rent_pct
+
+    - name: ConcentrationRisk
+      description: >
+        A single property, tenant type, or subsidy program represents too
+        large a share of a manager's portfolio. If external conditions
+        change, that manager is disproportionately exposed.
+      severity: medium
+      entity: PropertyManager
+      horizon: current
+      rule:
+        metric: concentration_pct
+        condition: exceeds_threshold
+        threshold_key: concentration_risk_pct
+
+  # ---------------------------------------------------------------------------
+  # Thresholds — numeric calibrations that define normal vs alarming
+  # ---------------------------------------------------------------------------
+
+  thresholds:
+    vacancy_chronic_days: 30
+    lease_cliff_pct: 0.30
+    lease_cliff_window_days: 60
+    delinquency_warning_pct: 0.05
+    delinquency_critical_pct: 0.08
+    renewal_outreach_days_before: 90
+    make_ready_deadline_days: 14
+    emergency_response_hours: 4
+    maintenance_backlog_days: 30
+    below_market_rent_pct: 0.10
+    concentration_risk_pct: 0.40
+
+  # ---------------------------------------------------------------------------
+  # Policies — deontic obligations (MUST / SHOULD)
+  # ---------------------------------------------------------------------------
+
+  policies:
+    - id: policy:late_fee_grace
+      description: Late fee assessed after 5-day grace period
+      trigger: rent_overdue_5_days
+      deontic: MUST
+
+    - id: policy:three_day_notice
+      description: 3-day notice to pay or quit after 10 days overdue
+      trigger: rent_overdue_10_days
+      deontic: MUST
+
+    - id: policy:emergency_response
+      description: Emergency work orders responded to within 4 hours
+      trigger: priority_emergency
+      deontic: MUST
+
+    - id: policy:renewal_offer
+      description: Renewal offer sent 90 days before lease expiration
+      trigger: lease_expires_90_days
+      deontic: MUST
+
+    - id: policy:make_ready_deadline
+      description: Make-ready must complete within 14 days of move-out
+      trigger: move_out_completed
+      deontic: MUST
+
+  # ---------------------------------------------------------------------------
+  # Causal chains — known cause-effect relationships in the domain
+  # ---------------------------------------------------------------------------
+
+  causal_chains:
+    - cause: slow_maintenance
+      effect: extended_vacancy
+      description: Slow maintenance response increases vacancy duration
+
+    - cause: poor_screening
+      effect: high_turnover_cost
+      description: Poor tenant screening leads to higher turnover costs
+
+    - cause: deferred_capex
+      effect: lower_noi
+      description: Deferred capital expenditure reduces NOI over time
+
+    - cause: below_market_rent
+      effect: missed_revenue
+      description: Below-market rents lead to missed revenue opportunities
+
+# =============================================================================
+# ABox Seeds — operational knowledge seeded at bootstrap
+# =============================================================================
+
+abox:
+  workflows:
+    - name: turnover
+      steps:
+        - id: "turnover:lease_expiration"
+          description: Lease expiration notice sent
+        - id: "turnover:move_out_inspection"
+          description: Move-out inspection scheduled
+        - id: "turnover:security_deposit"
+          description: Security deposit assessment
+        - id: "turnover:make_ready_scope"
+          description: Make-ready scope defined
+        - id: "turnover:vendor_scheduling"
+          description: Vendors scheduled for make-ready
+        - id: "turnover:make_ready_work"
+          description: Make-ready work in progress
+        - id: "turnover:final_inspection"
+          description: Final inspection after make-ready
+        - id: "turnover:listing_published"
+          description: Unit listed for rent
+        - id: "turnover:new_lease_signed"
+          description: New lease signed
+
+    - name: collections
+      steps:
+        - id: "collections:rent_due"
+          description: Rent due date
+        - id: "collections:grace_period"
+          description: Grace period active
+        - id: "collections:late_fee_applied"
+          description: Late fee applied
+        - id: "collections:first_notice"
+          description: First contact / reminder sent
+        - id: "collections:demand_letter"
+          description: Formal demand letter
+        - id: "collections:three_day_notice"
+          description: 3-day notice to pay or quit
+        - id: "collections:eviction_filing"
+          description: Eviction filing
+        - id: "collections:court_hearing"
+          description: Court hearing scheduled
+        - id: "collections:judgment"
+          description: Judgment / resolution
+
+    - name: maintenance
+      steps:
+        - id: "maintenance:request_received"
+          description: Maintenance request received
+        - id: "maintenance:triage"
+          description: Request triaged and prioritized
+        - id: "maintenance:vendor_assigned"
+          description: Vendor assigned
+        - id: "maintenance:scheduled"
+          description: Work scheduled with tenant
+        - id: "maintenance:in_progress"
+          description: Work in progress
+        - id: "maintenance:completion"
+          description: Work completed
+        - id: "maintenance:inspection"
+          description: Post-work inspection
+        - id: "maintenance:closed"
+          description: Request closed

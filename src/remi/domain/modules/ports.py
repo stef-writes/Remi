@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import abc
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from remi.domain.graph.definitions import ModuleDefinition
-from remi.domain.modules.base import BaseModule
+if TYPE_CHECKING:
+    from remi.domain.graph.definitions import ModuleDefinition
+    from remi.domain.modules.base import BaseModule
 
 
 class ModuleRegistry(abc.ABC):

@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from remi.domain.graph.definitions import AppDefinition, EdgeDefinition
 from remi.domain.graph.validation import topological_sort
-from remi.domain.modules.ports import ModuleRegistry
 from remi.domain.state.models import ExecutionRecord, ModuleState, RunRecord
-from remi.domain.state.ports import StateStore
 from remi.runtime.context.runtime_context import RuntimeContext
-from remi.runtime.events.bus import EventBus
 from remi.runtime.events.lifecycle import (
     APP_OUTPUT_READY,
     MODULE_COMPLETED,
@@ -23,14 +19,20 @@ from remi.runtime.events.lifecycle import (
     RUN_FAILED,
     RUN_STARTED,
     InterAppEvent,
-    ModuleEvent,
     LifecycleEvent,
+    ModuleEvent,
 )
 from remi.runtime.policies.retry import RetryPolicy
 from remi.shared.clock import Clock, SystemClock
-from remi.shared.enums import ExecutionMode, ModuleStatus, RunStatus
+from remi.shared.enums import ModuleStatus, RunStatus
 from remi.shared.errors import ExecutionError
 from remi.shared.ids import AppId, ModuleId, RunId, new_run_id
+
+if TYPE_CHECKING:
+    from remi.domain.graph.definitions import AppDefinition
+    from remi.domain.modules.ports import ModuleRegistry
+    from remi.domain.state.ports import StateStore
+    from remi.runtime.events.bus import EventBus
 
 logger = structlog.get_logger(__name__)
 

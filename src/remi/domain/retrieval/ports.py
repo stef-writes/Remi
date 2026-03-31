@@ -8,9 +8,10 @@ sentence-transformers, etc. for Embedder).
 from __future__ import annotations
 
 import abc
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from remi.domain.retrieval.types import EmbeddingRecord, SearchResult
+if TYPE_CHECKING:
+    from remi.domain.retrieval.types import EmbeddingRecord, SearchResult
 
 
 class VectorStore(abc.ABC):

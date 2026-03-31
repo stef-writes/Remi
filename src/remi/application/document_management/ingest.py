@@ -7,20 +7,20 @@ Orchestrates the full document ingestion pipeline:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 
-from remi.domain.documents.models import Document, DocumentStore
-from remi.domain.memory.ports import KnowledgeStore
-from remi.domain.properties.ports import PropertyStore
 from remi.infrastructure.documents.parsers import parse_csv, parse_excel
 from remi.infrastructure.knowledge.enrichment import enrich_ambiguous_rows
-from remi.infrastructure.knowledge.ingestion import IngestionService
 
 if TYPE_CHECKING:
+    from remi.domain.documents.models import Document, DocumentStore
+    from remi.domain.memory.ports import KnowledgeStore
+    from remi.domain.properties.ports import PropertyStore
     from remi.infrastructure.config.container import Container
+    from remi.infrastructure.knowledge.ingestion import IngestionService
 
 _log = structlog.get_logger(__name__)
 

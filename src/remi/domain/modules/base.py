@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import abc
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from remi.runtime.context.runtime_context import RuntimeContext
 
 

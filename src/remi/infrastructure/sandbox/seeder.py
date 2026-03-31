@@ -18,14 +18,15 @@ import csv
 import io
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from remi.domain.ontology.ports import OntologyStore
-from remi.domain.properties.ports import PropertyStore
-from remi.domain.sandbox.ports import Sandbox
-from remi.domain.signals.ports import SignalStore
+if TYPE_CHECKING:
+    from remi.domain.ontology.ports import OntologyStore
+    from remi.domain.properties.ports import PropertyStore
+    from remi.domain.sandbox.ports import Sandbox
+    from remi.domain.signals.ports import SignalStore
 
 _log = structlog.get_logger(__name__)
 

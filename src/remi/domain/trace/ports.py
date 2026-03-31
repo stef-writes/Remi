@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
-from remi.domain.trace.types import Span, Trace
+if TYPE_CHECKING:
+    from remi.domain.trace.types import Span, Trace
 
 
 class TraceStore(abc.ABC):

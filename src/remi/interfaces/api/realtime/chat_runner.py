@@ -5,17 +5,18 @@ Thin transport adapter: delegates agent execution to ChatAgentService.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi import WebSocket
-
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.realtime.jsonrpc import (
-    AGENT_ERROR,
     Dispatcher,
     JsonRpcNotification,
     JsonRpcRequest,
 )
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
+
+    from remi.infrastructure.config.container import Container
 
 
 async def send_notification(ws: WebSocket, method: str, params: dict[str, Any]) -> None:

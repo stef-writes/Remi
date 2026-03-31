@@ -6,10 +6,11 @@ Maps 1:1 to the CLI ``remi onto`` subcommands.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from remi.domain.ontology.types import ObjectTypeDef, PropertyDef
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
 from remi.interfaces.api.ontology.schemas import (
     AggregateRequest,
@@ -26,6 +27,9 @@ from remi.interfaces.api.ontology.schemas import (
     SearchResponse,
     TimelineResponse,
 )
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(prefix="/ontology", tags=["ontology"])
 

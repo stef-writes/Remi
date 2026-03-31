@@ -239,7 +239,7 @@ class LocalSandbox(Sandbox):
                 stdout_raw, stderr_raw = await asyncio.wait_for(
                     proc.communicate(), timeout=timeout,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 await proc.wait()
                 elapsed = (time.monotonic() - start) * 1000

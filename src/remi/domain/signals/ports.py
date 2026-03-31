@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import abc
+from typing import TYPE_CHECKING
 
-from remi.domain.signals.types import Signal
+if TYPE_CHECKING:
+    from remi.domain.signals.types import Signal
 
 
 class SignalStore(abc.ABC):

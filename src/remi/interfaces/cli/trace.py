@@ -8,12 +8,14 @@ tool calls → reasoning output. Every trace is a tree of spans that shows
 from __future__ import annotations
 
 import asyncio
-import json
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import typer
 
 from remi.interfaces.cli.shared import get_container_async, json_out, use_json
+
+if TYPE_CHECKING:
+    from remi.domain.trace.types import Span
 
 cmd = typer.Typer(
     name="trace",
@@ -29,7 +31,7 @@ cmd = typer.Typer(
 @cmd.command("list")
 def list_traces(
     limit: int = typer.Option(20, "--limit", "-l", help="Max traces to show"),
-    kind: Optional[str] = typer.Option(None, "--kind", "-k", help="Filter by span kind"),
+    kind: str | None = typer.Option(None, "--kind", "-k", help="Filter by span kind"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """List recent traces."""
@@ -72,7 +74,7 @@ async def _list_traces(limit: int, kind: str | None, fmt_json: bool) -> None:
 @cmd.command("show")
 def show(
     trace_id: str = typer.Argument(..., help="Trace ID to display"),
-    kind: Optional[str] = typer.Option(None, "--kind", "-k", help="Filter spans by kind"),
+    kind: str | None = typer.Option(None, "--kind", "-k", help="Filter spans by kind"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """Show the full span tree for a trace."""
@@ -125,7 +127,6 @@ async def _show(trace_id: str, kind: str | None, fmt_json: bool) -> None:
 
 def _render_span_tree(trace_id: str, spans: list) -> None:
     """Render spans as an indented tree to the terminal."""
-    from remi.domain.trace.types import Span
 
     root_span = min(spans, key=lambda s: s.started_at)
     last_span = max(spans, key=lambda s: s.ended_at or s.started_at)
@@ -201,7 +202,7 @@ def _render_key_attributes(attrs: dict, prefix: str) -> None:
 @cmd.command("spans")
 def spans(
     trace_id: str = typer.Argument(..., help="Trace ID"),
-    kind: Optional[str] = typer.Option(None, "--kind", "-k", help="Filter by span kind"),
+    kind: str | None = typer.Option(None, "--kind", "-k", help="Filter by span kind"),
     json_output: bool = typer.Option(False, "--json", "-j"),
 ) -> None:
     """List spans in a trace as a flat table."""

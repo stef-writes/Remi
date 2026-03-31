@@ -2,16 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from remi.domain.documents.models import DocumentStore
-from remi.domain.memory.ports import MemoryStore
-from remi.domain.ontology.ports import OntologyStore
-from remi.domain.retrieval.ports import Embedder, VectorStore
-from remi.domain.sandbox.ports import Sandbox
-from remi.domain.signals.ports import SignalStore
-from remi.domain.trace.ports import TraceStore
-from remi.domain.tools.ports import ToolRegistry
+from typing import TYPE_CHECKING, Any
 
 from remi.infrastructure.tools.documents import register_document_tools
 from remi.infrastructure.tools.memory import register_memory_tools
@@ -19,6 +10,16 @@ from remi.infrastructure.tools.ontology import register_ontology_tools
 from remi.infrastructure.tools.sandbox import register_sandbox_tools
 from remi.infrastructure.tools.trace import register_trace_tools
 from remi.infrastructure.tools.vectors import register_vector_tools
+
+if TYPE_CHECKING:
+    from remi.domain.documents.models import DocumentStore
+    from remi.domain.memory.ports import MemoryStore
+    from remi.domain.ontology.ports import OntologyStore
+    from remi.domain.retrieval.ports import Embedder, VectorStore
+    from remi.domain.sandbox.ports import Sandbox
+    from remi.domain.signals.ports import SignalStore
+    from remi.domain.tools.ports import ToolRegistry
+    from remi.domain.trace.ports import TraceStore
 
 
 def register_all_tools(

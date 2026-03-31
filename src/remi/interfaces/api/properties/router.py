@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from remi.domain.properties.enums import UnitStatus
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
 from remi.interfaces.api.properties.schemas import (
     PropertyDetail,
@@ -15,6 +16,9 @@ from remi.interfaces.api.properties.schemas import (
     UnitListResponse,
     UnitSummary,
 )
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(prefix="/properties", tags=["properties"])
 

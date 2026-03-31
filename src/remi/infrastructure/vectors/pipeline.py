@@ -11,15 +11,18 @@ as-is so agents can retrieve raw evidence from uploaded reports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING
 
 import structlog
 
-from remi.domain.documents.models import DocumentStore
-from remi.domain.properties.ports import PropertyStore
-from remi.domain.retrieval.ports import Embedder, VectorStore
 from remi.domain.retrieval.types import EmbeddingRecord, EmbeddingRequest
+
+if TYPE_CHECKING:
+    from decimal import Decimal
+
+    from remi.domain.documents.models import DocumentStore
+    from remi.domain.properties.ports import PropertyStore
+    from remi.domain.retrieval.ports import Embedder, VectorStore
 
 _log = structlog.get_logger(__name__)
 
@@ -71,7 +74,7 @@ class EmbeddingPipeline:
                 continue
 
             records = []
-            for req, vec in zip(batch, vectors):
+            for req, vec in zip(batch, vectors, strict=False):
                 records.append(EmbeddingRecord(
                     id=req.id,
                     text=req.text,

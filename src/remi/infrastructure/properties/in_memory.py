@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
-
-from remi.domain.properties.enums import (
-    LeaseStatus,
-    MaintenanceStatus,
-    OccupancyStatus,
-    TenantStatus,
-    UnitStatus,
-)
-from remi.domain.properties.models import (
-    Lease,
-    MaintenanceRequest,
-    Portfolio,
-    Property,
-    PropertyManager,
-    Tenant,
-    Unit,
-)
 from remi.domain.properties.ports import PropertyStore
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
+
+    from remi.domain.properties.enums import (
+        LeaseStatus,
+        MaintenanceStatus,
+        OccupancyStatus,
+        TenantStatus,
+        UnitStatus,
+    )
+    from remi.domain.properties.models import (
+        Lease,
+        MaintenanceRequest,
+        Portfolio,
+        Property,
+        PropertyManager,
+        Tenant,
+        Unit,
+    )
 
 
 def _merge(existing: BaseModel, incoming: BaseModel) -> BaseModel:

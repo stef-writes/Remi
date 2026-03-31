@@ -7,16 +7,16 @@ Uses rich for styled terminal output with spinners and panels.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
-from rich.text import Text
-from rich.rule import Rule
 
 
 class LiveAgentDisplay:
@@ -155,10 +155,8 @@ class LiveAgentDisplay:
 
     def _render_sandbox_result(self, ts: str, result: Any) -> None:
         if isinstance(result, str):
-            try:
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
                 result = json.loads(result)
-            except (json.JSONDecodeError, TypeError):
-                pass
 
         if isinstance(result, dict):
             status = result.get("status", "")

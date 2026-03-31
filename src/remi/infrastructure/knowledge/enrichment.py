@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from remi.domain.documents.models import Document
 from remi.domain.memory.ports import Entity, KnowledgeStore, Relationship
 
 if TYPE_CHECKING:
+    from remi.domain.documents.models import Document
     from remi.infrastructure.config.container import InclineContainer
 
 logger = structlog.get_logger(__name__)

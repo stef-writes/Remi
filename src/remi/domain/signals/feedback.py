@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import abc
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -27,7 +27,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class SignalOutcome(str, Enum):
+class SignalOutcome(StrEnum):
     """What happened after a signal was surfaced."""
 
     ACKNOWLEDGED = "acknowledged"

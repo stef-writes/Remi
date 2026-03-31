@@ -7,17 +7,18 @@ onto_codify_policy, onto_codify_causal_link, onto_define_type.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from remi.domain.ontology.ports import OntologyStore
 from remi.domain.ontology.types import (
     KnowledgeProvenance,
-    LinkTypeDef,
     ObjectTypeDef,
     PropertyDef,
 )
-from remi.domain.signals.ports import SignalStore
 from remi.domain.tools.ports import ToolArg, ToolDefinition, ToolRegistry
+
+if TYPE_CHECKING:
+    from remi.domain.ontology.ports import OntologyStore
+    from remi.domain.signals.ports import SignalStore
 
 
 def register_ontology_tools(
@@ -361,18 +362,17 @@ def register_ontology_tools(
     async def onto_define_type(args: dict[str, Any]) -> Any:
         name = args["name"]
         prop_defs: list[PropertyDef] = []
-        if raw_props := args.get("properties"):
-            if isinstance(raw_props, list):
-                for p in raw_props:
-                    if isinstance(p, dict):
-                        prop_defs.append(PropertyDef(
-                            name=p.get("name", ""),
-                            data_type=p.get("data_type", "string"),
-                            description=p.get("description", ""),
-                        ))
-                    elif isinstance(p, str) and ":" in p:
-                        pname, ptype = p.split(":", 1)
-                        prop_defs.append(PropertyDef(name=pname, data_type=ptype))
+        if (raw_props := args.get("properties")) and isinstance(raw_props, list):
+            for p in raw_props:
+                if isinstance(p, dict):
+                    prop_defs.append(PropertyDef(
+                        name=p.get("name", ""),
+                        data_type=p.get("data_type", "string"),
+                        description=p.get("description", ""),
+                    ))
+                elif isinstance(p, str) and ":" in p:
+                    pname, ptype = p.split(":", 1)
+                    prop_defs.append(PropertyDef(name=pname, data_type=ptype))
 
         type_def = ObjectTypeDef(
             name=name,

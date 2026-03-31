@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from remi.domain.properties.models import Portfolio, PropertyManager
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.dependencies import get_container
 from remi.interfaces.api.managers.schemas import (
     AssignPropertiesRequest,
@@ -18,6 +18,9 @@ from remi.interfaces.api.managers.schemas import (
     ManagerListResponse,
     ManagerReviewResponse,
 )
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(prefix="/managers", tags=["managers"])
 

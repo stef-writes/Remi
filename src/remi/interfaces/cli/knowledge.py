@@ -162,11 +162,11 @@ async def _summary(namespace: str | None, fmt_json: bool) -> None:
     if fmt_json:
         json_out(data)
     else:
-        typer.echo(f"\nKnowledge Base Summary")
+        typer.echo("\nKnowledge Base Summary")
         typer.echo(f"  Namespaces: {data['namespaces']}")
         typer.echo(f"  Total entities: {total_entities}")
         if type_counts:
-            typer.echo(f"\n  By type:")
+            typer.echo("\n  By type:")
             for t, c in sorted(type_counts.items()):
                 typer.echo(f"    {t:15s}  {c}")
         else:

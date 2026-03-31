@@ -19,7 +19,6 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # .env file loader (no external deps)
 # ---------------------------------------------------------------------------

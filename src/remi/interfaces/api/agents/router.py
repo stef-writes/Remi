@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
 
-from remi.infrastructure.config.container import Container
 from remi.interfaces.api.agents.schemas import AskRequest, AskResponse
 from remi.interfaces.api.dependencies import get_container
 from remi.shared.paths import WORKFLOWS_DIR
+
+if TYPE_CHECKING:
+    from remi.infrastructure.config.container import Container
 
 router = APIRouter(prefix="/agents", tags=["ai"])
 

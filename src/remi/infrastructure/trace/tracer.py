@@ -16,18 +16,20 @@ from __future__ import annotations
 
 import contextvars
 from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from remi.domain.trace.ports import TraceStore
 from remi.domain.trace.types import (
     Span,
     SpanKind,
     SpanStatus,
     new_span_id,
     new_trace_id,
-    _utcnow,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from remi.domain.trace.ports import TraceStore
 
 _current_trace_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_current_trace_id", default=None

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from enum import Enum, unique
+from enum import StrEnum, unique
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -32,7 +32,7 @@ def new_span_id() -> str:
 
 
 @unique
-class SpanKind(str, Enum):
+class SpanKind(StrEnum):
     """Epistemological category of a span."""
 
     ENTAILMENT = "entailment"
@@ -46,7 +46,7 @@ class SpanKind(str, Enum):
 
 
 @unique
-class SpanStatus(str, Enum):
+class SpanStatus(StrEnum):
     RUNNING = "running"
     OK = "ok"
     ERROR = "error"

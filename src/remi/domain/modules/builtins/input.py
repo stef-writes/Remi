@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from remi.domain.modules.base import BaseModule, Message, ModuleOutput
-from remi.runtime.context.runtime_context import RuntimeContext
+
+if TYPE_CHECKING:
+    from remi.runtime.context.runtime_context import RuntimeContext
 
 
 class UserInputModule(BaseModule):

@@ -11,15 +11,17 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from remi.domain.modules.base import BaseModule, Message, ModuleOutput
 from remi.domain.modules.builtins.agent_config import AgentConfig
-from remi.domain.tools.ports import ToolDefinition
 from remi.domain.trace.types import SpanKind
-from remi.infrastructure.llm.ports import LLMProvider
-from remi.infrastructure.trace.tracer import Tracer
-from remi.runtime.context.runtime_context import RuntimeContext
+
+if TYPE_CHECKING:
+    from remi.domain.tools.ports import ToolDefinition
+    from remi.infrastructure.llm.ports import LLMProvider
+    from remi.infrastructure.trace.tracer import Tracer
+    from remi.runtime.context.runtime_context import RuntimeContext
 
 OnEventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
@@ -401,10 +403,7 @@ def _get_trace_id() -> str | None:
 
 
 def _truncate(value: Any, max_len: int = 500) -> str:
-    if isinstance(value, str):
-        text = value
-    else:
-        text = json.dumps(value, default=str)
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
     return text[:max_len] + ("..." if len(text) > max_len else "")
 
 
