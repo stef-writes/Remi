@@ -17,6 +17,7 @@ from remi.domain.portfolio.models import (
     MaintenanceRequest,
     MaintenanceStatus,
     OccupancyStatus,
+    Owner,
     Portfolio,
     Property,
     PropertyManager,
@@ -24,6 +25,8 @@ from remi.domain.portfolio.models import (
     TenantStatus,
     Unit,
     UnitStatus,
+    Vendor,
+    VendorCategory,
 )
 from remi.types.result import WriteResult
 
@@ -169,7 +172,41 @@ class ActionItemRepository(abc.ABC):
     async def delete_action_item(self, item_id: str) -> bool: ...
 
 
+class OwnerRepository(abc.ABC):
+    @abc.abstractmethod
+    async def get_owner(self, owner_id: str) -> Owner | None: ...
+
+    @abc.abstractmethod
+    async def list_owners(self) -> list[Owner]: ...
+
+    @abc.abstractmethod
+    async def upsert_owner(self, owner: Owner) -> WriteResult[Owner]: ...
+
+    @abc.abstractmethod
+    async def delete_owner(self, owner_id: str) -> bool: ...
+
+
+class VendorRepository(abc.ABC):
+    @abc.abstractmethod
+    async def get_vendor(self, vendor_id: str) -> Vendor | None: ...
+
+    @abc.abstractmethod
+    async def list_vendors(
+        self,
+        *,
+        category: VendorCategory | None = None,
+        is_internal: bool | None = None,
+    ) -> list[Vendor]: ...
+
+    @abc.abstractmethod
+    async def upsert_vendor(self, vendor: Vendor) -> WriteResult[Vendor]: ...
+
+    @abc.abstractmethod
+    async def delete_vendor(self, vendor_id: str) -> bool: ...
+
+
 class PropertyStore(
+    OwnerRepository,
     ManagerRepository,
     PortfolioRepository,
     PropertyRepository,
@@ -177,6 +214,7 @@ class PropertyStore(
     LeaseRepository,
     TenantRepository,
     MaintenanceRepository,
+    VendorRepository,
     ActionItemRepository,
 ):
     """Full property store — prefer narrow per-entity protocols in new code."""

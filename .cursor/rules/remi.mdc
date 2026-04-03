@@ -90,7 +90,7 @@ src/remi/
     vectors/       Embedding ports + adapters
     sandbox/       Code execution ports + adapters
     observe/       Structured logging, tracing
-    signals/       Signal types, stores, producers, pattern mining, graduation
+    signals/       Signal types, stores, producers
     graph/         Knowledge graph types, bridge, retriever
     documents/     Document types, stores, parsers
     db/            Database engine + tables
@@ -109,7 +109,7 @@ src/remi/
     ontology/      RE knowledge graph schema
     search/        RE-aware hybrid search + patterns
     tools/         RE agent capabilities
-    configs/       RE agent YAML manifests
+    agents/        RE agent YAML manifests
 
   types/           # Shared vocabulary — ids, clock, errors, enums
 
@@ -200,8 +200,8 @@ src/remi/
     types, logging, events, mem
 
   ── agent/signals/ ─────────────────────────────────────────────────────────
-    enums, signal, tbox, stores, feedback, hypothesis, composite, mem
-    evaluation, composition, statistical, pattern, graduation
+    enums, signal, tbox, stores, feedback, composite, mem
+    evaluation, composition, statistical
 
   ── agent/graph/ ───────────────────────────────────────────────────────────
     types, stores, bridge, retriever, mem, remote
@@ -259,7 +259,7 @@ src/remi/
     __init__ (register_all_tools), ontology, documents, search
     actions, workflows, snapshots
 
-  ── domain/configs/ ────────────────────────────────────────────────────────
+  ── domain/agents/ ─────────────────────────────────────────────────────────
     director/, researcher/, action_planner/, document_ingestion/
 
 ── types/ ───────────────────────────────────────────────────────────────────

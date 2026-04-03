@@ -16,10 +16,10 @@ from typing import Any
 import structlog
 
 from remi.agent.graph.types import KnowledgeProvenance
+from remi.agent.signals.evaluation import signal_id as _signal_id
 from remi.agent.signals.signal import ProducerResult, Signal, SignalProducer
 from remi.agent.signals.stores import SignalStore
-from remi.agent.signals.tbox import CompositionRule, DomainRulebook, MutableRulebook
-from remi.agent.signals.evaluation import signal_id as _signal_id
+from remi.agent.signals.tbox import CompositionRule, DomainTBox, MutableTBox
 
 _log = structlog.get_logger(__name__)
 
@@ -29,7 +29,7 @@ class CompositionProducer(SignalProducer):
 
     def __init__(
         self,
-        domain: DomainRulebook | MutableRulebook,
+        domain: DomainTBox | MutableTBox,
         signal_store: SignalStore,
     ) -> None:
         self._domain = domain

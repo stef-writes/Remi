@@ -220,7 +220,7 @@ modules:
           tools: []
           max_tool_rounds: 6
           max_iterations: 12
-          context_injection: [signals, domain]
+          context_injection: [signals]
 
       memory:
         namespace: remi-director

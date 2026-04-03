@@ -2,7 +2,7 @@
 
 Orchestrates the complete inbound data flow:
   upload → parse → persist → LLM extraction → resolve to domain models →
-  snapshot → signal pipeline → pattern detection → embed
+  snapshot → signal pipeline → embed
 
 LLM extraction is performed by the ontology-driven ``document_ingestion``
 pipeline (classify → extract → enrich) via ``IngestionService``.  The
@@ -16,15 +16,14 @@ from dataclasses import dataclass, field
 
 import structlog
 
+from remi.agent.documents.parsers import parse_document
 from remi.agent.documents.types import Document, DocumentStore
 from remi.agent.graph.stores import KnowledgeStore
-from remi.agent.documents.parsers import parse_document
 from remi.agent.signals.composite import CompositeProducer
+from remi.domain.ingestion.embedding import EmbeddingPipeline
 from remi.domain.ingestion.service import IngestionService
-from remi.agent.signals.pattern import PatternDetector
 from remi.domain.portfolio.protocols import PropertyStore
 from remi.domain.queries.snapshots import SnapshotService
-from remi.domain.ingestion.embedding import EmbeddingPipeline
 
 _log = structlog.get_logger(__name__)
 
@@ -40,7 +39,6 @@ class IngestResult:
     rows_skipped: int = 0
     validation_warnings: list[str] = field(default_factory=list)
     signals_produced: int = 0
-    hypotheses_proposed: int = 0
     entities_embedded: int = 0
     pipeline_warnings: list[str] = field(default_factory=list)
 
@@ -56,7 +54,6 @@ class DocumentIngestService:
         property_store: PropertyStore,
         snapshot_service: SnapshotService,
         signal_pipeline: CompositeProducer,
-        pattern_detector: PatternDetector,
         embedding_pipeline: EmbeddingPipeline,
     ) -> None:
         self._doc_store = document_store
@@ -65,7 +62,6 @@ class DocumentIngestService:
         self._property_store = property_store
         self._snapshot_service = snapshot_service
         self._signal_pipeline = signal_pipeline
-        self._pattern_detector = pattern_detector
         self._embedding_pipeline = embedding_pipeline
 
     async def ingest_upload(
@@ -89,7 +85,6 @@ class DocumentIngestService:
         await self._doc_store.save(doc_with_meta)
 
         signals_produced = 0
-        hypotheses_proposed = 0
         entities_embedded = 0
         pipeline_warnings: list[str] = []
 
@@ -112,18 +107,6 @@ class DocumentIngestService:
             except Exception as exc:
                 pipeline_warnings.append(f"signal_pipeline: {exc}")
                 _log.warning("signal_pipeline_failed", exc_info=True)
-
-            try:
-                detector_result = await self._pattern_detector.run()
-                hypotheses_proposed = detector_result.proposed
-                _log.info(
-                    "pattern_detection_complete",
-                    hypotheses_proposed=detector_result.proposed,
-                    types_scanned=detector_result.types_scanned,
-                )
-            except Exception as exc:
-                pipeline_warnings.append(f"pattern_detection: {exc}")
-                _log.warning("pattern_detection_failed", exc_info=True)
 
             try:
                 embed_result = await self._embedding_pipeline.run_full()
@@ -156,7 +139,6 @@ class DocumentIngestService:
             rows_skipped=ingestion_result.rows_skipped,
             validation_warnings=validation_warnings,
             signals_produced=signals_produced,
-            hypotheses_proposed=hypotheses_proposed,
             entities_embedded=entities_embedded,
             pipeline_warnings=pipeline_warnings,
         )

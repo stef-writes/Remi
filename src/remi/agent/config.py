@@ -44,12 +44,17 @@ class PhaseConfig(BaseModel):
 
     Used by the researcher to enforce structured progress through
     DATA -> ANALYZE -> SYNTHESIZE stages with iteration budgets.
+
+    When *tools* is set, only the listed tool names are active during
+    this phase.  Unlisted tools are stripped from the LLM request,
+    saving tokens in later phases where they're dead weight.
     """
 
     name: str
     description: str = ""
     max_iterations: int = 5
     nudge: str = ""
+    tools: list[str] = Field(default_factory=list)
 
 
 class MemoryConfig(BaseModel):
@@ -109,6 +114,7 @@ class AgentConfig(BaseModel):
     agent_max_iterations: int | None = None
     max_history_turns: int = 10
     stop_when: str = "no_tool_calls"
+    compact_tbox: bool = False
 
     # Intent-based routing
     intents: dict[str, IntentConfig] = Field(default_factory=dict)
@@ -218,5 +224,6 @@ class AgentConfig(BaseModel):
             agent_max_iterations=data.get("agent_max_iterations"),
             max_history_turns=data.get("max_history_turns", 10),
             stop_when=data.get("stop_when", "no_tool_calls"),
+            compact_tbox=data.get("compact_tbox", False),
             output_contract=data.get("output_contract", "conversation"),
         )

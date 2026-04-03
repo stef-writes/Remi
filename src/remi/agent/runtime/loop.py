@@ -19,12 +19,13 @@ import structlog
 from remi.agent.config import AgentConfig, PhaseConfig
 from remi.agent.conversation.compression import compress_tool_result
 from remi.agent.conversation.thread import try_parse_json
+from remi.agent.llm.types import LLMProvider, LLMRequest, TokenUsage, ToolCallRequest
+from remi.agent.observe.types import Tracer
+from remi.agent.observe.usage import LLMUsageLedger
 from remi.agent.runtime.deps import OnEventCallback
 from remi.agent.runtime.llm_bridge import build_llm_request, stream_llm_response
 from remi.agent.runtime.tool_executor import ToolExecutor
 from remi.agent.types import Message
-from remi.agent.llm.types import LLMProvider, LLMRequest, TokenUsage, ToolCallRequest
-from remi.agent.observe.types import Tracer
 
 logger = structlog.get_logger("remi.agent.loop")
 
@@ -79,6 +80,7 @@ async def run_agent_loop(
     log: structlog.stdlib.BoundLogger,
     max_tool_rounds: int | None = None,
     routing_provider: LLMProvider | None = None,
+    usage_ledger: LLMUsageLedger | None = None,
 ) -> tuple[list[Message], TokenUsage]:
     """Execute the think-act-observe loop.
 
@@ -92,6 +94,7 @@ async def run_agent_loop(
     tool_defs = tool_executor.definitions
     produced_answer = False
 
+    all_tool_defs = list(tool_defs)
     phase_thresholds = _build_phase_thresholds(cfg.phases)
     next_phase_idx = 0
     current_phase_name: str | None = cfg.phases[0].name if cfg.phases else None
@@ -110,6 +113,17 @@ async def run_agent_loop(
                     f"**{next_phase.name}** phase. {next_phase.description}"
                 )
                 thread.append(Message(role="system", content=nudge))
+
+                if next_phase.tools:
+                    allowed = set(next_phase.tools)
+                    tool_defs = [td for td in all_tool_defs if td.name in allowed]
+                    log.info(
+                        "phase_tool_pruning",
+                        phase=next_phase.name,
+                        kept=len(tool_defs),
+                        total=len(all_tool_defs),
+                    )
+
                 log.info(
                     "phase_transition",
                     from_phase=phase.name,
@@ -159,7 +173,10 @@ async def run_agent_loop(
             )
 
         request = build_llm_request(
-            cfg, thread, active_tools, model_override=iter_model,
+            cfg,
+            thread,
+            active_tools,
+            model_override=iter_model,
         )
 
         response = await stream_llm_response(
@@ -169,6 +186,7 @@ async def run_agent_loop(
             iteration,
             tracer,
             cfg,
+            usage_ledger=usage_ledger,
         )
         run_usage = run_usage + response.usage
         log.info(
@@ -199,10 +217,7 @@ async def run_agent_loop(
         )
 
         tool_messages = await asyncio.gather(
-            *[
-                _execute_tool_call(tc, iteration, tool_executor, emit)
-                for tc in response.tool_calls
-            ]
+            *[_execute_tool_call(tc, iteration, tool_executor, emit) for tc in response.tool_calls]
         )
         thread.extend(tool_messages)
 
@@ -221,6 +236,7 @@ async def run_agent_loop(
             total_iterations,
             tracer,
             cfg,
+            usage_ledger=usage_ledger,
         )
         run_usage = run_usage + synth_response.usage
         content = synth_response.content or ""

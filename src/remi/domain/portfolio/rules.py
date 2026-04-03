@@ -67,3 +67,20 @@ def pct_below_market(unit: Unit) -> float:
 def is_maintenance_open(request: MaintenanceRequest) -> bool:
     """True when a maintenance request should count as open/active."""
     return request.status in (MaintenanceStatus.OPEN, MaintenanceStatus.IN_PROGRESS)
+
+
+def manager_name_from_tag(tag: str) -> str:
+    """Extract and normalize the person's name from a manager tag.
+
+    Handles tags like 'Jake Kraus Management', 'Jake  Kraus' (extra spaces),
+    or bare names. Strips known company suffixes and normalizes whitespace so
+    'Jake  Kraus' and 'Jake Kraus' resolve to the same manager.
+    """
+    suffixes = ("management", "mgmt", "properties", "property")
+    name = " ".join(tag.split())
+    lower = name.lower()
+    for suffix in suffixes:
+        if lower.endswith(suffix):
+            name = " ".join(name[: -len(suffix)].split())
+            break
+    return name or " ".join(tag.split())

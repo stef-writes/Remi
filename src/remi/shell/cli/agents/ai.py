@@ -59,25 +59,30 @@ async def _run_single(
     fmt_json: bool,
     verbose: bool,
 ) -> None:
+    from remi.agent.context.frame import PerceptionSnapshot, WorldState
     from remi.shell.cli.live_display import LiveAgentDisplay
 
     container = await get_container_async()
 
+    world = WorldState.from_tbox(container.domain_tbox)
+
+    perception = PerceptionSnapshot()
+    try:
+        signals = await container.signal_store.list_signals()
+        severity_counts: dict[str, int] = {}
+        for s in signals:
+            sev = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        perception = PerceptionSnapshot(
+            active_signals=len(signals),
+            severity_counts=severity_counts,
+        )
+    except Exception:
+        logger.debug("signal_fetch_for_display_failed", exc_info=True)
+
     display: LiveAgentDisplay | None = None
     if not fmt_json:
         display = LiveAgentDisplay(verbose=verbose)
-
-        signal_count = 0
-        severity_breakdown: dict[str, int] = {}
-        try:
-            signals = await container.signal_store.list_signals()
-            signal_count = len(signals)
-            for s in signals:
-                sev = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
-                severity_breakdown[sev] = severity_breakdown.get(sev, 0) + 1
-        except Exception:
-            logger.debug("signal_fetch_for_display_failed", exc_info=True)
-
         settings = container.settings
         display.show_start(
             agent_name,
@@ -85,9 +90,9 @@ async def _run_single(
             settings.llm.default_provider,
         )
         display.show_perception(
-            tbox_injected=container.domain_rulebook is not None,
-            signal_count=signal_count,
-            severity_breakdown=severity_breakdown,
+            tbox_injected=world.loaded,
+            signal_count=perception.active_signals,
+            severity_breakdown=perception.severity_breakdown,
         )
 
     try:
@@ -112,6 +117,7 @@ async def _run_single(
                 "mode": mode,
                 "question": question,
                 "answer": answer,
+                "perception": {**world.to_dict(), **perception.to_dict()},
             }
         )
     else:
@@ -181,20 +187,25 @@ async def _run_interactive(
                 on_event = display.on_event
 
             if not quiet:
-                signal_count = 0
-                severity_breakdown: dict[str, int] = {}
+                from remi.agent.context.frame import PerceptionSnapshot, WorldState
+
+                _world = WorldState.from_tbox(container.domain_tbox)
+                _perc = PerceptionSnapshot()
                 try:
-                    signals = await container.signal_store.list_signals()
-                    signal_count = len(signals)
-                    for s in signals:
-                        sev = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
-                        severity_breakdown[sev] = severity_breakdown.get(sev, 0) + 1
+                    _sigs = await container.signal_store.list_signals()
+                    _sev: dict[str, int] = {}
+                    for s in _sigs:
+                        sv = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
+                        _sev[sv] = _sev.get(sv, 0) + 1
+                    _perc = PerceptionSnapshot(
+                        active_signals=len(_sigs), severity_counts=_sev,
+                    )
                 except Exception:
                     logger.debug("signal_fetch_for_display_failed", exc_info=True)
                 display.show_perception(
-                    tbox_injected=container.domain_rulebook is not None,
-                    signal_count=signal_count,
-                    severity_breakdown=severity_breakdown,
+                    tbox_injected=_world.loaded,
+                    signal_count=_perc.active_signals,
+                    severity_breakdown=_perc.severity_breakdown,
                 )
 
             try:

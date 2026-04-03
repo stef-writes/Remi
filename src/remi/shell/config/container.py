@@ -9,28 +9,44 @@ Internal intermediaries are local variables.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
+
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from remi.agent.context.builder import build_context_builder
-from remi.agent.mem import InMemoryChatSessionStore
-from remi.agent.runtime.retry import RetryPolicy
-from remi.agent.runtime.runner import ChatAgentService
-from remi.agent.types import ChatSessionStore, ToolRegistry
 from remi.agent.documents.types import DocumentStore
-from remi.domain.evaluators.pipeline import build_signal_pipeline
 from remi.agent.graph.bridge import BridgedKnowledgeGraph
 from remi.agent.graph.mem import InMemoryKnowledgeStore, InMemoryMemoryStore
 from remi.agent.graph.stores import KnowledgeStore
-from remi.domain.ingestion.embedding import EmbeddingPipeline
 from remi.agent.ingestion.runner import IngestionPipelineRunner
+from remi.agent.llm.factory import LLMProviderFactory, build_provider_factory
+from remi.agent.mem import InMemoryChatSessionStore
+from remi.agent.observe.mem import InMemoryTraceStore
+from remi.agent.observe.types import Tracer, TraceStore
+from remi.agent.observe.usage import LLMUsageLedger
+from remi.agent.runtime.retry import RetryPolicy
+from remi.agent.runtime.runner import ChatAgentService
+from remi.agent.sandbox.factory import build_sandbox
+from remi.agent.sandbox.types import Sandbox
+from remi.agent.signals import DomainTBox, FeedbackStore, MutableTBox, SignalStore
+from remi.agent.signals.mem import (
+    InMemoryFeedbackStore,
+    InMemorySignalStore,
+)
+from remi.agent.tools.delegation import AgentInvoker, register_delegation_tools
+from remi.agent.tools.registry import InMemoryToolRegistry
+from remi.agent.types import ChatSessionStore, ToolRegistry
+from remi.agent.vectors.embedder import build_embedder
+from remi.agent.vectors.store import InMemoryVectorStore
+from remi.agent.vectors.types import Embedder, VectorStore
+from remi.domain.evaluators.pipeline import build_signal_pipeline
+from remi.domain.ingestion.embedding import EmbeddingPipeline
 from remi.domain.ingestion.pipeline import DocumentIngestService
 from remi.domain.ingestion.seed import SeedService
 from remi.domain.ingestion.service import IngestionService
-from remi.agent.llm.factory import LLMProviderFactory, build_provider_factory
-from remi.agent.observe.mem import InMemoryTraceStore
-from remi.agent.observe.types import Tracer, TraceStore
 from remi.domain.ontology.bridge import build_knowledge_graph
-from remi.domain.ontology.schema import load_domain_yaml, seed_knowledge_graph
+from remi.domain.ontology.schema import load_domain_yaml
+from remi.domain.ontology.seed import seed_knowledge_graph
 from remi.domain.portfolio.protocols import PropertyStore
 from remi.domain.queries.auto_assign import AutoAssignService
 from remi.domain.queries.dashboard import DashboardQueryService
@@ -41,26 +57,16 @@ from remi.domain.queries.portfolios import PortfolioQueryService
 from remi.domain.queries.properties import PropertyQueryService
 from remi.domain.queries.rent_roll import RentRollService
 from remi.domain.queries.snapshots import SnapshotService
-from remi.agent.sandbox.factory import build_sandbox
-from remi.agent.sandbox.types import Sandbox
-from remi.agent.signals.pattern import PatternDetector
 from remi.domain.search.service import SearchService
-from remi.shell.config.settings import RemiSettings
-from remi.agent.signals import DomainRulebook, FeedbackStore, MutableRulebook, SignalStore
-from remi.agent.signals.mem import (
-    InMemoryFeedbackStore,
-    InMemoryHypothesisStore,
-    InMemorySignalStore,
+from remi.domain.stores.factory import (
+    build_document_store,
+    build_property_store,
+    build_rollup_store,
 )
-from remi.domain.stores.factory import build_document_store, build_property_store, build_rollup_store
 from remi.domain.tools import register_all_tools
-from remi.agent.tools.delegation import AgentInvoker, register_delegation_tools
-from remi.agent.tools.registry import InMemoryToolRegistry
 from remi.domain.tools.snapshots import register_snapshot_tools
 from remi.domain.tools.workflows import SubAgentInvoker, register_workflow_tools
-from remi.agent.vectors.embedder import build_embedder
-from remi.agent.vectors.store import InMemoryVectorStore
-from remi.agent.vectors.types import Embedder, VectorStore
+from remi.shell.config.settings import RemiSettings
 
 
 class Container:
@@ -80,8 +86,8 @@ class Container:
         # -- Stores ------------------------------------------------------------
         self.chat_session_store: ChatSessionStore = InMemoryChatSessionStore()
         self.property_store: PropertyStore
-        self._db_engine: Any
-        self._db_session_factory: Any
+        self._db_engine: AsyncEngine | None
+        self._db_session_factory: async_sessionmaker[AsyncSession] | None
         self.property_store, self._db_engine, self._db_session_factory = build_property_store(
             self.settings
         )
@@ -97,21 +103,15 @@ class Container:
 
         # -- Trace layer -------------------------------------------------------
         self.trace_store: TraceStore = InMemoryTraceStore()
+        self.usage_ledger: LLMUsageLedger = LLMUsageLedger()
         tracer = Tracer(self.trace_store)
 
         # -- Signal layer ------------------------------------------------------
         raw_domain = load_domain_yaml()
-        self.domain_rulebook: DomainRulebook = DomainRulebook.from_yaml(raw_domain)
-        mutable_rulebook = MutableRulebook(self.domain_rulebook)
+        self.domain_tbox: DomainTBox = DomainTBox.from_yaml(raw_domain)
+        mutable_tbox = MutableTBox(self.domain_tbox)
         self.signal_store: SignalStore = InMemorySignalStore()
         self.feedback_store: FeedbackStore = InMemoryFeedbackStore()
-
-        # -- Hypothesis (internal) ---------------------------------------------
-        hypothesis_store = InMemoryHypothesisStore()
-        pattern_detector = PatternDetector(
-            knowledge_graph=self.knowledge_graph,
-            hypothesis_store=hypothesis_store,
-        )
 
         # -- Sandbox -----------------------------------------------------------
         self.sandbox: Sandbox = build_sandbox(self.settings)
@@ -128,6 +128,7 @@ class Container:
             provider_factory=self.provider_factory,
             default_provider=self.settings.llm.default_provider,
             default_model=self.settings.llm.default_model,
+            usage_ledger=self.usage_ledger,
         )
         ingestion_service = IngestionService(
             knowledge_store=self.knowledge_store,
@@ -156,7 +157,7 @@ class Container:
 
         # -- Signal pipeline ---------------------------------------------------
         self.signal_pipeline = build_signal_pipeline(
-            domain=mutable_rulebook,
+            domain=mutable_tbox,
             property_store=self.property_store,
             signal_store=self.signal_store,
             snapshot_service=self.snapshot_service,
@@ -184,7 +185,6 @@ class Container:
             property_store=self.property_store,
             snapshot_service=self.snapshot_service,
             signal_pipeline=self.signal_pipeline,
-            pattern_detector=pattern_detector,
             embedding_pipeline=self.embedding_pipeline,
         )
 
@@ -219,7 +219,7 @@ class Container:
 
         # -- Chat agent --------------------------------------------------------
         context_builder = build_context_builder(
-            domain=mutable_rulebook,
+            domain=mutable_tbox,
             signal_store=self.signal_store,
             knowledge_graph=self.knowledge_graph,
             vector_store=self.vector_store,
@@ -229,7 +229,7 @@ class Container:
             provider_factory=self.provider_factory,
             tool_registry=self.tool_registry,
             sandbox=self.sandbox,
-            domain_rulebook=self.domain_rulebook,
+            domain_tbox=self.domain_tbox,
             signal_store=self.signal_store,
             memory_store=memory_store,
             tracer=tracer,
@@ -241,6 +241,7 @@ class Container:
             default_provider=self.settings.llm.default_provider,
             default_model=self.settings.llm.default_model,
             context_builder=context_builder,
+            usage_ledger=self.usage_ledger,
         )
 
         # -- Tools (phase 2 — after chat_agent exists) -------------------------
@@ -248,8 +249,6 @@ class Container:
             self.tool_registry,
             snapshot_service=self.snapshot_service,
         )
-        from typing import cast
-
         register_workflow_tools(
             self.tool_registry,
             property_store=self.property_store,

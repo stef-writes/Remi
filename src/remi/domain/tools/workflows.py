@@ -77,7 +77,7 @@ def register_workflow_tools(
             limit=50,
         )
         if notes:
-            result["notes"] = notes
+            result["notes"] = [n.model_dump(mode="json") for n in notes]
 
         return result
 
@@ -119,7 +119,7 @@ def register_workflow_tools(
                 limit=20,
             )
             if tenant_notes:
-                notes_by_tenant[tid] = tenant_notes
+                notes_by_tenant[tid] = [n.model_dump(mode="json") for n in tenant_notes]
 
             tenant_actions = await ps.list_action_items(tenant_id=tid)
             if tenant_actions:

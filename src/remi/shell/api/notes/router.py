@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from remi.types.errors import NotFoundError
 from remi.agent.graph.bridge import BridgedKnowledgeGraph
+from remi.agent.graph.types import GraphObject
 from remi.shell.api.dependencies import get_knowledge_graph
 from remi.shell.api.schemas import DeletedResponse
 
@@ -59,17 +59,17 @@ class BatchNoteResponse(BaseModel):
     notes_by_entity: dict[str, list[NoteResponse]]
 
 
-def _note_resp(obj: dict[str, Any]) -> NoteResponse:
+def _note_resp(obj: GraphObject) -> NoteResponse:
     return NoteResponse(
-        id=obj.get("id", ""),
-        content=obj.get("content", ""),
-        entity_type=obj.get("entity_type", ""),
-        entity_id=obj.get("entity_id", ""),
-        provenance=obj.get("provenance", "user_stated"),
-        source_doc=obj.get("source_doc"),
-        created_by=obj.get("created_by"),
-        created_at=obj.get("created_at"),
-        updated_at=obj.get("updated_at"),
+        id=obj.id,
+        content=obj.properties.get("content", ""),
+        entity_type=obj.properties.get("entity_type", ""),
+        entity_id=obj.properties.get("entity_id", ""),
+        provenance=obj.properties.get("provenance", "user_stated"),
+        source_doc=obj.properties.get("source_doc"),
+        created_by=obj.properties.get("created_by"),
+        created_at=obj.properties.get("created_at"),
+        updated_at=obj.properties.get("updated_at"),
     )
 
 
@@ -102,7 +102,7 @@ async def batch_notes(
     )
     by_entity: dict[str, list[NoteResponse]] = {eid: [] for eid in body.entity_ids}
     for obj in all_notes:
-        eid = obj.get("entity_id", "")
+        eid = obj.properties.get("entity_id", "")
         if eid in by_entity:
             by_entity[eid].append(_note_resp(obj))
     for notes in by_entity.values():
@@ -127,7 +127,7 @@ async def create_note(
     }
     await kg.put_object("Note", note_id, props)
     await kg.put_link(body.entity_id, "HAS_NOTE", note_id)
-    return _note_resp({"id": note_id, **props})
+    return _note_resp(GraphObject(id=note_id, type_name="Note", properties=props))
 
 
 @router.patch("/{note_id}", response_model=NoteResponse)
@@ -141,10 +141,9 @@ async def update_note(
         raise NotFoundError("Note", note_id)
 
     now = datetime.now(UTC).isoformat()
-    updated_props = {**existing, "content": body.content, "updated_at": now}
-    updated_props.pop("id", None)
+    updated_props = {**existing.properties, "content": body.content, "updated_at": now}
     await kg.put_object("Note", note_id, updated_props)
-    return _note_resp({"id": note_id, **updated_props})
+    return _note_resp(GraphObject(id=note_id, type_name="Note", properties=updated_props))
 
 
 @router.delete("/{note_id}", status_code=200)

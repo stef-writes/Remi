@@ -37,25 +37,30 @@ def research(
 
 
 async def _run_research(question: str, fmt_json: bool, verbose: bool) -> None:
+    from remi.agent.context.frame import PerceptionSnapshot, WorldState
     from remi.shell.cli.live_display import LiveAgentDisplay
 
     container = await get_container_async()
 
+    world = WorldState.from_tbox(container.domain_tbox)
+
+    perception = PerceptionSnapshot()
+    try:
+        signals = await container.signal_store.list_signals()
+        severity_counts: dict[str, int] = {}
+        for s in signals:
+            sev = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        perception = PerceptionSnapshot(
+            active_signals=len(signals),
+            severity_counts=severity_counts,
+        )
+    except Exception:
+        logger.debug("signal_fetch_for_display_failed", exc_info=True)
+
     display: LiveAgentDisplay | None = None
     if not fmt_json:
         display = LiveAgentDisplay(verbose=verbose)
-
-        signal_count = 0
-        severity_breakdown: dict[str, int] = {}
-        try:
-            signals = await container.signal_store.list_signals()
-            signal_count = len(signals)
-            for s in signals:
-                sev = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
-                severity_breakdown[sev] = severity_breakdown.get(sev, 0) + 1
-        except Exception:
-            logger.debug("signal_fetch_for_display_failed", exc_info=True)
-
         settings = container.settings
         display.show_start(
             "director",
@@ -63,9 +68,9 @@ async def _run_research(question: str, fmt_json: bool, verbose: bool) -> None:
             settings.llm.default_provider,
         )
         display.show_perception(
-            tbox_injected=container.domain_rulebook is not None,
-            signal_count=signal_count,
-            severity_breakdown=severity_breakdown,
+            tbox_injected=world.loaded,
+            signal_count=perception.active_signals,
+            severity_breakdown=perception.severity_breakdown,
         )
 
     on_event: Any = None
@@ -94,6 +99,7 @@ async def _run_research(question: str, fmt_json: bool, verbose: bool) -> None:
                 "run_id": run_id,
                 "question": question,
                 "answer": answer,
+                "perception": {**world.to_dict(), **perception.to_dict()},
             }
         )
     else:

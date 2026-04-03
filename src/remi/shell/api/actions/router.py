@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from remi.types.errors import NotFoundError
 from remi.agent.graph.bridge import BridgedKnowledgeGraph
+from remi.agent.graph.types import GraphObject
 from remi.domain.portfolio.models import (
     ActionItem,
     ActionItemPriority,
@@ -188,13 +188,13 @@ class NoteListResponse(BaseModel):
     total: int
 
 
-def _note_resp_from_graph(obj: dict[str, Any]) -> NoteResponse:
+def _note_resp_from_graph(obj: GraphObject) -> NoteResponse:
     return NoteResponse(
-        id=obj.get("id", ""),
-        manager_id=obj.get("entity_id", ""),
-        content=obj.get("content", ""),
-        created_at=obj.get("created_at", ""),
-        updated_at=obj.get("updated_at", ""),
+        id=obj.id,
+        manager_id=obj.properties.get("entity_id", ""),
+        content=obj.properties.get("content", ""),
+        created_at=obj.properties.get("created_at", ""),
+        updated_at=obj.properties.get("updated_at", ""),
     )
 
 
@@ -230,7 +230,7 @@ async def create_note(
     }
     await kg.put_object("Note", note_id, props)
     await kg.put_link(body.manager_id, "HAS_NOTE", note_id)
-    return _note_resp_from_graph({"id": note_id, **props})
+    return _note_resp_from_graph(GraphObject(id=note_id, type_name="Note", properties=props))
 
 
 @router.patch("/notes/{note_id}", response_model=NoteResponse)
@@ -244,10 +244,9 @@ async def update_note(
         raise NotFoundError("Note", note_id)
 
     now = datetime.now(UTC).isoformat()
-    updated_props = {**existing, "content": body.content, "updated_at": now}
-    updated_props.pop("id", None)
+    updated_props = {**existing.properties, "content": body.content, "updated_at": now}
     await kg.put_object("Note", note_id, updated_props)
-    return _note_resp_from_graph({"id": note_id, **updated_props})
+    return _note_resp_from_graph(GraphObject(id=note_id, type_name="Note", properties=updated_props))
 
 
 @router.delete("/notes/{note_id}", status_code=200)

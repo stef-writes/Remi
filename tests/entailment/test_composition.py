@@ -9,8 +9,8 @@ from remi.agent.signals.composition import CompositionProducer
 from remi.agent.graph.types import KnowledgeProvenance
 from remi.agent.signals import (
     CompositionRule,
-    DomainRulebook,
-    MutableRulebook,
+    DomainTBox,
+    MutableTBox,
     ProducerResult,
     Severity,
     Signal,
@@ -42,8 +42,8 @@ def _make_signal(
     )
 
 
-def _make_rulebook(*rules: CompositionRule) -> DomainRulebook:
-    return DomainRulebook(compositions=list(rules))
+def _make_tbox(*rules: CompositionRule) -> DomainTBox:
+    return DomainTBox(compositions=list(rules))
 
 
 def _delinquency_lease_cliff_rule() -> CompositionRule:
@@ -67,7 +67,7 @@ async def test_composition_fires_when_all_constituents_present(
     await signal_store.put_signal(_make_signal("LeaseExpirationCliff", "mgr-1"))
 
     producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
@@ -88,7 +88,7 @@ async def test_composition_does_not_fire_with_partial_constituents(
     await signal_store.put_signal(_make_signal("DelinquencyConcentration", "mgr-1"))
 
     producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
@@ -102,7 +102,7 @@ async def test_composition_does_not_fire_across_different_entities(
     await signal_store.put_signal(_make_signal("LeaseExpirationCliff", "mgr-2"))
 
     producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
@@ -121,7 +121,7 @@ async def test_composition_respects_scope_filter(
     )
 
     producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
@@ -136,7 +136,7 @@ async def test_composition_fires_on_multiple_entities(
         await signal_store.put_signal(_make_signal("LeaseExpirationCliff", mgr_id))
 
     producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
@@ -152,7 +152,7 @@ async def test_composition_with_no_rules(
     await signal_store.put_signal(_make_signal("Anything", "mgr-1"))
 
     producer = CompositionProducer(
-        domain=_make_rulebook(),
+        domain=_make_tbox(),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
@@ -163,7 +163,7 @@ async def test_composition_with_empty_store(
     signal_store: InMemorySignalStore,
 ) -> None:
     producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
@@ -177,22 +177,21 @@ async def test_composition_uses_data_derived_provenance(
     await signal_store.put_signal(_make_signal("LeaseExpirationCliff", "mgr-1"))
 
     producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
     result = await producer.evaluate()
     assert result.signals[0].provenance == KnowledgeProvenance.DATA_DERIVED
 
 
-# -- MutableRulebook support --------------------------------------------------
+# -- MutableTBox support --------------------------------------------------
 
 
-async def test_composition_works_with_mutable_rulebook(
+async def test_composition_works_with_mutable_tbox(
     signal_store: InMemorySignalStore,
 ) -> None:
-    base = DomainRulebook()
-    mutable = MutableRulebook(base)
-    mutable.add_composition(_delinquency_lease_cliff_rule())
+    tbox = DomainTBox(compositions=[_delinquency_lease_cliff_rule()])
+    mutable = MutableTBox(tbox)
 
     await signal_store.put_signal(_make_signal("DelinquencyConcentration", "mgr-1"))
     await signal_store.put_signal(_make_signal("LeaseExpirationCliff", "mgr-1"))
@@ -230,7 +229,7 @@ async def test_composition_in_composite_pipeline(
     sig_b = _make_signal("LeaseExpirationCliff", "mgr-1")
 
     composition_producer = CompositionProducer(
-        domain=_make_rulebook(_delinquency_lease_cliff_rule()),
+        domain=_make_tbox(_delinquency_lease_cliff_rule()),
         signal_store=signal_store,
     )
 

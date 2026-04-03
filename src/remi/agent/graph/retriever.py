@@ -13,9 +13,9 @@ from typing import Any
 
 import structlog
 
-from remi.agent.observe.events import Event
 from remi.agent.graph.stores import KnowledgeGraph
-from remi.agent.graph.types import KnowledgeLink
+from remi.agent.graph.types import GraphLink, KnowledgeLink
+from remi.agent.observe.events import Event
 from remi.agent.signals import Signal, SignalStore
 from remi.agent.vectors.types import Embedder, SearchResult, VectorStore
 
@@ -74,24 +74,18 @@ class GraphRetriever:
         for entity in resolved:
             if expand_depth > 0:
                 try:
-                    raw_links = await self._kg.get_links(entity.entity_id, direction="both")
-                    typed_links: list[KnowledgeLink] = []
-                    for raw in raw_links if isinstance(raw_links, list) else []:
-                        if isinstance(raw, KnowledgeLink):
-                            typed_links.append(raw)
-                        elif isinstance(raw, dict):
-                            typed_links.append(
-                                KnowledgeLink(
-                                    source_id=raw.get("source_id", entity.entity_id),
-                                    link_type=str(raw.get("link_type") or raw.get("type") or ""),
-                                    target_id=raw.get("target_id", ""),
-                                    properties={
-                                        k: v
-                                        for k, v in raw.items()
-                                        if k not in ("source_id", "link_type", "target_id", "type")
-                                    },
-                                )
-                            )
+                    graph_links: list[GraphLink] = await self._kg.get_links(
+                        entity.entity_id, direction="both"
+                    )
+                    typed_links: list[KnowledgeLink] = [
+                        KnowledgeLink(
+                            source_id=gl.source_id,
+                            link_type=gl.link_type,
+                            target_id=gl.target_id,
+                            properties=gl.properties,
+                        )
+                        for gl in graph_links
+                    ]
                     result.neighborhood[entity.entity_id] = typed_links
                 except Exception:
                     _log.warning(

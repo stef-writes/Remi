@@ -17,9 +17,13 @@ import httpx
 
 from remi.agent.graph.stores import KnowledgeGraph
 from remi.agent.graph.types import (
+    AggregateResult,
+    GraphLink,
+    GraphObject,
     KnowledgeProvenance,
     LinkTypeDef,
     ObjectTypeDef,
+    TimelineEvent,
 )
 
 
@@ -90,12 +94,15 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
 
     # -- Objects --------------------------------------------------------------
 
-    async def get_object(self, type_name: str, object_id: str) -> dict[str, Any] | None:
+    async def get_object(self, type_name: str, object_id: str) -> GraphObject | None:
         resp = await self._client.get(f"{self._prefix}/objects/{type_name}/{object_id}")
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
-        return resp.json()["object"]
+        raw = resp.json()["object"]
+        if raw is None:
+            return None
+        return GraphObject.model_validate(raw)
 
     async def search_objects(
         self,
@@ -104,7 +111,7 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
         filters: dict[str, Any] | None = None,
         order_by: str | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]:
+    ) -> list[GraphObject]:
         if filters:
             data = await self._post(
                 f"/search/{type_name}",
@@ -119,10 +126,13 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
             if order_by:
                 params["order_by"] = order_by
             data = await self._get(f"/search/{type_name}", params=params)
-        return data["objects"]
+        return [GraphObject.model_validate(obj) for obj in data["objects"]]
 
     async def put_object(self, type_name: str, object_id: str, properties: dict[str, Any]) -> None:
         raise NotImplementedError("put_object not exposed via REST API yet")
+
+    async def delete_object(self, type_name: str, object_id: str) -> bool:
+        raise NotImplementedError("delete_object not exposed via REST API yet")
 
     # -- Links ----------------------------------------------------------------
 
@@ -132,12 +142,12 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
         *,
         link_type: str | None = None,
         direction: str = "both",
-    ) -> list[dict[str, Any]]:
+    ) -> list[GraphLink]:
         params: dict[str, Any] = {"direction": direction, "max_depth": 1}
         if link_type:
             params["link_type"] = link_type
         data = await self._get(f"/related/{object_id}", params=params)
-        return data["links"]
+        return [GraphLink.model_validate(link) for link in data["links"]]
 
     async def put_link(
         self,
@@ -155,12 +165,12 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
         link_types: list[str] | None = None,
         *,
         max_depth: int = 3,
-    ) -> list[dict[str, Any]]:
+    ) -> list[GraphObject]:
         params: dict[str, Any] = {"max_depth": max_depth}
         if link_types and len(link_types) == 1:
             params["link_type"] = link_types[0]
         data = await self._get(f"/related/{start_id}", params=params)
-        return data["nodes"]
+        return [GraphObject.model_validate(node) for node in data["nodes"]]
 
     # -- Aggregation ----------------------------------------------------------
 
@@ -172,7 +182,7 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
         *,
         filters: dict[str, Any] | None = None,
         group_by: str | None = None,
-    ) -> Any:
+    ) -> AggregateResult:
         data = await self._post(
             f"/aggregate/{type_name}",
             {
@@ -182,7 +192,10 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
                 "group_by": group_by,
             },
         )
-        return data["result"]
+        raw = data["result"]
+        if isinstance(raw, dict):
+            return AggregateResult(groups=raw)
+        return AggregateResult(value=raw)
 
     # -- Timeline -------------------------------------------------------------
 
@@ -202,10 +215,22 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
         *,
         event_types: list[str] | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TimelineEvent]:
         params: dict[str, Any] = {"limit": limit}
+        if event_types:
+            params["event_types"] = ",".join(event_types)
         data = await self._get(f"/timeline/{object_type}/{object_id}", params=params)
-        return data["events"]
+        return [
+            TimelineEvent(
+                id=evt.get("id", ""),
+                event_type=evt.get("event_type", ""),
+                object_type=object_type,
+                object_id=object_id,
+                timestamp=evt.get("timestamp", ""),
+                data=evt.get("data", {}),
+            )
+            for evt in data["events"]
+        ]
 
     # -- Knowledge codification -----------------------------------------------
 
@@ -237,4 +262,3 @@ class RemoteKnowledgeGraph(KnowledgeGraph):
         resp = await self._client.post(f"{self._prefix}{path}", json=body)
         resp.raise_for_status()
         return resp.json()  # type: ignore[no-any-return]
-

@@ -20,12 +20,17 @@ import structlog
 
 from remi.agent.graph.stores import KnowledgeGraph, KnowledgeStore
 from remi.agent.graph.types import (
+    AggregateResult,
     Entity,
+    GraphLink,
+    GraphObject,
     KnowledgeProvenance,
     LinkTypeDef,
     ObjectTypeDef,
     Relationship,
+    TimelineEvent,
 )
+
 _log = structlog.get_logger(__name__)
 
 _NS = "ontology"
@@ -93,15 +98,20 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
 
     # -- Objects --------------------------------------------------------------
 
-    async def get_object(self, type_name: str, object_id: str) -> dict[str, Any] | None:
+    async def get_object(self, type_name: str, object_id: str) -> GraphObject | None:
         if self._is_core(type_name):
             get_fn, _ = self._core_types[type_name]
             obj = await get_fn(object_id)
-            return _model_to_dict(obj) if obj else None
+            if obj is None:
+                return None
+            props = _model_to_dict(obj)
+            return GraphObject(id=object_id, type_name=type_name, properties=props)
 
         entity = await self._ks.get_entity(_NS, object_id)
         if entity and entity.entity_type == type_name:
-            return {"id": entity.entity_id, **entity.properties}
+            return GraphObject(
+                id=entity.entity_id, type_name=type_name, properties=entity.properties
+            )
         return None
 
     async def search_objects(
@@ -111,7 +121,7 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
         filters: dict[str, Any] | None = None,
         order_by: str | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]:
+    ) -> list[GraphObject]:
         if self._is_core(type_name):
             _, list_fn = self._core_types[type_name]
             raw = await list_fn()
@@ -128,7 +138,10 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
             field = order_by.lstrip("-")
             items.sort(key=lambda x: x.get(field, ""), reverse=desc)
 
-        return items[:limit]
+        return [
+            GraphObject(id=item.get("id", ""), type_name=type_name, properties=item)
+            for item in items[:limit]
+        ]
 
     async def put_object(self, type_name: str, object_id: str, properties: dict[str, Any]) -> None:
         entity = Entity(
@@ -150,17 +163,17 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
         *,
         link_type: str | None = None,
         direction: str = "both",
-    ) -> list[dict[str, Any]]:
+    ) -> list[GraphLink]:
         rels = await self._ks.get_relationships(
             _NS, object_id, relation_type=link_type, direction=direction
         )
         return [
-            {
-                "source_id": r.source_id,
-                "target_id": r.target_id,
-                "link_type": r.relation_type,
-                **r.properties,
-            }
+            GraphLink(
+                source_id=r.source_id,
+                link_type=r.relation_type,
+                target_id=r.target_id,
+                properties=r.properties,
+            )
             for r in rels
         ]
 
@@ -188,11 +201,14 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
         link_types: list[str] | None = None,
         *,
         max_depth: int = 3,
-    ) -> list[dict[str, Any]]:
+    ) -> list[GraphObject]:
         entities = await self._ks.traverse(
             _NS, start_id, relation_types=link_types, max_depth=max_depth
         )
-        return [{"id": e.entity_id, "type": e.entity_type, **e.properties} for e in entities]
+        return [
+            GraphObject(id=e.entity_id, type_name=e.entity_type, properties=e.properties)
+            for e in entities
+        ]
 
     # -- Aggregation ----------------------------------------------------------
 
@@ -204,28 +220,32 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
         *,
         filters: dict[str, Any] | None = None,
         group_by: str | None = None,
-    ) -> Any:
+    ) -> AggregateResult:
         items = await self.search_objects(type_name, filters=filters, limit=10_000)
 
         if group_by:
-            groups: dict[str, list[dict[str, Any]]] = {}
+            groups: dict[str, list[GraphObject]] = {}
             for item in items:
-                key = str(item.get(group_by, "unknown"))
+                key = str(item.properties.get(group_by, "unknown"))
                 groups.setdefault(key, []).append(item)
-            return {k: self._compute(metric, v, field) for k, v in groups.items()}
+            return AggregateResult(
+                groups={k: self._compute(metric, v, field) for k, v in groups.items()}
+            )
 
-        return self._compute(metric, items, field)
+        return AggregateResult(value=self._compute(metric, items, field))
 
     @staticmethod
-    def _compute(metric: str, items: list[dict[str, Any]], field: str | None) -> Any:
+    def _compute(
+        metric: str, items: list[GraphObject], field: str | None
+    ) -> float | int | None:
         if metric == "count":
             return len(items)
         if not field:
             return None
 
-        values = []
+        values: list[Decimal] = []
         for item in items:
-            val = item.get(field)
+            val = item.properties.get(field)
             if val is not None:
                 try:
                     values.append(Decimal(str(val)))
@@ -277,9 +297,9 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
         *,
         event_types: list[str] | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]:
+    ) -> list[TimelineEvent]:
         all_events = await self._ks.find_entities(_NS, entity_type="event", limit=limit * 5)
-        results = []
+        results: list[TimelineEvent] = []
         for e in all_events:
             if (
                 e.properties.get("object_type") == object_type
@@ -287,9 +307,18 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
             ):
                 if event_types and e.properties.get("event_type") not in event_types:
                     continue
-                results.append({"id": e.entity_id, **e.properties})
+                results.append(
+                    TimelineEvent(
+                        id=e.entity_id,
+                        event_type=str(e.properties.get("event_type", "")),
+                        object_type=object_type,
+                        object_id=object_id,
+                        timestamp=str(e.properties.get("timestamp", "")),
+                        data=e.properties.get("data", {}),
+                    )
+                )
 
-        results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        results.sort(key=lambda x: x.timestamp, reverse=True)
         return results[:limit]
 
     # -- Knowledge codification -----------------------------------------------
@@ -310,6 +339,3 @@ class BridgedKnowledgeGraph(KnowledgeGraph):
         )
         await self._ks.put_entity(entity)
         return entity_id
-
-
-

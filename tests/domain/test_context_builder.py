@@ -9,10 +9,14 @@ from remi.agent.context.rendering import (
 )
 from remi.agent.types import Message
 from remi.agent.graph.types import KnowledgeLink
-from remi.agent.signals import DomainRulebook, Severity, Signal
+from remi.agent.signals import DomainTBox, Severity, Signal
 from remi.types.text import estimate_tokens, truncate_to_tokens
 from remi.agent.context.builder import ContextBuilder
-from remi.agent.context.frame import ContextFrame
+from remi.agent.context.frame import (
+    ContextFrame,
+    PerceptionSnapshot,
+    WorldState,
+)
 from remi.agent.graph.retriever import ResolvedEntity
 from remi.domain.ontology.schema import load_domain_yaml
 from remi.agent.signals.mem import InMemorySignalStore
@@ -199,7 +203,7 @@ def test_render_graph_context_respects_max_tokens() -> None:
 
 
 def test_render_domain_context_includes_compositions() -> None:
-    domain = DomainRulebook.from_yaml(load_domain_yaml())
+    domain = DomainTBox.from_yaml(load_domain_yaml())
     result = render_domain_context(domain)
 
     assert "Composition rules" in result or "Composition signals" in result
@@ -251,7 +255,8 @@ async def test_render_active_signals_max_signals() -> None:
         await store.put_signal(_make_signal(f"Sig{i}", entity_id=f"e-{i}"))
 
     result = await render_active_signals(store, max_signals=5)
-    assert "20 total, showing top 5" in result
+    assert "20 total:" in result
+    assert "showing top 5" in result
 
 
 async def test_render_active_signals_truncates_descriptions() -> None:
@@ -267,7 +272,7 @@ async def test_render_active_signals_truncates_descriptions() -> None:
 async def test_inject_respects_token_budget() -> None:
     """When the thread already consumes most of the budget, injection is limited."""
     builder = ContextBuilder(
-        domain=DomainRulebook(),
+        domain=DomainTBox(),
         token_budget=500,
     )
     big_prompt = "x" * 1800  # ~450 tokens
@@ -276,19 +281,19 @@ async def test_inject_respects_token_budget() -> None:
         Message(role="user", content="hello"),
     ]
     frame = ContextFrame(
-        domain_context="Domain context " * 50,
         signal_summary="Signal summary " * 50,
     )
 
     builder.inject_into_thread(thread, frame)
 
     total_tokens = sum(estimate_tokens(str(m.content)) for m in thread)
-    assert total_tokens <= 600  # budget + some slack from existing
+    assert total_tokens <= 600
 
 
-async def test_inject_includes_all_when_budget_allows() -> None:
+async def test_inject_includes_signals_when_budget_allows() -> None:
+    """Signal summary is injected when there is budget headroom."""
     builder = ContextBuilder(
-        domain=DomainRulebook(),
+        domain=DomainTBox(),
         token_budget=50_000,
     )
     thread = [
@@ -296,12 +301,43 @@ async def test_inject_includes_all_when_budget_allows() -> None:
         Message(role="user", content="hello"),
     ]
     frame = ContextFrame(
-        domain_context="Domain rules here.",
         signal_summary="Active signals here.",
     )
 
     builder.inject_into_thread(thread, frame)
 
     contents = [str(m.content) for m in thread]
-    assert any("Domain rules" in c for c in contents)
     assert any("Active signals" in c for c in contents)
+
+
+# -- WorldState / PerceptionSnapshot -----------------------------------------
+
+
+def test_world_state_from_tbox() -> None:
+    tbox = DomainTBox.from_yaml(load_domain_yaml())
+    world = WorldState.from_tbox(tbox)
+    assert world.loaded
+    assert world.signal_definitions > 0
+    assert world.thresholds > 0
+    assert world.policies > 0
+    assert world.causal_chains > 0
+    d = world.to_dict()
+    assert d["tbox_loaded"] is True
+
+
+def test_world_state_none_tbox() -> None:
+    world = WorldState.from_tbox(None)
+    assert not world.loaded
+    assert world.signal_definitions == 0
+
+
+def test_perception_snapshot_severity_ordering() -> None:
+    snap = PerceptionSnapshot(
+        active_signals=10,
+        severity_counts={"low": 3, "critical": 2, "medium": 1, "high": 4},
+    )
+    order = list(snap.severity_breakdown.keys())
+    assert order == ["critical", "high", "medium", "low"]
+    d = snap.to_dict()
+    assert d["active_signals"] == 10
+    assert d["severity"] == {"critical": 2, "high": 4, "medium": 1, "low": 3}

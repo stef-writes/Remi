@@ -126,7 +126,7 @@ class SignalPanel(Static):
 
 
 class TBoxPanel(Static):
-    """Left-bottom: domain ontology summary (TBox)."""
+    """Left-bottom: domain TBox summary."""
 
     DEFAULT_CSS = """
     TBoxPanel {
@@ -300,7 +300,6 @@ class RemiDashboard(App):
         await self._container.sandbox.create_session(self._sandbox_session_id)
         self._activity("  [green]✓[/green] Sandbox ready")
 
-        # Initial TBox
         self._refresh_tbox()
 
         # Auto-run pipeline on startup
@@ -339,7 +338,7 @@ class RemiDashboard(App):
             signals = await self._container.signal_store.list_signals()
             self.signal_count = len(signals)
             self.query_one("#signal-panel", SignalPanel).refresh_signals(
-                signals, self._container.domain_rulebook
+                signals, self._container.domain_tbox
             )
         except Exception as exc:
             self._activity(f"  [red]✗ Pipeline error:[/red] {exc}")
@@ -372,7 +371,7 @@ class RemiDashboard(App):
             return
         with contextlib.suppress(NoMatches, Exception):
             self.query_one("#tbox-panel", TBoxPanel).refresh_tbox(
-                self._container.domain_rulebook
+                self._container.domain_tbox
             )
 
     # ── chat ──────────────────────────────────────────────────────────────
@@ -483,7 +482,7 @@ class RemiDashboard(App):
             if len(signals) != self.signal_count:
                 self.signal_count = len(signals)
                 self.query_one("#signal-panel", SignalPanel).refresh_signals(
-                    signals, self._container.domain_rulebook
+                    signals, self._container.domain_tbox
                 )
         except Exception:
             pass

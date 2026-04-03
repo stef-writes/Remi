@@ -7,6 +7,7 @@ from typing import Any
 
 from remi.agent.runtime.base import Message
 from remi.agent.config import AgentConfig
+from remi.agent.context.frame import WorldState
 
 
 def trim_thread(thread: list[Message], max_turns: int) -> list[Message]:
@@ -28,8 +29,6 @@ def trim_thread(thread: list[Message], max_turns: int) -> list[Message]:
         else:
             conversation.append(msg)
 
-    # Group conversation into exchanges: each starts with a user message
-    # and includes all subsequent non-user messages (assistant, tool, system)
     exchanges: list[list[Message]] = []
     current: list[Message] = []
     for msg in conversation:
@@ -58,10 +57,27 @@ def trim_thread(thread: list[Message], max_turns: int) -> list[Message]:
     return system_prefix + [notice] + kept
 
 
-def build_initial_thread(cfg: AgentConfig, inputs: dict[str, Any]) -> list[Message]:
-    """Build the initial message thread from config and inputs."""
+def build_initial_thread(
+    cfg: AgentConfig,
+    inputs: dict[str, Any],
+    *,
+    domain_priming: str = "",
+    world: WorldState | None = None,
+) -> list[Message]:
+    """Build the initial message thread from config and inputs.
+
+    When ``domain_priming`` is provided, it is injected as a system message
+    immediately after the system prompt.  This is the agent's foundational
+    domain knowledge (TBox) — loaded once, not re-injected per turn.
+
+    ``world`` is attached to the thread as metadata for downstream
+    inspection but does not affect the message content.
+    """
     thread: list[Message] = []
     thread.append(Message(role="system", content=cfg.system_prompt))
+
+    if domain_priming:
+        thread.append(Message(role="system", content=domain_priming))
 
     upstream_thread = inputs.get("thread")
     if isinstance(upstream_thread, list) and upstream_thread:

@@ -62,11 +62,11 @@ async def _search(
         limit=limit,
     )
     if fmt_json:
-        json_out({"count": len(results), "objects": results})
+        json_out({"count": len(results), "objects": [r.model_dump(mode="json") for r in results]})
     else:
         typer.echo(f"Found {len(results)} {type_name} object(s)")
         for obj in results:
-            typer.echo(f"  {obj.get('id', '?'):12s}  {json.dumps(obj, default=str)[:120]}")
+            typer.echo(f"  {obj.id:12s}  {json.dumps(obj.model_dump(mode='json'), default=str)[:120]}")
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +95,9 @@ async def _get(type_name: str, object_id: str, fmt_json: bool) -> None:
             typer.echo(f"Not found: {type_name} '{object_id}'")
         raise typer.Exit(1)
     if fmt_json:
-        json_out(obj)
+        json_out(obj.model_dump(mode="json"))
     else:
-        typer.echo(json.dumps(obj, indent=2, default=str))
+        typer.echo(json.dumps(obj.model_dump(mode="json"), indent=2, default=str))
 
 
 # ---------------------------------------------------------------------------
@@ -136,12 +136,17 @@ async def _related(
         )
         if fmt_json:
             json_out(
-                {"start": object_id, "depth": max_depth, "count": len(results), "nodes": results}
+                {
+                    "start": object_id,
+                    "depth": max_depth,
+                    "count": len(results),
+                    "nodes": [n.model_dump(mode="json") for n in results],
+                }
             )
         else:
             typer.echo(f"Traversal from {object_id} (depth={max_depth}): {len(results)} nodes")
             for node in results:
-                typer.echo(f"  {node.get('id', '?'):20s}  {node.get('type', '?'):15s}")
+                typer.echo(f"  {node.id:20s}  {node.type_name:15s}")
     else:
         links = await container.knowledge_graph.get_links(
             object_id,
@@ -149,14 +154,17 @@ async def _related(
             direction=direction,
         )
         if fmt_json:
-            json_out({"object_id": object_id, "count": len(links), "links": links})
+            json_out(
+                {
+                    "object_id": object_id,
+                    "count": len(links),
+                    "links": [lnk.model_dump(mode="json") for lnk in links],
+                }
+            )
         else:
             typer.echo(f"Links for {object_id}: {len(links)}")
             for lnk in links:
-                src = lnk.get("source_id", "?")
-                lt = lnk.get("link_type", "?")
-                tgt = lnk.get("target_id", "?")
-                typer.echo(f"  {src} --[{lt}]--> {tgt}")
+                typer.echo(f"  {lnk.source_id} --[{lnk.link_type}]--> {lnk.target_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +205,17 @@ async def _aggregate(
         group_by=group_by,
     )
     if fmt_json:
-        json_out({"type": type_name, "metric": metric, "field": field, "result": result})
+        json_out(
+            {
+                "type": type_name,
+                "metric": metric,
+                "field": field,
+                "result": result.model_dump(mode="json"),
+            }
+        )
     else:
-        typer.echo(f"{metric}({type_name}.{field or '*'}) = {result}")
+        display = result.value if not result.groups else result.model_dump(mode="json")
+        typer.echo(f"{metric}({type_name}.{field or '*'}) = {display}")
 
 
 # ---------------------------------------------------------------------------
@@ -239,15 +255,13 @@ async def _timeline(
                 "object_type": type_name,
                 "object_id": object_id,
                 "count": len(events),
-                "events": events,
+                "events": [ev.model_dump(mode="json") for ev in events],
             }
         )
     else:
         typer.echo(f"Timeline for {type_name}/{object_id}: {len(events)} events")
         for ev in events:
-            typer.echo(
-                f"  [{ev.get('timestamp', '?')}] {ev.get('event_type', '?')}: {ev.get('data', {})}"
-            )
+            typer.echo(f"  [{ev.timestamp or '?'}] {ev.event_type}: {ev.data}")
 
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ documentation.
 | `agent/vectors/` | Embedding ports + adapters | `types/` |
 | `agent/sandbox/` | Code execution ports + adapters | `types/` |
 | `agent/observe/` | Logging, tracing | `types/` |
-| `agent/signals/` | Signal framework — types, stores, producers, pattern mining, graduation | `types/`, `agent/graph/` |
+| `agent/signals/` | Signal framework — types, stores, producers | `types/`, `agent/graph/` |
 | `agent/ingestion/` | Generic LLM pipeline runner | `agent/llm/` |
 | `agent/graph/` | Knowledge graph — types, bridge, retriever | `agent/vectors/`, `types/` |
 | `agent/documents/` | Document types, stores, parsers | `agent/db/` |
@@ -45,7 +45,7 @@ documentation.
 | `domain/ontology/` | RE knowledge graph schema | `agent/graph/` |
 | `domain/search/` | RE-aware hybrid search | `agent/graph/`, `agent/vectors/` |
 | `domain/tools/` | RE agent capabilities | `domain/queries/`, `domain/evaluators/`, `domain/ingestion/`, `domain/ontology/`, `domain/search/` |
-| `domain/configs/` | RE agent YAML manifests | `agent/` |
+| `domain/agents/` | RE agent YAML manifests | `agent/` |
 
 ### Shared Vocabulary
 

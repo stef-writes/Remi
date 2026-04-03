@@ -19,9 +19,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-_TOKEN_THRESHOLD = 1500
+_TOKEN_THRESHOLD = 500
 _CHARS_PER_TOKEN = 4
-_MAX_SUMMARY_CHARS = 4000
+_MAX_SUMMARY_CHARS = 1600
 
 
 def _estimate_tokens(text: str) -> int:
@@ -105,11 +105,10 @@ def _compress_value(key: str, value: Any) -> Any:
 
     if isinstance(value, dict):
         text = json.dumps(value, default=str)
-        if _estimate_tokens(text) <= 300:
+        if _estimate_tokens(text) <= 100:
             return value
         scalars = {
-            k: v for k, v in value.items()
-            if isinstance(v, (str, int, float, bool)) or v is None
+            k: v for k, v in value.items() if isinstance(v, (str, int, float, bool)) or v is None
         }
         nested_summaries = {
             k: f"[{type(v).__name__}: {len(v)} items]"
@@ -130,16 +129,29 @@ def _extract_list_summary(items: list[dict[str, Any]], max_items: int = 5) -> li
     all_keys = list(items[0].keys())
 
     priority_keys = [
-        k for k in all_keys
-        if any(term in k.lower() for term in (
-            "id", "name", "total", "balance", "rate", "count",
-            "amount", "status", "score", "rank", "date",
-        ))
+        k
+        for k in all_keys
+        if any(
+            term in k.lower()
+            for term in (
+                "id",
+                "name",
+                "total",
+                "balance",
+                "rate",
+                "count",
+                "amount",
+                "status",
+                "score",
+                "rank",
+                "date",
+            )
+        )
     ]
     other_scalar_keys = [
-        k for k in all_keys
-        if k not in priority_keys
-        and isinstance(items[0].get(k), (str, int, float, bool))
+        k
+        for k in all_keys
+        if k not in priority_keys and isinstance(items[0].get(k), (str, int, float, bool))
     ]
     keep_keys = (priority_keys + other_scalar_keys)[:12]
 

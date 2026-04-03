@@ -19,6 +19,7 @@ class Horizon(StrEnum):
     TRAILING_60_DAYS = "trailing_60_days"
     TRAILING_90_DAYS = "trailing_90_days"
     NEXT_60_DAYS = "next_60_days"
+    NEXT_90_DAYS = "next_90_days"
     EVENT_DRIVEN = "event_driven"
 
 
@@ -31,6 +32,7 @@ class RuleCondition(StrEnum):
     BELOW_PERCENTILE = "below_percentile"
     CONSISTENT_DIRECTION = "consistent_direction"
     IN_LEGAL_TRACK = "in_legal_track"
+    STALLED_PAST_WINDOW = "stalled_past_window"
     EXISTS = "exists"
     BREACH_DETECTED = "breach_detected"
 
@@ -48,22 +50,3 @@ class SignalOutcome(StrEnum):
     ACTED_ON = "acted_on"
     ESCALATED = "escalated"
     FALSE_POSITIVE = "false_positive"
-
-
-class HypothesisKind(StrEnum):
-    """What kind of TBox entry this hypothesis proposes."""
-
-    SIGNAL_DEFINITION = "signal_definition"
-    CAUSAL_CHAIN = "causal_chain"
-    THRESHOLD_ADJUSTMENT = "threshold_adjustment"
-    CORRELATION = "correlation"
-    ANOMALY_PATTERN = "anomaly_pattern"
-
-
-class HypothesisStatus(StrEnum):
-    """Lifecycle state of a hypothesis."""
-
-    PROPOSED = "proposed"
-    CONFIRMED = "confirmed"
-    REJECTED = "rejected"
-    EXPIRED = "expired"

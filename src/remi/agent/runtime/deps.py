@@ -10,7 +10,8 @@ from remi.agent.types import ToolRegistry
 from remi.agent.graph.stores import MemoryStore
 from remi.agent.llm.factory import LLMProviderFactory
 from remi.agent.observe.types import Tracer
-from remi.agent.signals import DomainRulebook, SignalStore
+from remi.agent.observe.usage import LLMUsageLedger
+from remi.agent.signals import DomainTBox, SignalStore
 
 
 class OnEventCallback(Protocol):
@@ -26,9 +27,10 @@ class RunDeps:
     provider_factory: LLMProviderFactory | None = None
     tool_registry: ToolRegistry | None = None
     tracer: Tracer | None = None
+    usage_ledger: LLMUsageLedger | None = None
     memory_store: MemoryStore | None = None
     signal_store: SignalStore | None = None
-    domain_rulebook: DomainRulebook | None = None
+    domain_tbox: DomainTBox | None = None
     context_builder: ContextBuilder | None = None
     default_provider: str = ""
     default_model: str = ""

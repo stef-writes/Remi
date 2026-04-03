@@ -21,7 +21,8 @@ from remi.agent.graph.types import Entity, Relationship
 from remi.agent.ingestion.runner import IngestionPipelineRunner
 from remi.domain.ingestion.base import IngestionResult
 from remi.domain.ingestion.managers import ManagerResolver
-from remi.domain.ingestion.resolver import resolve_and_persist
+from remi.domain.ingestion.persist import resolve_and_persist
+from remi.domain.ingestion.resolver import PERSISTABLE_TYPES
 from remi.domain.ingestion.validation import validate_rows
 from remi.domain.ontology.schema import entity_schemas_for_prompt
 from remi.domain.portfolio.protocols import PropertyStore
@@ -167,7 +168,7 @@ class IngestionService:
             pipeline_result = await self._runner.run(
                 _PIPELINE,
                 pipeline_input,
-                context={"entity_schemas": entity_schemas_for_prompt()},
+                context={"entity_schemas": entity_schemas_for_prompt(filter_names=PERSISTABLE_TYPES)},
             )
         except Exception:
             logger.exception("ingestion_pipeline_failed", doc_id=doc.id)

@@ -13,7 +13,8 @@ from dataclasses import dataclass
 import structlog
 
 from remi.agent.graph.stores import KnowledgeStore
-from remi.types.text import manager_name_from_tag, slugify
+from remi.domain.portfolio.rules import manager_name_from_tag
+from remi.types.text import slugify
 from remi.domain.portfolio.protocols import PropertyStore
 from remi.domain.queries.snapshots import SnapshotService
 

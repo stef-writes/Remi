@@ -1,7 +1,8 @@
 """TBox models — declarative domain expertise as typed, frozen structures.
 
-Renamed from DomainOntology/MutableDomainOntology to DomainRulebook/MutableRulebook
-to reflect that these are business rules and calibrations, not an ontology.
+DomainTBox holds signal definitions, thresholds, policies, causal chains,
+composition rules, and workflows parsed from domain.yaml. MutableTBox is
+a thin forwarding wrapper providing the same read interface.
 """
 
 from __future__ import annotations
@@ -92,7 +93,7 @@ class WorkflowSeed(BaseModel, frozen=True):
     steps: list[WorkflowStep]
 
 
-class DomainRulebook(BaseModel, frozen=True):
+class DomainTBox(BaseModel, frozen=True):
     """Declarative business rules and calibrations, parsed from domain.yaml.
 
     Every field is typed. Every query method returns typed models.
@@ -108,11 +109,33 @@ class DomainRulebook(BaseModel, frozen=True):
     workflows: list[WorkflowSeed] = Field(default_factory=list)
 
     @classmethod
-    def from_yaml(cls, raw: dict[str, Any]) -> DomainRulebook:
+    def from_yaml(cls, raw: dict[str, Any]) -> DomainTBox:
         tbox = raw.get("tbox", {})
         abox = raw.get("abox", {})
 
-        raw_signals = tbox.get("signals", [])
+        raw_signals: list[dict[str, Any]] = []
+        raw_policies: list[dict[str, Any]] = []
+        raw_thresholds: dict[str, float] = {}
+        raw_chains: list[dict[str, Any]] = []
+
+        _TOP_LEVEL_KEYS = {
+            "compositions", "signals", "policies",
+            "thresholds", "causal_chains",
+        }
+
+        for key, section in tbox.items():
+            if key in _TOP_LEVEL_KEYS or not isinstance(section, dict):
+                continue
+            raw_signals.extend(section.get("signals", []))
+            raw_policies.extend(section.get("policies", []))
+            raw_thresholds.update(section.get("thresholds", {}))
+            raw_chains.extend(section.get("causal_chains", []))
+
+        raw_signals.extend(tbox.get("signals", []))
+        raw_policies.extend(tbox.get("policies", []))
+        raw_thresholds.update(tbox.get("thresholds", {}))
+        raw_chains.extend(tbox.get("causal_chains", []))
+
         signal_defs: dict[str, SignalDefinition] = {}
         for s in raw_signals:
             defn = SignalDefinition(
@@ -132,7 +155,7 @@ class DomainRulebook(BaseModel, frozen=True):
                 trigger=p.get("trigger", ""),
                 deontic=Deontic(p["deontic"]),
             )
-            for p in tbox.get("policies", [])
+            for p in raw_policies
         ]
 
         causal_chains = [
@@ -141,7 +164,7 @@ class DomainRulebook(BaseModel, frozen=True):
                 effect=c["effect"],
                 description=c.get("description", ""),
             )
-            for c in tbox.get("causal_chains", [])
+            for c in raw_chains
         ]
 
         compositions = [
@@ -166,7 +189,7 @@ class DomainRulebook(BaseModel, frozen=True):
 
         return cls(
             signals=signal_defs,
-            thresholds=tbox.get("thresholds", {}),
+            thresholds=raw_thresholds,
             policies=policies,
             causal_chains=causal_chains,
             compositions=compositions,
@@ -202,40 +225,31 @@ class DomainRulebook(BaseModel, frozen=True):
 
 
 
-class MutableRulebook:
-    """Runtime-writable view over a frozen DomainRulebook.
+class MutableTBox:
+    """Thin forwarding wrapper over a frozen DomainTBox.
 
-    The static DomainRulebook (from domain.yaml) is immutable. This wrapper
-    adds a mutable layer for hypotheses that have been confirmed and graduated
-    into the TBox.
+    Provides the same read interface as DomainTBox so that callers
+    can accept ``DomainTBox | MutableTBox`` without branching.
     """
 
-    def __init__(self, base: DomainRulebook) -> None:
+    def __init__(self, base: DomainTBox) -> None:
         self._base = base
-        self._extra_signals: dict[str, SignalDefinition] = {}
-        self._extra_thresholds: dict[str, float] = {}
-        self._extra_chains: list[CausalChain] = []
-        self._extra_compositions: list[CompositionRule] = []
 
     @property
-    def base(self) -> DomainRulebook:
+    def base(self) -> DomainTBox:
         return self._base
 
     @property
     def signals(self) -> dict[str, SignalDefinition]:
-        merged = dict(self._base.signals)
-        merged.update(self._extra_signals)
-        return merged
+        return dict(self._base.signals)
 
     @property
     def thresholds(self) -> dict[str, float]:
-        merged = dict(self._base.thresholds)
-        merged.update(self._extra_thresholds)
-        return merged
+        return dict(self._base.thresholds)
 
     @property
     def causal_chains(self) -> list[CausalChain]:
-        return list(self._base.causal_chains) + list(self._extra_chains)
+        return list(self._base.causal_chains)
 
     @property
     def policies(self) -> list[Policy]:
@@ -243,25 +257,19 @@ class MutableRulebook:
 
     @property
     def compositions(self) -> list[CompositionRule]:
-        return list(self._base.compositions) + list(self._extra_compositions)
+        return list(self._base.compositions)
 
     @property
     def workflows(self) -> list[WorkflowSeed]:
         return list(self._base.workflows)
 
     def threshold(self, key: str, default: float = 0.0) -> float:
-        if key in self._extra_thresholds:
-            return self._extra_thresholds[key]
         return self._base.threshold(key, default)
 
     def signals_for_entity(self, entity: str) -> list[SignalDefinition]:
-        base = self._base.signals_for_entity(entity)
-        extra = [d for d in self._extra_signals.values() if d.entity == entity]
-        return base + extra
+        return self._base.signals_for_entity(entity)
 
     def signal(self, name: str) -> SignalDefinition | None:
-        if name in self._extra_signals:
-            return self._extra_signals[name]
         return self._base.signal(name)
 
     def policies_for_trigger(self, trigger: str) -> list[Policy]:
@@ -271,37 +279,11 @@ class MutableRulebook:
         return self._base.policies_for_signal(signal_name)
 
     def causal_parents(self, effect: str) -> list[CausalChain]:
-        base = self._base.causal_parents(effect)
-        extra = [c for c in self._extra_chains if c.effect == effect]
-        return base + extra
+        return self._base.causal_parents(effect)
 
     def causal_children(self, cause: str) -> list[CausalChain]:
-        base = self._base.causal_children(cause)
-        extra = [c for c in self._extra_chains if c.cause == cause]
-        return base + extra
+        return self._base.causal_children(cause)
 
     def all_signal_names(self) -> list[str]:
-        names = list(self.signals.keys())
-        names.extend(c.name for c in self.compositions)
-        return names
-
-    def add_signal(self, defn: SignalDefinition) -> None:
-        self._extra_signals[defn.name] = defn
-
-    def set_threshold(self, key: str, value: float) -> None:
-        self._extra_thresholds[key] = value
-
-    def add_causal_chain(self, chain: CausalChain) -> None:
-        self._extra_chains.append(chain)
-
-    def add_composition(self, rule: CompositionRule) -> None:
-        self._extra_compositions.append(rule)
-
-    @property
-    def learned_signal_count(self) -> int:
-        return len(self._extra_signals)
-
-    @property
-    def learned_chain_count(self) -> int:
-        return len(self._extra_chains)
+        return self._base.all_signal_names()
 

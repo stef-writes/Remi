@@ -1,7 +1,8 @@
-"""LLM context rendering — formats domain knowledge into token-budgeted string blocks.
+"""LLM context rendering — projects typed perception into prose for injection.
 
-Renders assembled domain knowledge (signals, graph frames, rulebook)
-into compact system message blocks for the LLM system prompt.
+``render_domain_context`` renders TBox knowledge for agent priming (once).
+``render_active_signals`` renders ABox perception for per-turn injection.
+``render_graph_context`` renders entity neighborhood for per-turn injection.
 """
 
 from __future__ import annotations
@@ -12,52 +13,75 @@ from typing import Any
 import structlog
 
 from remi.agent.context.frame import ContextFrame
-from remi.agent.signals import CausalChain, DomainRulebook, MutableRulebook, Policy, Signal
-from remi.types.text import estimate_tokens
+from remi.agent.signals import DomainTBox, MutableTBox, Signal
 from remi.agent.vectors.types import Embedder
+from remi.types.text import estimate_tokens
 
 _log = structlog.get_logger(__name__)
 
 
-def render_domain_context(domain: Any) -> str:
-    """Render the TBox into a compact system message block."""
-    from remi.agent.signals import DomainRulebook
+def render_domain_context(domain: Any, *, compact: bool = False) -> str:
+    """Render the TBox into a system message block for agent priming.
 
-    if isinstance(domain, MutableRulebook):
+    When *compact* is True, only signal names/severities and composition
+    rules are emitted — thresholds, policies, and causal chains are
+    omitted.  Use compact mode for agents that query signals via tools
+    rather than reasoning over the full ontology (e.g. researcher).
+    """
+    if isinstance(domain, MutableTBox):
         pass
-    elif not isinstance(domain, DomainRulebook):
+    elif not isinstance(domain, DomainTBox):
         return ""
 
-    parts = ["## Domain Context (from rulebook)\n"]
+    shape_parts: list[str] = []
+    sig_count = len(getattr(domain, "signals", {}))
+    thr_count = len(getattr(domain, "thresholds", {}))
+    pol_count = len(getattr(domain, "policies", []))
+    cc_count = len(getattr(domain, "causal_chains", []))
+    if sig_count:
+        shape_parts.append(f"{sig_count} signals")
+    if not compact:
+        if thr_count:
+            shape_parts.append(f"{thr_count} thresholds")
+        if pol_count:
+            shape_parts.append(f"{pol_count} policies")
+        if cc_count:
+            shape_parts.append(f"{cc_count} causal chains")
+    shape_label = f"TBox: {', '.join(shape_parts)}" if shape_parts else "from TBox"
+    parts = [f"## Domain Context ({shape_label})\n"]
 
     signals = getattr(domain, "signals", {})
     if signals:
         signal_lines = []
         for defn in signals.values() if isinstance(signals, dict) else signals:
-            desc = defn.description.split("\n")[0].strip()
-            signal_lines.append(
-                f"- **{defn.name}** [{defn.severity.value}] ({defn.entity}): {desc}"
-            )
+            if compact:
+                signal_lines.append(f"- {defn.name} [{defn.severity.value}] ({defn.entity})")
+            else:
+                desc = defn.description.split("\n")[0].strip()
+                signal_lines.append(
+                    f"- **{defn.name}** [{defn.severity.value}] ({defn.entity}): {desc}"
+                )
         parts.append("**Signal definitions (what the entailment engine detects):**")
         parts.append("\n".join(signal_lines))
 
-    thresholds = getattr(domain, "thresholds", {})
-    if thresholds:
-        threshold_lines = [f"- {key}: {val}" for key, val in thresholds.items()]
-        parts.append("\n**Operational thresholds:**")
-        parts.append("\n".join(threshold_lines))
+    if not compact:
+        thresholds = getattr(domain, "thresholds", {})
+        if thresholds:
+            threshold_lines = [f"- {key}: {val}" for key, val in thresholds.items()]
+            parts.append("\n**Operational thresholds:**")
+            parts.append("\n".join(threshold_lines))
 
-    policies = getattr(domain, "policies", [])
-    if policies:
-        policy_lines = [f"- [{pol.deontic.value}] {pol.description}" for pol in policies]
-        parts.append("\n**Deontic obligations:**")
-        parts.append("\n".join(policy_lines))
+        policies = getattr(domain, "policies", [])
+        if policies:
+            policy_lines = [f"- [{pol.deontic.value}] {pol.description}" for pol in policies]
+            parts.append("\n**Deontic obligations:**")
+            parts.append("\n".join(policy_lines))
 
-    causal_chains = getattr(domain, "causal_chains", [])
-    if causal_chains:
-        chain_lines = [f"- {c.cause} → {c.effect}: {c.description}" for c in causal_chains]
-        parts.append("\n**Known causal relationships:**")
-        parts.append("\n".join(chain_lines))
+        causal_chains = getattr(domain, "causal_chains", [])
+        if causal_chains:
+            chain_lines = [f"- {c.cause} → {c.effect}: {c.description}" for c in causal_chains]
+            parts.append("\n**Known causal relationships:**")
+            parts.append("\n".join(chain_lines))
 
     compositions = getattr(domain, "compositions", [])
     if compositions:
@@ -74,121 +98,6 @@ def render_domain_context(domain: Any) -> str:
 
     parts.append("\nComposition signals indicate compounding situations — prioritize them.")
     return "\n".join(parts)
-
-
-async def render_domain_context_semantic(
-    domain: Any,
-    *,
-    question: str | None = None,
-    embedder: Embedder | None = None,
-    max_items_per_section: int = 8,
-) -> str:
-    """Render domain context, semantically filtered when possible.
-
-    When an embedder and question are available, scores each domain rule
-    against the question and includes only the most relevant ones.
-    Falls back to the full render when embeddings aren't available.
-    """
-    if question is None or embedder is None:
-        return render_domain_context(domain)
-
-    if isinstance(domain, MutableRulebook):
-        pass
-    elif not isinstance(domain, DomainRulebook):
-        return ""
-
-    items: list[tuple[str, str, str]] = []
-
-    signals = getattr(domain, "signals", {})
-    for defn in signals.values() if isinstance(signals, dict) else signals:
-        desc = defn.description.split("\n")[0].strip()
-        text = f"{defn.name} {defn.severity.value} {defn.entity}: {desc}"
-        label = f"- **{defn.name}** [{defn.severity.value}] ({defn.entity}): {desc}"
-        items.append(("signals", label, text))
-
-    thresholds = getattr(domain, "thresholds", {})
-    for key, val in thresholds.items():
-        text = f"{key}: {val}"
-        label = f"- {key}: {val}"
-        items.append(("thresholds", label, text))
-
-    policies = getattr(domain, "policies", [])
-    for pol in policies:
-        text = f"{pol.deontic.value} {pol.description}"
-        label = f"- [{pol.deontic.value}] {pol.description}"
-        items.append(("policies", label, text))
-
-    causal_chains = getattr(domain, "causal_chains", [])
-    for c in causal_chains:
-        text = f"{c.cause} causes {c.effect}: {c.description}"
-        label = f"- {c.cause} → {c.effect}: {c.description}"
-        items.append(("causal", label, text))
-
-    compositions = getattr(domain, "compositions", [])
-    for comp in compositions:
-        sev = comp.severity.value if hasattr(comp.severity, "value") else str(comp.severity)
-        constituents = " + ".join(comp.constituents)
-        text = f"{comp.name} {sev} {constituents}: {comp.description.split(chr(10))[0].strip()}"
-        label = (
-            f"- **{comp.name}** [{sev}] = {constituents}: "
-            f"{comp.description.split(chr(10))[0].strip()}"
-        )
-        items.append(("compositions", label, text))
-
-    if not items:
-        return ""
-
-    try:
-        texts_to_embed = [question] + [text for _, _, text in items]
-        vectors = await embedder.embed(texts_to_embed)
-        question_vec = vectors[0]
-
-        scored: list[tuple[float, str, str]] = []
-        for i, (section, label, _) in enumerate(items):
-            item_vec = vectors[i + 1]
-            dot = sum(
-                a * b for a, b in zip(question_vec, item_vec, strict=True)
-            )
-            norm_q = sum(a * a for a in question_vec) ** 0.5
-            norm_s = sum(a * a for a in item_vec) ** 0.5
-            sim = dot / (norm_q * norm_s) if norm_q and norm_s else 0.0
-            scored.append((sim, section, label))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-
-        section_counts: dict[str, int] = {}
-        selected: list[tuple[str, str]] = []
-        for _sim, section, label in scored:
-            count = section_counts.get(section, 0)
-            if count < max_items_per_section:
-                selected.append((section, label))
-                section_counts[section] = count + 1
-
-        section_headers = {
-            "signals": "**Signal definitions (what the entailment engine detects):**",
-            "thresholds": "**Operational thresholds:**",
-            "policies": "**Deontic obligations:**",
-            "causal": "**Known causal relationships:**",
-            "compositions": "**Composition rules (compound signals from co-occurring signals):**",
-        }
-        parts = ["## Domain Context (semantically matched to your question)\n"]
-        current_section = ""
-        for section, label in selected:
-            if section != current_section:
-                if current_section:
-                    parts.append("")
-                parts.append(section_headers.get(section, f"**{section}:**"))
-                current_section = section
-            parts.append(label)
-
-        if len(parts) > 1:
-            parts.append("\nComposition signals indicate compounding situations — prioritize them.")
-            return "\n".join(parts)
-
-    except Exception:
-        _log.debug("semantic_domain_context_failed", exc_info=True)
-
-    return render_domain_context(domain)
 
 
 async def render_active_signals(
@@ -217,7 +126,16 @@ async def render_active_signals(
 
     severity_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}
 
-    lines = [f"## Active Signals ({len(signals)} total, showing top {len(ranked)})\n"]
+    severity_counts: dict[str, int] = {}
+    for s in signals:
+        sev = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+    sev_order = ["critical", "high", "medium", "low"]
+    breakdown = ", ".join(
+        f"{severity_counts[sev]} {sev}" for sev in sev_order if severity_counts.get(sev)
+    )
+    header = f"{len(signals)} total: {breakdown}" if breakdown else f"{len(signals)} total"
+    lines = [f"## Active Signals ({header}, showing top {len(ranked)})\n"]
     for s in ranked:
         sev_val = s.severity.value if hasattr(s.severity, "value") else str(s.severity)
         icon = severity_icon.get(sev_val, "❓")
@@ -255,15 +173,11 @@ async def _rank_signals(
             question_vec = all_vectors[0]
             for i, s in enumerate(signals):
                 signal_vec = all_vectors[i + 1]
-                dot = sum(
-                    a * b for a, b in zip(question_vec, signal_vec, strict=True)
-                )
+                dot = sum(a * b for a, b in zip(question_vec, signal_vec, strict=True))
                 norm_q = sum(a * a for a in question_vec) ** 0.5
                 norm_s = sum(a * a for a in signal_vec) ** 0.5
                 denom = norm_q * norm_s
-                similarity_scores[s.signal_id] = (
-                    dot / denom if denom else 0.0
-                )
+                similarity_scores[s.signal_id] = dot / denom if denom else 0.0
         except Exception:
             _log.debug("embedding_signal_rank_failed", exc_info=True)
 

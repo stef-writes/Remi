@@ -44,7 +44,8 @@ import structlog
 import yaml
 
 from remi.agent.llm.factory import LLMProviderFactory
-from remi.agent.llm.types import Message, TokenUsage
+from remi.agent.llm.types import Message, TokenUsage, estimate_cost
+from remi.agent.observe.usage import LLMUsageLedger, UsageRecord, UsageSource
 from remi.types.paths import AGENTS_DIR
 
 _log = structlog.get_logger(__name__)
@@ -184,9 +185,11 @@ class IngestionPipelineRunner:
         provider_factory: LLMProviderFactory,
         default_provider: str,
         default_model: str,
+        usage_ledger: LLMUsageLedger | None = None,
     ) -> None:
         self._factory = provider_factory
         self._defaults = StepDefaults(provider=default_provider, model=default_model)
+        self._usage_ledger = usage_ledger
 
     def _load_steps(self, pipeline_name: str) -> list[PipelineStep]:
         path = AGENTS_DIR / pipeline_name / "app.yaml"
@@ -277,5 +280,22 @@ class IngestionPipelineRunner:
         value: str | list | dict = (
             _parse_json_output(raw) if step.response_format == "json" else raw
         )
+
+        if self._usage_ledger is not None and response.usage.total_tokens > 0:
+            cost = estimate_cost(
+                step.model, response.usage.prompt_tokens, response.usage.completion_tokens,
+            )
+            self._usage_ledger.record(UsageRecord(
+                source=UsageSource.INGESTION,
+                source_detail=step.id,
+                provider=step.provider,
+                model=step.model,
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens,
+                cache_read_tokens=response.usage.cache_read_tokens,
+                cache_creation_tokens=response.usage.cache_creation_tokens,
+                estimated_cost_usd=round(cost, 6) if cost is not None else None,
+            ))
 
         return PipelineStepResult(step_id=step.id, value=value, usage=response.usage)

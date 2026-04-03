@@ -80,8 +80,8 @@ The LLM's job is abductive reasoning: explain, connect, recommend, codify.
 |------|------|
 | `src/remi/shell/config/domain.yaml` | Source of truth for signal definitions, thresholds, rules |
 | `src/remi/shell/config/container.py` | DI container — wires everything |
-| `src/remi/domain/configs/director/app.yaml` | Director agent manifest |
-| `src/remi/domain/configs/researcher/app.yaml` | Researcher agent manifest |
+| `src/remi/domain/agents/director/app.yaml` | Director agent manifest |
+| `src/remi/domain/agents/researcher/app.yaml` | Researcher agent manifest |
 | `src/remi/agent/runtime/node.py` | AgentNode — config-driven think-act-observe loop |
 | `src/remi/domain/evaluators/engine.py` | Entailment engine — evaluates rules, produces signals |
 | `src/remi/domain/ingestion/service.py` | IngestionService — report type detection + dispatch |

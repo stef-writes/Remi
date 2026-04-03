@@ -12,7 +12,7 @@ from remi.agent.graph.bridge import BridgedKnowledgeGraph
 from remi.agent.signals.statistical import StatisticalProducer
 from remi.domain.portfolio.models import Unit, UnitStatus
 from remi.agent.signals import (
-    DomainRulebook,
+    DomainTBox,
     ProducerResult,
     Provenance,
     Severity,
@@ -233,7 +233,7 @@ async def test_entailment_engine_implements_signal_producer(
     """EntailmentEngine is a valid SignalProducer."""
     from remi.domain.ontology.schema import load_domain_yaml
 
-    domain = DomainRulebook.from_yaml(load_domain_yaml())
+    domain = DomainTBox.from_yaml(load_domain_yaml())
     engine = EntailmentEngine(domain=domain, property_store=property_store)
 
     assert isinstance(engine, SignalProducer)
@@ -401,7 +401,7 @@ async def test_full_pipeline_integration(
 
     await _bootstrap(knowledge_graph)
 
-    domain = DomainRulebook.from_yaml(load_domain_yaml())
+    domain = DomainTBox.from_yaml(load_domain_yaml())
     engine = EntailmentEngine(domain=domain, property_store=property_store)
     stats = StatisticalProducer(knowledge_graph=knowledge_graph)
 
@@ -433,6 +433,6 @@ async def test_full_pipeline_integration(
 
 
 async def _bootstrap(knowledge_graph: BridgedKnowledgeGraph) -> None:
-    from remi.domain.ontology.schema import seed_knowledge_graph
+    from remi.domain.ontology.seed import seed_knowledge_graph
 
     await seed_knowledge_graph(knowledge_graph)

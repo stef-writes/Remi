@@ -12,15 +12,15 @@ from remi.domain.portfolio.models import (
     Property,
     PropertyManager,
 )
-from remi.agent.signals import DomainRulebook
+from remi.agent.signals import DomainTBox
 from remi.domain.stores.mem import InMemoryPropertyStore
 from remi.agent.signals.mem import InMemorySignalStore
 
 
 @pytest.fixture
-def domain_rulebook() -> DomainRulebook:
+def domain_tbox() -> DomainTBox:
     raw = load_domain_yaml()
-    return DomainRulebook.from_yaml(raw)
+    return DomainTBox.from_yaml(raw)
 
 
 @pytest.fixture
@@ -35,12 +35,12 @@ def property_store() -> InMemoryPropertyStore:
 
 @pytest.fixture
 def engine(
-    domain_rulebook: DomainRulebook,
+    domain_tbox: DomainTBox,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
 ) -> EntailmentEngine:
     return EntailmentEngine(
-        domain=domain_rulebook,
+        domain=domain_tbox,
         property_store=property_store,
         signal_store=signal_store,
     )

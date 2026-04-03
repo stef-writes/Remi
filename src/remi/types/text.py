@@ -36,20 +36,3 @@ def slugify(text: str) -> str:
 def normalize_name(name: str) -> str:
     """Normalize a person or entity name: collapse internal whitespace, title-case."""
     return " ".join(name.split())
-
-
-def manager_name_from_tag(tag: str) -> str:
-    """Extract and normalize the person's name from a manager tag.
-
-    Handles tags like 'Jake Kraus Management', 'Jake  Kraus' (extra spaces),
-    or bare names. Strips known company suffixes and normalizes whitespace so
-    'Jake  Kraus' and 'Jake Kraus' resolve to the same manager.
-    """
-    suffixes = ("management", "mgmt", "properties", "property")
-    name = normalize_name(tag)
-    lower = name.lower()
-    for suffix in suffixes:
-        if lower.endswith(suffix):
-            name = normalize_name(name[: -len(suffix)])
-            break
-    return name or normalize_name(tag)

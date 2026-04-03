@@ -31,6 +31,7 @@ from remi.shell.api.portfolios.router import router as portfolios_router
 from remi.shell.api.properties.router import router as properties_router
 from remi.shell.api.tenants.router import router as tenants_router
 from remi.shell.api.units.router import router as units_router
+from remi.shell.api.usage.router import router as usage_router
 from remi.agent.observe.logging import configure_logging
 from remi.shell.api.error_handler import install_error_handlers
 from remi.shell.api.middleware import RequestIDMiddleware
@@ -55,6 +56,7 @@ def _attach_routers(application: FastAPI) -> None:
     application.include_router(seed_router, prefix="/api/v1")
     application.include_router(actions_router, prefix="/api/v1")
     application.include_router(notes_router, prefix="/api/v1")
+    application.include_router(usage_router, prefix="/api/v1")
     application.include_router(realtime_router)
 
 
@@ -193,6 +195,15 @@ def _attach_health(application: FastAPI) -> None:
         else:
             seed_status = "complete"
 
+        llm_calls = 0
+        llm_cost_usd = 0.0
+        llm_total_tokens = 0
+        if container is not None and hasattr(container, "usage_ledger"):
+            usage = container.usage_ledger.summary()
+            llm_calls = usage.total_calls
+            llm_cost_usd = round(usage.total_estimated_cost_usd, 6)
+            llm_total_tokens = usage.total_tokens
+
         return {
             "status": "ok",
             "version": application.version,
@@ -200,6 +211,9 @@ def _attach_health(application: FastAPI) -> None:
             "seed": seed_status,
             "traces": trace_count,
             "spans": span_count,
+            "llm_calls": llm_calls,
+            "llm_total_tokens": llm_total_tokens,
+            "llm_cost_usd": llm_cost_usd,
         }
 
 

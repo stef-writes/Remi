@@ -17,6 +17,7 @@ from typing import Any
 import structlog
 
 from remi.agent.config import AgentConfig
+from remi.agent.context.frame import WorldState
 from remi.agent.context.intent import classify_intent
 from remi.agent.context.rendering import (
     extract_signal_references,
@@ -29,13 +30,13 @@ from remi.agent.conversation.thread import (
     last_assistant_content,
     trim_thread,
 )
+from remi.agent.llm.types import LLMProvider, estimate_cost
+from remi.agent.observe.types import SpanKind, Tracer, get_current_trace_id
 from remi.agent.runtime.base import BaseModule, Message, ModuleOutput
 from remi.agent.runtime.deps import OnEventCallback, RuntimeContext
 from remi.agent.runtime.llm_bridge import OnEventCallback as _OnEvent  # noqa: F811,F401
 from remi.agent.runtime.loop import run_agent_loop
 from remi.agent.runtime.tool_executor import ToolExecutor, build_tool_set
-from remi.agent.llm.types import LLMProvider, estimate_cost
-from remi.agent.observe.types import SpanKind, Tracer, get_current_trace_id
 
 logger = structlog.get_logger("remi.agent")
 
@@ -113,16 +114,27 @@ class AgentNode(BaseModule):
         emit: OnEventCallback = _raw_emit  # type: ignore[assignment]
         tracer: Tracer | None = context.deps.tracer or context.extras.get("tracer")
 
-        thread = build_initial_thread(cfg, inputs)
+        domain = context.deps.domain_tbox or context.extras.get("domain_tbox")
+        world = WorldState.from_tbox(domain)
+        domain_priming = (
+            render_domain_context(domain, compact=cfg.compact_tbox) if domain is not None else ""
+        )
 
-        injection_phases: set[str] = {"signals", "domain", "graph", "memory"}
+        thread = build_initial_thread(
+            cfg,
+            inputs,
+            domain_priming=domain_priming,
+            world=world,
+        )
+
+        injection_phases: set[str] = {"signals", "graph", "memory"}
         max_tool_rounds: int | None = None
         user_question = _extract_user_question(thread)
         intent_result = classify_intent(user_question, cfg.intents)
         intent_name: str | None = None
         if intent_result is not None:
             intent_name, intent_cfg = intent_result
-            injection_phases = set(intent_cfg.context_injection)
+            injection_phases = set(intent_cfg.context_injection) - {"domain"}
 
             if intent_name == "conversation":
                 tool_defs, tool_execute = [], None
@@ -173,7 +185,7 @@ class AgentNode(BaseModule):
                 "Only discuss data relevant to this manager's portfolio "
                 "unless the user explicitly asks about the broader portfolio."
             )
-            thread.insert(1, Message(role="system", content="\n".join(scope_parts)))
+            _insert_after_static(thread, Message(role="system", content="\n".join(scope_parts)))
 
         trace_cm = (
             tracer.start_trace(
@@ -189,14 +201,20 @@ class AgentNode(BaseModule):
             else _noop_trace()
         )
         async with trace_cm:
-            domain = context.deps.domain_rulebook or context.extras.get("domain_rulebook")
             ctx_builder = context.deps.context_builder
             signal_store = context.deps.signal_store or context.extras.get("signal_store")
 
-            needs_domain = "domain" in injection_phases
             needs_signals = "signals" in injection_phases
             needs_graph = "graph" in injection_phases
             needs_memory = "memory" in injection_phases
+
+            if tracer is not None and world.loaded:
+                async with tracer.span(
+                    SpanKind.PERCEPTION,
+                    "tbox_priming",
+                    **{k: v for k, v in world.to_dict().items() if k != "tbox_loaded"},
+                ):
+                    pass
 
             async def _load_memory() -> str | None:
                 if not (needs_memory and memory and cfg.memory.auto_load and cfg.memory.namespace):
@@ -211,33 +229,19 @@ class AgentNode(BaseModule):
                         entries.append(f"- {key}: {val}")
                 return "\n".join(entries) if entries else None
 
-            if ctx_builder is not None and (needs_domain or needs_signals or needs_graph):
+            if ctx_builder is not None and (needs_signals or needs_graph):
                 frame, memory_text = await asyncio.gather(
                     ctx_builder.build(
                         question=user_question,
                         tracer=tracer,
                         phases=injection_phases,
+                        world=world,
                     ),
                     _load_memory(),
                 )
                 ctx_builder.inject_into_thread(thread, frame)
             else:
                 memory_text_coro = _load_memory()
-
-                if needs_domain and domain is not None:
-                    ctx_block = render_domain_context(domain)
-                    if ctx_block:
-                        thread.insert(1, Message(role="system", content=ctx_block))
-                        if tracer is not None:
-                            async with tracer.span(
-                                SpanKind.PERCEPTION,
-                                "tbox_injection",
-                                signal_definitions=len(getattr(domain, "signals", {})),
-                                threshold_count=len(getattr(domain, "thresholds", {})),
-                                policy_count=len(getattr(domain, "policies", [])),
-                                causal_chain_count=len(getattr(domain, "causal_chains", [])),
-                            ):
-                                pass
 
                 if needs_signals and signal_store is not None:
                     signal_summary = await render_active_signals(signal_store)
@@ -248,32 +252,16 @@ class AgentNode(BaseModule):
                         )
                         insert_idx = 2 if tbox_in_thread else 1
                         thread.insert(insert_idx, Message(role="system", content=signal_summary))
-                        if tracer is not None:
-                            try:
-                                all_sigs = await signal_store.list_signals()
-                                severity_counts: dict[str, int] = {}
-                                for s in all_sigs:
-                                    sev = (
-                                        s.severity.value
-                                        if hasattr(s.severity, "value")
-                                        else str(s.severity)
-                                    )
-                                    severity_counts[sev] = severity_counts.get(sev, 0) + 1
-                                async with tracer.span(
-                                    SpanKind.PERCEPTION,
-                                    "signal_injection",
-                                    active_signals=len(all_sigs),
-                                    severity_breakdown=severity_counts,
-                                    signal_types=[s.signal_type for s in all_sigs][:25],
-                                ):
-                                    pass
-                            except Exception:
-                                logger.debug("signal_injection_tracing_failed", exc_info=True)
 
                 memory_text = await memory_text_coro
 
             if memory_text:
-                thread.insert(1, Message(role="system", content=f"Past context:\n{memory_text}"))
+                _insert_after_static(
+                    thread,
+                    Message(role="system", content=f"Past context:\n{memory_text}"),
+                )
+
+            usage_ledger = context.deps.usage_ledger or context.extras.get("usage_ledger")
 
             thread, run_usage = await run_agent_loop(
                 cfg=cfg,
@@ -285,6 +273,7 @@ class AgentNode(BaseModule):
                 log=log,
                 max_tool_rounds=max_tool_rounds,
                 routing_provider=routing_provider,
+                usage_ledger=usage_ledger,
             )
 
             final = format_output(thread, cfg)
@@ -355,6 +344,23 @@ class AgentNode(BaseModule):
                 contract=cfg.output_contract,
                 metadata=run_metadata,
             )
+
+
+def _insert_after_static(thread: list[Message], msg: Message) -> None:
+    """Insert *msg* after static system messages but before the user message.
+
+    Anthropic caches from the beginning of the context window.  Keeping
+    the static prefix (system prompt + TBox priming) contiguous maximises
+    cache-read hits.  Dynamic per-turn content goes between the static
+    prefix and the first non-system message.
+    """
+    idx = 0
+    for i, m in enumerate(thread):
+        if m.role == "system":
+            idx = i + 1
+        else:
+            break
+    thread.insert(idx, msg)
 
 
 def _extract_user_question(thread: list[Message]) -> str | None:

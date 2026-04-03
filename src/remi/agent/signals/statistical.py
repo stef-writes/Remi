@@ -16,11 +16,11 @@ through the KnowledgeGraph port. Produces signals with
 from __future__ import annotations
 
 import math
-from typing import Any
 
 import structlog
 
 from remi.agent.graph.stores import KnowledgeGraph
+from remi.agent.graph.types import GraphObject
 from remi.agent.graph.types import KnowledgeProvenance as Provenance
 from remi.agent.signals.enums import Severity
 from remi.agent.signals.signal import ProducerResult, Signal, SignalProducer
@@ -111,7 +111,7 @@ class StatisticalProducer(SignalProducer):
         )
         return result
 
-    def _identify_numeric_fields(self, objects: list[dict[str, Any]]) -> list[str]:
+    def _identify_numeric_fields(self, objects: list[GraphObject]) -> list[str]:
         """Find fields that are consistently numeric across the sample."""
         if not objects:
             return []
@@ -119,9 +119,7 @@ class StatisticalProducer(SignalProducer):
         candidates: dict[str, int] = {}
         sample = objects[:100]
         for obj in sample:
-            for key, val in obj.items():
-                if key == "id":
-                    continue
+            for key, val in obj.properties.items():
                 if isinstance(val, (int, float)) and not isinstance(val, bool):
                     candidates[key] = candidates.get(key, 0) + 1
 
@@ -130,7 +128,7 @@ class StatisticalProducer(SignalProducer):
 
     def _identify_categorical_fields(
         self,
-        objects: list[dict[str, Any]],
+        objects: list[GraphObject],
         *,
         exclude: list[str],
     ) -> list[str]:
@@ -138,12 +136,12 @@ class StatisticalProducer(SignalProducer):
         if not objects:
             return []
 
-        exclude_set = set(exclude) | {"id", "name", "description", "email"}
+        exclude_set = set(exclude) | {"name", "description", "email"}
         candidates: dict[str, int] = {}
         sample = objects[:100]
 
         for obj in sample:
-            for key, val in obj.items():
+            for key, val in obj.properties.items():
                 if key in exclude_set:
                     continue
                 if isinstance(val, str) and len(val) < 100:
@@ -154,17 +152,16 @@ class StatisticalProducer(SignalProducer):
 
     def _detect_outliers(
         self,
-        objects: list[dict[str, Any]],
+        objects: list[GraphObject],
         type_name: str,
         field_name: str,
     ) -> list[Signal]:
         """Z-score outlier detection on a numeric field."""
         values: list[tuple[str, float]] = []
         for obj in objects:
-            val = obj.get(field_name)
+            val = obj.properties.get(field_name)
             if val is not None and isinstance(val, (int, float)) and not isinstance(val, bool):
-                entity_id = str(obj.get("id", ""))
-                values.append((entity_id, float(val)))
+                values.append((obj.id, float(val)))
 
         if len(values) < self._min_sample_size:
             return []
@@ -217,7 +214,7 @@ class StatisticalProducer(SignalProducer):
 
     def _detect_concentration(
         self,
-        objects: list[dict[str, Any]],
+        objects: list[GraphObject],
         type_name: str,
         field_name: str,
     ) -> list[Signal]:
@@ -226,7 +223,7 @@ class StatisticalProducer(SignalProducer):
         total = 0
 
         for obj in objects:
-            val = obj.get(field_name)
+            val = obj.properties.get(field_name)
             if val is not None and isinstance(val, str):
                 counts[val] = counts.get(val, 0) + 1
                 total += 1

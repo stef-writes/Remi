@@ -13,13 +13,13 @@ from remi.agent.graph.stores import KnowledgeGraph
 from remi.agent.observe.types import Tracer
 from remi.domain.portfolio.protocols import PropertyStore
 from remi.domain.queries.snapshots import SnapshotService
-from remi.agent.signals import MutableRulebook, SignalStore
+from remi.agent.signals import MutableTBox, SignalStore
 from remi.agent.signals.composite import CompositeProducer
 
 
 def build_signal_pipeline(
     *,
-    domain: MutableRulebook,
+    domain: MutableTBox,
     property_store: PropertyStore,
     signal_store: SignalStore,
     snapshot_service: SnapshotService,

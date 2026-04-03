@@ -55,11 +55,11 @@ The `Container` (in `shell/config/container.py`) is pure wiring — it calls fac
 
 | Layer | What | Where |
 |-------|------|-------|
-| **Domain Rulebook** | What things mean — signal definitions, thresholds, policies, causal chains | `shell/config/domain.yaml` |
+| **Domain TBox** | What things mean — signal definitions, thresholds, policies, causal chains | `shell/config/domain.yaml` |
 | **Ontology** | What entity types exist and how they relate — typed properties, structural links, constraints | `domain/ontology/schema.py` |
 | **Knowledge Graph** | What actually happened — entities, relationships, observations | `PropertyStore` + `KnowledgeStore` via `BridgedKnowledgeGraph` |
 
-The **Entailment Engine** evaluates rulebook rules against knowledge graph facts and produces **Signals** — named, evidenced, severity-ranked domain states.
+The **Entailment Engine** evaluates TBox rules against knowledge graph facts and produces **Signals** — named, evidenced, severity-ranked domain states.
 
 ## The Twelve Signals
 
@@ -102,7 +102,7 @@ Defined in `domain.yaml`, detected by the entailment engine.
 
 ## Agents
 
-Two conversational agents, declared via YAML in `domain/configs/`.
+Two conversational agents, declared via YAML in `domain/agents/`.
 
 | Agent | Purpose | Mode |
 |-------|---------|------|

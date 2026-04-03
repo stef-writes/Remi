@@ -1,4 +1,4 @@
-"""SQLModel table definitions mirroring models.properties.
+"""SQLModel table definitions mirroring domain.portfolio.models.
 
 These are mutable DB-row objects — the store layer converts to/from the
 frozen Pydantic read models that the rest of the app uses.
@@ -73,6 +73,7 @@ class PropertyRow(SQLModel, table=True):
     address_state: str = ""
     address_zip_code: str = ""
     address_country: str = "US"
+    source_document_id: str | None = None
     created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
 
 
@@ -93,6 +94,7 @@ class UnitRow(SQLModel, table=True):
     listed_on_website: bool = False
     listed_on_internet: bool = False
     floor: int | None = None
+    source_document_id: str | None = None
 
 
 class LeaseRow(SQLModel, table=True):
@@ -109,6 +111,7 @@ class LeaseRow(SQLModel, table=True):
     status: str = "active"
     market_rent: Decimal = Field(default=Decimal("0"), sa_type=sa.Numeric(12, 2))
     is_month_to_month: bool = False
+    source_document_id: str | None = None
 
 
 class TenantRow(SQLModel, table=True):
@@ -125,6 +128,7 @@ class TenantRow(SQLModel, table=True):
     last_payment_date: date | None = None
     tags: list[str] = Field(default_factory=list, sa_type=sa.JSON)
     lease_ids: list[str] = Field(default_factory=list, sa_type=sa.JSON)
+    source_document_id: str | None = None
     created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
 
 

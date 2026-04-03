@@ -1,7 +1,7 @@
 """Knowledge graph DTOs — entities, relationships, schema definitions.
 
-ABCs (Ontology, KnowledgeGraph, KnowledgeStore) have moved to
-``remi.agent.graph.stores``. This module re-exports them for backward compat.
+ABCs live in ``remi.agent.graph.stores``.  This module owns pure data
+types only — no abstract base classes.
 """
 
 from __future__ import annotations
@@ -44,7 +44,6 @@ class KnowledgeLink(BaseModel, frozen=True):
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
-OntologyLink = KnowledgeLink
 
 
 class LinkTypeDef(BaseModel, frozen=True):
@@ -117,6 +116,46 @@ class Relationship(BaseModel, frozen=True):
 class MemoryEntry(BaseModel, frozen=True):
     namespace: str
     key: str
-    value: Any
+    value: str
     created_at: datetime | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Typed return models for KnowledgeGraph port methods
+# ---------------------------------------------------------------------------
+
+
+class GraphObject(BaseModel):
+    """A single object returned from the knowledge graph."""
+
+    id: str
+    type_name: str = ""
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphLink(BaseModel, frozen=True):
+    """A single link returned from get_links / traversal."""
+
+    source_id: str
+    link_type: str
+    target_id: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class TimelineEvent(BaseModel, frozen=True):
+    """A single event in an entity's timeline."""
+
+    id: str
+    event_type: str
+    object_type: str
+    object_id: str
+    timestamp: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class AggregateResult(BaseModel):
+    """Result of an aggregation query."""
+
+    value: float | int | None = None
+    groups: dict[str, float | int | None] = Field(default_factory=dict)

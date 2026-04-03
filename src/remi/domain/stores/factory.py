@@ -6,19 +6,19 @@ are optional dependencies (``remi[postgres]``).
 
 from __future__ import annotations
 
-from typing import Any
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from remi.agent.documents.types import DocumentStore
-from remi.domain.queries.rollups import RollupStore
-from remi.domain.portfolio.protocols import PropertyStore
 from remi.agent.documents.mem import InMemoryDocumentStore
+from remi.agent.documents.types import DocumentStore
+from remi.domain.portfolio.protocols import PropertyStore
+from remi.domain.queries.rollups import RollupStore
 from remi.domain.stores.rollups import InMemoryRollupStore, PostgresRollupStore
 from remi.types.config import RemiSettings
 
 
 def build_property_store(
     settings: RemiSettings,
-) -> tuple[PropertyStore, Any, Any]:
+) -> tuple[PropertyStore, AsyncEngine | None, async_sessionmaker[AsyncSession] | None]:
     """Return ``(property_store, db_engine | None, session_factory | None)``.
 
     The engine and session factory are exposed so the container can share
@@ -44,7 +44,9 @@ def build_property_store(
     return InMemoryPropertyStore(), None, None
 
 
-def build_document_store(session_factory: Any | None) -> DocumentStore:
+def build_document_store(
+    session_factory: async_sessionmaker[AsyncSession] | None,
+) -> DocumentStore:
     """Return a Postgres or in-memory document store."""
     if session_factory is not None:
         from remi.agent.documents.pg import PostgresDocumentStore
@@ -53,7 +55,9 @@ def build_document_store(session_factory: Any | None) -> DocumentStore:
     return InMemoryDocumentStore()
 
 
-def build_rollup_store(session_factory: Any | None) -> RollupStore:
+def build_rollup_store(
+    session_factory: async_sessionmaker[AsyncSession] | None,
+) -> RollupStore:
     """Return a Postgres or in-memory rollup store."""
     if session_factory is not None:
         return PostgresRollupStore(session_factory)

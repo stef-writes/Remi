@@ -1,8 +1,15 @@
-"""REMI knowledge graph schema — core types, link types, and domain.yaml seeding.
+"""REMI knowledge graph schema — type registry, link types, and prompt helpers.
 
-Declares the REMI-specific object types (PropertyManager, Unit, Lease, …),
-structural and operational link types, and provides ``seed_knowledge_graph``
-to register them into a KnowledgeGraph instance.
+Entity type definitions are **derived** from the Pydantic models in
+``domain.portfolio.models`` via ``agent.graph.introspect``.  This module
+owns the RE-specific registry (which models to introspect, descriptions,
+plural names), the structural and operational link types, and the
+``entity_schemas_for_prompt`` entry point.
+
+KG-only types that have no Pydantic model (e.g. ``Note``) are declared
+as supplemental ``ObjectTypeDef`` instances here.
+
+Seeding the knowledge graph is in ``domain.ontology.seed``.
 """
 
 from __future__ import annotations
@@ -12,178 +19,67 @@ from typing import Any
 
 import yaml
 
-from remi.agent.graph.stores import KnowledgeGraph
+from remi.agent.graph.introspect import (
+    pydantic_to_type_defs,
+    schemas_for_prompt,
+)
 from remi.agent.graph.types import (
     KnowledgeProvenance,
     LinkTypeDef,
     ObjectTypeDef,
     PropertyDef,
 )
+from remi.domain.portfolio.models import (
+    ActionItem,
+    Lease,
+    MaintenanceRequest,
+    Owner,
+    Portfolio,
+    Property,
+    PropertyManager,
+    Tenant,
+    Unit,
+    Vendor,
+)
 from remi.types.paths import DOMAIN_YAML_PATH
 
 # ---------------------------------------------------------------------------
-# Core object type definitions (matching domain models)
-# These remain in code because they mirror Pydantic model shapes.
+# Model registry — the single source of truth for entity schemas.
+# Each entry: (PydanticModel, description) or (PydanticModel, description, plural_name)
 # ---------------------------------------------------------------------------
 
-_CORE_TYPES: list[ObjectTypeDef] = [
-    ObjectTypeDef(
-        name="PropertyManager",
-        plural_name="PropertyManagers",
-        description="A property manager overseeing one or more portfolios",
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="name", data_type="string", required=True),
-            PropertyDef(name="email", data_type="string", required=True),
-            PropertyDef(name="company", data_type="string"),
-            PropertyDef(name="phone", data_type="string"),
-        ),
+_MODEL_REGISTRY: list[
+    tuple[type, str] | tuple[type, str, str]
+] = [
+    # Oversight
+    (Owner, "The legal entity that owns a property asset", "Owners"),
+    (PropertyManager, "A property manager overseeing one or more portfolios", "PropertyManagers"),
+    (Portfolio, "A collection of properties managed together", "Portfolios"),
+    # Assets
+    (Property, "A real estate property (building or complex)", "Properties"),
+    (Unit, "A rentable unit within a property", "Units"),
+    # Leasing
+    (Lease, "A lease agreement for a unit", "Leases"),
+    (Tenant, "A person or entity leasing a unit", "Tenants"),
+    # Operations
+    (Vendor, "A service provider contracted for maintenance, repairs, or renovations", "Vendors"),
+    (MaintenanceRequest, "A maintenance work order for a unit", "MaintenanceRequests"),
+    # Tracking
+    (
+        ActionItem,
+        "A director-created action item for tracking follow-ups on managers, properties, or tenants",
+        "ActionItems",
     ),
-    ObjectTypeDef(
-        name="Portfolio",
-        plural_name="Portfolios",
-        description="A collection of properties managed together",
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="manager_id", data_type="string", required=True),
-            PropertyDef(name="name", data_type="string", required=True),
-            PropertyDef(name="description", data_type="string"),
-        ),
-    ),
-    ObjectTypeDef(
-        name="Property",
-        plural_name="Properties",
-        description="A real estate property (building or complex)",
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="portfolio_id", data_type="string", required=True),
-            PropertyDef(name="name", data_type="string", required=True),
-            PropertyDef(name="address", data_type="object"),
-            PropertyDef(
-                name="property_type",
-                data_type="enum",
-                enum_values=["residential", "commercial", "mixed", "industrial"],
-            ),
-            PropertyDef(name="year_built", data_type="number"),
-            PropertyDef(name="total_units", data_type="number"),
-        ),
-    ),
-    ObjectTypeDef(
-        name="Unit",
-        plural_name="Units",
-        description="A rentable unit within a property",
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="property_id", data_type="string", required=True),
-            PropertyDef(name="unit_number", data_type="string", required=True),
-            PropertyDef(name="bedrooms", data_type="number"),
-            PropertyDef(name="bathrooms", data_type="number"),
-            PropertyDef(name="sqft", data_type="number"),
-            PropertyDef(name="market_rent", data_type="decimal"),
-            PropertyDef(name="current_rent", data_type="decimal"),
-            PropertyDef(
-                name="status",
-                data_type="enum",
-                enum_values=["vacant", "occupied", "maintenance", "offline"],
-            ),
-        ),
-    ),
-    ObjectTypeDef(
-        name="Lease",
-        plural_name="Leases",
-        description="A lease agreement for a unit",
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="unit_id", data_type="string", required=True),
-            PropertyDef(name="tenant_id", data_type="string", required=True),
-            PropertyDef(name="property_id", data_type="string", required=True),
-            PropertyDef(name="start_date", data_type="date", required=True),
-            PropertyDef(name="end_date", data_type="date", required=True),
-            PropertyDef(name="monthly_rent", data_type="decimal", required=True),
-            PropertyDef(name="deposit", data_type="decimal"),
-            PropertyDef(
-                name="status",
-                data_type="enum",
-                enum_values=["active", "expired", "terminated", "pending"],
-            ),
-        ),
-    ),
-    ObjectTypeDef(
-        name="Tenant",
-        plural_name="Tenants",
-        description="A person or entity leasing a unit",
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="name", data_type="string", required=True),
-            PropertyDef(name="email", data_type="string", required=True),
-            PropertyDef(name="phone", data_type="string"),
-        ),
-    ),
-    ObjectTypeDef(
-        name="MaintenanceRequest",
-        plural_name="MaintenanceRequests",
-        description="A maintenance work order for a unit",
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="unit_id", data_type="string", required=True),
-            PropertyDef(name="property_id", data_type="string", required=True),
-            PropertyDef(name="tenant_id", data_type="string"),
-            PropertyDef(
-                name="category",
-                data_type="enum",
-                enum_values=[
-                    "plumbing",
-                    "electrical",
-                    "hvac",
-                    "appliance",
-                    "structural",
-                    "general",
-                    "other",
-                ],
-            ),
-            PropertyDef(
-                name="priority",
-                data_type="enum",
-                enum_values=["low", "medium", "high", "emergency"],
-            ),
-            PropertyDef(name="title", data_type="string"),
-            PropertyDef(name="description", data_type="string"),
-            PropertyDef(
-                name="status",
-                data_type="enum",
-                enum_values=["open", "in_progress", "completed", "cancelled"],
-            ),
-            PropertyDef(name="cost", data_type="decimal"),
-            PropertyDef(name="vendor", data_type="string"),
-        ),
-    ),
-    ObjectTypeDef(
-        name="ActionItem",
-        plural_name="ActionItems",
-        description=(
-            "A director-created action item for tracking"
-            " follow-ups on managers, properties, or tenants"
-        ),
-        properties=(
-            PropertyDef(name="id", data_type="string", required=True),
-            PropertyDef(name="title", data_type="string", required=True),
-            PropertyDef(name="description", data_type="string"),
-            PropertyDef(
-                name="status",
-                data_type="enum",
-                enum_values=["open", "in_progress", "done", "cancelled"],
-            ),
-            PropertyDef(
-                name="priority",
-                data_type="enum",
-                enum_values=["low", "medium", "high", "urgent"],
-            ),
-            PropertyDef(name="manager_id", data_type="string"),
-            PropertyDef(name="property_id", data_type="string"),
-            PropertyDef(name="tenant_id", data_type="string"),
-            PropertyDef(name="due_date", data_type="date"),
-        ),
-    ),
+]
+
+# Derived at import time — stays in sync with models.py automatically.
+_CORE_TYPE_DEFS: list[ObjectTypeDef] = pydantic_to_type_defs(_MODEL_REGISTRY)
+
+# ---------------------------------------------------------------------------
+# KG-only supplemental types (no Pydantic model)
+# ---------------------------------------------------------------------------
+
+_SUPPLEMENTAL_TYPES: list[ObjectTypeDef] = [
     ObjectTypeDef(
         name="Note",
         plural_name="Notes",
@@ -206,6 +102,8 @@ _CORE_TYPES: list[ObjectTypeDef] = [
         ),
     ),
 ]
+
+_ALL_TYPE_DEFS: list[ObjectTypeDef] = _CORE_TYPE_DEFS + _SUPPLEMENTAL_TYPES
 
 # ---------------------------------------------------------------------------
 # Link types — structural (domain model relationships)
@@ -253,6 +151,27 @@ _STRUCTURAL_LINKS: list[LinkTypeDef] = [
         target_type="Unit",
         cardinality="many_to_one",
         description="Work order affects a unit",
+    ),
+    LinkTypeDef(
+        name="OWNED_BY",
+        source_type="Property",
+        target_type="Owner",
+        cardinality="many_to_one",
+        description="Property is legally owned by",
+    ),
+    LinkTypeDef(
+        name="SERVICED_BY",
+        source_type="MaintenanceRequest",
+        target_type="Vendor",
+        cardinality="many_to_one",
+        description="Work order is assigned to a vendor",
+    ),
+    LinkTypeDef(
+        name="RENEWED_FROM",
+        source_type="Lease",
+        target_type="Lease",
+        cardinality="many_to_one",
+        description="Lease is a renewal of a prior lease",
     ),
     LinkTypeDef(
         name="HAS_NOTE",
@@ -335,59 +254,28 @@ _OPERATIONAL_LINKS: list[LinkTypeDef] = [
     ),
 ]
 
-
 # ---------------------------------------------------------------------------
-# Schema-to-prompt serialization
+# Prompt serialization — delegates to agent/graph/introspect
 # ---------------------------------------------------------------------------
 
-_INGESTIBLE_TYPES: frozenset[str] = frozenset({
-    "Property", "Unit", "Lease", "Tenant", "MaintenanceRequest",
-})
+def entity_schemas_for_prompt(
+    *,
+    filter_names: frozenset[str] | None = None,
+) -> str:
+    """Render entity type schemas as structured text for LLM prompts.
 
+    Schemas are derived from the Pydantic models — no hand-maintained
+    parallel declaration.
 
-def _links_for_type(type_name: str) -> list[str]:
-    """Return human-readable relationship descriptions for an entity type."""
-    results: list[str] = []
-    for link in _STRUCTURAL_LINKS:
-        if link.source_type == type_name:
-            results.append(f"{link.name} -> {link.target_type}")
-        elif link.target_type == type_name and link.source_type != "*":
-            results.append(f"{link.source_type} -[{link.name}]-> {type_name}")
-    return results
-
-
-def entity_schemas_for_prompt(*, ingestible_only: bool = True) -> str:
-    """Render ``_CORE_TYPES`` as structured text for injection into LLM prompts.
-
-    When *ingestible_only* is True (default), only entity types that have a
-    persistence path through the ingestion pipeline are included.
+    Pass *filter_names* to restrict which types appear (e.g. pass
+    ``resolver.PERSISTABLE_TYPES`` to show only ingestible entities).
+    When *filter_names* is ``None``, all types are rendered.
     """
-    lines: list[str] = []
-    for typedef in _CORE_TYPES:
-        if ingestible_only and typedef.name not in _INGESTIBLE_TYPES:
-            continue
-        lines.append(f"Entity: {typedef.name}")
-        if typedef.description:
-            lines.append(f"  Description: {typedef.description}")
-        field_parts: list[str] = []
-        for prop in typedef.properties:
-            if prop.name == "id":
-                continue
-            part = prop.name
-            if prop.data_type == "enum" and prop.enum_values:
-                part += f" (enum: {'/'.join(prop.enum_values)})"
-            else:
-                part += f" ({prop.data_type})"
-            if prop.required:
-                part += " [required]"
-            field_parts.append(part)
-        if field_parts:
-            lines.append(f"  Fields: {', '.join(field_parts)}")
-        rels = _links_for_type(typedef.name)
-        if rels:
-            lines.append(f"  Relationships: {', '.join(rels)}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
+    return schemas_for_prompt(
+        _ALL_TYPE_DEFS,
+        link_defs=_STRUCTURAL_LINKS,
+        filter_names=filter_names,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -396,81 +284,10 @@ def entity_schemas_for_prompt(*, ingestible_only: bool = True) -> str:
 
 
 def load_domain_yaml(path: Path | None = None) -> dict[str, Any]:
-    """Load and parse the domain rulebook YAML. Returns the full dict."""
+    """Load and parse the domain TBox YAML. Returns the full dict."""
     yaml_path = path or DOMAIN_YAML_PATH
     if not yaml_path.exists():
         return {}
     with open(yaml_path) as f:
         return yaml.safe_load(f) or {}
 
-
-# ---------------------------------------------------------------------------
-# Schema seeding entry point
-# ---------------------------------------------------------------------------
-
-
-async def seed_knowledge_graph(
-    store: KnowledgeGraph,
-    domain_yaml_path: Path | None = None,
-) -> None:
-    """Register core types, link types, and seed operational knowledge."""
-
-    domain = load_domain_yaml(domain_yaml_path)
-
-    for type_def in _CORE_TYPES:
-        await store.define_object_type(type_def)
-
-    for link_def in _STRUCTURAL_LINKS:
-        await store.define_link_type(link_def)
-    for link_def in _OPERATIONAL_LINKS:
-        await store.define_link_type(link_def)
-
-    abox = domain.get("abox", {})
-    for wf in abox.get("workflows", []):
-        steps = [(s["id"], s["description"]) for s in wf.get("steps", [])]
-        await _seed_workflow(store, wf["name"], steps)
-
-    tbox = domain.get("tbox", {})
-    for chain in tbox.get("causal_chains", []):
-        source_id = f"cause:{chain['cause']}"
-        target_id = f"cause:{chain['effect']}"
-        description = chain["description"]
-        await store.codify(
-            "cause", {"description": description}, provenance=KnowledgeProvenance.SEEDED
-        )
-        await store.put_link(
-            source_id, "CAUSES", target_id, properties={"description": description}
-        )
-
-    for policy in tbox.get("policies", []):
-        await store.codify(
-            "policy",
-            {
-                "description": policy["description"],
-                "trigger": policy["trigger"],
-                "deontic": policy.get("deontic", "SHOULD"),
-            },
-            provenance=KnowledgeProvenance.SEEDED,
-        )
-
-
-
-async def _seed_workflow(
-    store: KnowledgeGraph,
-    workflow_name: str,
-    steps: list[tuple[str, str]],
-) -> None:
-    for step_id, description in steps:
-        await store.put_object(
-            "process",
-            step_id,
-            {
-                "name": step_id.split(":")[-1],
-                "description": description,
-                "workflow": workflow_name,
-                "provenance": KnowledgeProvenance.SEEDED.value,
-            },
-        )
-
-    for i in range(len(steps) - 1):
-        await store.put_link(steps[i][0], "FOLLOWS", steps[i + 1][0])

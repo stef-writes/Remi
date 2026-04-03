@@ -28,7 +28,7 @@ from remi.domain.portfolio.models import (
     UnitStatus,
 )
 from remi.domain.queries.rollups import ManagerSnapshot
-from remi.agent.signals import DomainRulebook
+from remi.agent.signals import DomainTBox
 from remi.domain.queries.snapshots import SnapshotService
 from remi.domain.stores.mem import InMemoryPropertyStore
 from remi.domain.stores.rollups import InMemoryRollupStore
@@ -38,8 +38,8 @@ _ADDR = Address(street="100 Smithfield St", city="Pittsburgh", state="PA", zip_c
 
 
 @pytest.fixture
-def domain_rulebook() -> DomainRulebook:
-    return DomainRulebook.from_yaml(load_domain_yaml())
+def domain_tbox() -> DomainTBox:
+    return DomainTBox.from_yaml(load_domain_yaml())
 
 
 @pytest.fixture
@@ -67,13 +67,13 @@ def snapshot_service(
 
 @pytest.fixture
 def engine(
-    domain_rulebook: DomainRulebook,
+    domain_tbox: DomainTBox,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
     snapshot_service: SnapshotService,
 ) -> EntailmentEngine:
     return EntailmentEngine(
-        domain=domain_rulebook,
+        domain=domain_tbox,
         property_store=property_store,
         signal_store=signal_store,
         snapshot_service=snapshot_service,
@@ -82,12 +82,12 @@ def engine(
 
 @pytest.fixture
 def engine_no_snapshots(
-    domain_rulebook: DomainRulebook,
+    domain_tbox: DomainTBox,
     property_store: InMemoryPropertyStore,
     signal_store: InMemorySignalStore,
 ) -> EntailmentEngine:
     return EntailmentEngine(
-        domain=domain_rulebook,
+        domain=domain_tbox,
         property_store=property_store,
         signal_store=signal_store,
     )

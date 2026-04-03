@@ -13,6 +13,7 @@ from remi.domain.portfolio.models import (
     MaintenanceRequest,
     MaintenanceStatus,
     OccupancyStatus,
+    Owner,
     Portfolio,
     Property,
     PropertyManager,
@@ -20,6 +21,8 @@ from remi.domain.portfolio.models import (
     TenantStatus,
     Unit,
     UnitStatus,
+    Vendor,
+    VendorCategory,
 )
 from remi.domain.portfolio.protocols import PropertyStore
 
@@ -42,6 +45,7 @@ def _merge(existing: BaseModel, incoming: BaseModel) -> BaseModel:
 
 class InMemoryPropertyStore(PropertyStore):
     def __init__(self) -> None:
+        self._owners: dict[str, Owner] = {}
         self._managers: dict[str, PropertyManager] = {}
         self._portfolios: dict[str, Portfolio] = {}
         self._properties: dict[str, Property] = {}
@@ -49,7 +53,28 @@ class InMemoryPropertyStore(PropertyStore):
         self._leases: dict[str, Lease] = {}
         self._tenants: dict[str, Tenant] = {}
         self._maintenance: dict[str, MaintenanceRequest] = {}
+        self._vendors: dict[str, Vendor] = {}
         self._action_items: dict[str, ActionItem] = {}
+
+    # -- Owner --
+    async def get_owner(self, owner_id: str) -> Owner | None:
+        return self._owners.get(owner_id)
+
+    async def list_owners(self) -> list[Owner]:
+        return list(self._owners.values())
+
+    async def upsert_owner(self, owner: Owner) -> WriteResult[Owner]:
+        existing = self._owners.get(owner.id)
+        if existing:
+            merged: Owner = _merge(existing, owner)  # type: ignore[assignment]
+            self._owners[owner.id] = merged
+            outcome = WriteOutcome.NOOP if merged == existing else WriteOutcome.UPDATED
+            return WriteResult(entity=merged, outcome=outcome)
+        self._owners[owner.id] = owner
+        return WriteResult(entity=owner, outcome=WriteOutcome.CREATED)
+
+    async def delete_owner(self, owner_id: str) -> bool:
+        return self._owners.pop(owner_id, None) is not None
 
     # -- PropertyManager --
     async def get_manager(self, manager_id: str) -> PropertyManager | None:
@@ -275,6 +300,36 @@ class InMemoryPropertyStore(PropertyStore):
         for lid in lease_ids:
             del self._leases[lid]
         return True
+
+    # -- Vendor --
+    async def get_vendor(self, vendor_id: str) -> Vendor | None:
+        return self._vendors.get(vendor_id)
+
+    async def list_vendors(
+        self,
+        *,
+        category: VendorCategory | None = None,
+        is_internal: bool | None = None,
+    ) -> list[Vendor]:
+        items = list(self._vendors.values())
+        if category:
+            items = [v for v in items if v.category == category]
+        if is_internal is not None:
+            items = [v for v in items if v.is_internal == is_internal]
+        return items
+
+    async def upsert_vendor(self, vendor: Vendor) -> WriteResult[Vendor]:
+        existing = self._vendors.get(vendor.id)
+        if existing:
+            merged: Vendor = _merge(existing, vendor)  # type: ignore[assignment]
+            self._vendors[vendor.id] = merged
+            outcome = WriteOutcome.NOOP if merged == existing else WriteOutcome.UPDATED
+            return WriteResult(entity=merged, outcome=outcome)
+        self._vendors[vendor.id] = vendor
+        return WriteResult(entity=vendor, outcome=WriteOutcome.CREATED)
+
+    async def delete_vendor(self, vendor_id: str) -> bool:
+        return self._vendors.pop(vendor_id, None) is not None
 
     # -- Action Items --
     async def get_action_item(self, item_id: str) -> ActionItem | None:

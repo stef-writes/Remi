@@ -7,7 +7,7 @@ from remi.domain.portfolio.models import EntityType
 from remi.agent.signals import (
     CausalChain,
     Deontic,
-    DomainRulebook,
+    DomainTBox,
     Horizon,
     InferenceRule,
     Policy,
@@ -32,17 +32,17 @@ EXPECTED_SIGNAL_NAMES = {
 }
 
 
-def _domain() -> DomainRulebook:
-    return DomainRulebook.from_yaml(load_domain_yaml())
+def _domain() -> DomainTBox:
+    return DomainTBox.from_yaml(load_domain_yaml())
 
 
 class TestYamlLoading:
     def test_domain_yaml_loads(self) -> None:
         raw = load_domain_yaml()
         assert raw["apiVersion"] == "remi/v1"
-        assert raw["kind"] == "DomainRulebook"
+        assert raw["kind"] == "DomainTBox"
 
-    def test_domain_rulebook_parses_typed(self) -> None:
+    def test_domain_tbox_parses_typed(self) -> None:
         domain = _domain()
         assert len(domain.signals) >= 1
         assert len(domain.thresholds) > 0
@@ -87,7 +87,7 @@ class TestTypedSignalDefinitions:
         assert defn.severity == Severity.HIGH
         assert defn.entity == EntityType.TENANT
         assert defn.rule.condition == RuleCondition.IN_LEGAL_TRACK
-        assert defn.rule.statuses == ["evict"]
+        assert defn.rule.statuses == ["demand", "filing", "hearing", "judgment", "evict"]
 
 
 class TestTypedPolicies:

@@ -27,7 +27,8 @@ modules:
       temperature: 0.2
       max_tokens: 8192
       max_iterations: 30
-      max_history_turns: 10
+      max_history_turns: 6
+      compact_tbox: true
 
       system_prompt: |
         You are REMI Research — a deep analytical engine for a real estate
@@ -283,6 +284,11 @@ modules:
           description: "Write the final structured report and present key findings."
           max_iterations: 10
           nudge: "FINAL PHASE: You must now write and present your research report. Use sandbox_write_file to save research_report.md."
+          tools:
+            - sandbox_exec_python
+            - sandbox_write_file
+            - sandbox_read_file
+            - sandbox_list_files
 
       tools:
         - name: sandbox_exec_python

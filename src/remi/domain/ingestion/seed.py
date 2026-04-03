@@ -15,13 +15,13 @@ from pathlib import Path
 import structlog
 from pydantic import BaseModel
 
-from remi.domain.queries.rollups import ManagerSnapshot, RollupStore
 from remi.agent.signals.composite import CompositeProducer
+from remi.domain.ingestion.embedding import EmbeddingPipeline
 from remi.domain.ingestion.pipeline import DocumentIngestService
 from remi.domain.portfolio.protocols import PropertyStore
 from remi.domain.queries.auto_assign import AutoAssignService
+from remi.domain.queries.rollups import ManagerSnapshot, RollupStore
 from remi.domain.queries.snapshots import SnapshotService
-from remi.domain.ingestion.embedding import EmbeddingPipeline
 
 logger = structlog.get_logger(__name__)
 

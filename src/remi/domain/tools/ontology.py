@@ -116,12 +116,13 @@ def register_knowledge_graph_tools(
 
     async def onto_search(args: dict[str, Any]) -> Any:
         type_name = args["type_name"]
-        return await store.search_objects(
+        results = await store.search_objects(
             type_name,
             filters=args.get("filters"),
             order_by=args.get("order_by"),
             limit=int(args.get("limit", 50)),
         )
+        return [r.model_dump(mode="json") for r in results]
 
     registry.register(
         "onto_search",
@@ -150,7 +151,9 @@ def register_knowledge_graph_tools(
 
     async def onto_get(args: dict[str, Any]) -> Any:
         result = await store.get_object(args["type_name"], args["object_id"])
-        return result or {"error": "Not found"}
+        if result is None:
+            return {"error": "Not found"}
+        return result.model_dump(mode="json")
 
     registry.register(
         "onto_get",
@@ -174,13 +177,15 @@ def register_knowledge_graph_tools(
         max_depth = int(args.get("max_depth", 1))
 
         if max_depth <= 1:
-            return await store.get_links(
+            links = await store.get_links(
                 object_id,
                 link_type=link_type,
                 direction=direction,
             )
+            return [lnk.model_dump(mode="json") for lnk in links]
         link_types = [link_type] if link_type else None
-        return await store.traverse(object_id, link_types, max_depth=max_depth)
+        nodes = await store.traverse(object_id, link_types, max_depth=max_depth)
+        return [n.model_dump(mode="json") for n in nodes]
 
     registry.register(
         "onto_related",
@@ -210,13 +215,14 @@ def register_knowledge_graph_tools(
     # -- onto_aggregate --------------------------------------------------------
 
     async def onto_aggregate(args: dict[str, Any]) -> Any:
-        return await store.aggregate(
+        result = await store.aggregate(
             args["type_name"],
             args["metric"],
             field=args.get("field"),
             filters=args.get("filters"),
             group_by=args.get("group_by"),
         )
+        return result.model_dump(mode="json")
 
     registry.register(
         "onto_aggregate",
@@ -247,12 +253,13 @@ def register_knowledge_graph_tools(
         event_types = args.get("event_types")
         if isinstance(event_types, str):
             event_types = [event_types]
-        return await store.get_timeline(
+        events = await store.get_timeline(
             args["type_name"],
             args["object_id"],
             event_types=event_types,
             limit=int(args.get("limit", 50)),
         )
+        return [ev.model_dump(mode="json") for ev in events]
 
     registry.register(
         "onto_timeline",

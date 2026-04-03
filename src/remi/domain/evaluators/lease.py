@@ -5,15 +5,15 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from remi.agent.signals import DomainRulebook, Signal, SignalDefinition
-from remi.agent.signals.tbox import MutableRulebook
+from remi.agent.signals import DomainTBox, Signal, SignalDefinition
+from remi.agent.signals.tbox import MutableTBox
 from remi.agent.signals.evaluation import MakeSignalFn
 from remi.domain.portfolio.protocols import PropertyStore
 
 
 async def eval_manager_lease_cliff(
     defn: SignalDefinition,
-    domain: DomainRulebook | MutableRulebook,
+    domain: DomainTBox | MutableTBox,
     ps: PropertyStore,
     make_signal: MakeSignalFn,
 ) -> list[Signal]:
@@ -76,7 +76,7 @@ async def eval_manager_lease_cliff(
 
 async def eval_breach_detected(
     defn: SignalDefinition,
-    domain: DomainRulebook | MutableRulebook,
+    domain: DomainTBox | MutableTBox,
     ps: PropertyStore,
     make_signal: MakeSignalFn,
 ) -> list[Signal]:

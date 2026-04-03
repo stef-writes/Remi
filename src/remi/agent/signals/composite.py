@@ -20,9 +20,9 @@ from dataclasses import dataclass, field
 
 import structlog
 
+from remi.agent.observe.types import SpanKind, Tracer
 from remi.agent.signals.signal import ProducerResult, Signal, SignalProducer
 from remi.agent.signals.stores import SignalStore
-from remi.agent.observe.types import SpanKind, Tracer
 
 _log = structlog.get_logger(__name__)
 

@@ -55,7 +55,7 @@ src/remi/
   │    ontology/    RE knowledge graph schema                     │
   │    search/      RE-aware hybrid search + pattern detection    │
   │    tools/       RE agent capabilities                         │
-  │    configs/     RE agent YAML manifests                       │
+  │    agents/      RE agent YAML manifests                       │
   ├───────────────────────────────────────────────────────────────┤
   │  types/         Shared vocabulary — ids, clock, errors, enums │
   ├───────────────────────────────────────────────────────────────┤
@@ -84,12 +84,10 @@ backends. Policy enforcement. `remi_data` bridge for sandbox-to-API calls.
 Tracer, Span, TraceStore. structlog configuration. Event constants.
 
 ### `agent/signals/`
-Signal framework: SignalDefinition, DomainRulebook, SignalProducer,
-SignalStore/FeedbackStore/HypothesisStore ABCs. CompositeProducer.
+Signal framework: SignalDefinition, DomainTBox, SignalProducer,
+SignalStore/FeedbackStore ABCs. CompositeProducer.
 Generic signal producers: CompositionProducer, StatisticalProducer.
 Entailment primitives: MakeSignalFn, EntailmentResult.
-Hypothesis lifecycle: PatternDetector (induction), HypothesisGraduator
-(promotion to live TBox).
 
 ### `agent/graph/`
 Knowledge graph: Entity, Relationship, KnowledgeGraph ABCs.
@@ -157,13 +155,12 @@ RE knowledge graph schema. `seed_knowledge_graph()`.
 
 ### `domain/search/`
 RE-aware hybrid search service.
-Generic pattern detection and hypothesis graduation live in `agent/signals/`.
 
 ### `domain/tools/`
 Conversational agent capabilities: `register_all_tools()`.
 Ontology, documents, search, actions, workflows, snapshots.
 
-### `domain/configs/`
+### `domain/agents/`
 YAML manifests: director, researcher, action planner, document ingestion.
 
 ---
@@ -194,7 +191,7 @@ shell/ ──> everything (composition root)
 
 domain/tools/       ──> domain/queries/, domain/evaluators/, domain/ingestion/,
                         domain/ontology/, domain/search/, agent/
-domain/configs/     ──> agent/
+domain/agents/      ──> agent/
 domain/evaluators/  ──> domain/portfolio/, domain/stores/, agent/signals/
 domain/ingestion/   ──> domain/portfolio/, domain/stores/, agent/documents/,
                         agent/signals/, agent/ingestion/

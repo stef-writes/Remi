@@ -11,7 +11,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from remi.agent.graph.types import KnowledgeProvenance
+from remi.agent.graph.types import (
+    AggregateResult,
+    GraphLink,
+    GraphObject,
+    KnowledgeProvenance,
+    TimelineEvent,
+)
 
 # -- Shared -------------------------------------------------------------------
 
@@ -59,20 +65,20 @@ class DefineTypeRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     count: int
-    objects: list[dict[str, Any]]
+    objects: list[GraphObject]
 
 
 class ObjectResponse(BaseModel):
     ok: bool = True
-    object: dict[str, Any] | None = None
+    object: GraphObject | None = None
     error: str | None = None
 
 
 class RelatedResponse(BaseModel):
     object_id: str
     count: int
-    links: list[dict[str, Any]] = Field(default_factory=list)
-    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    links: list[GraphLink] = Field(default_factory=list)
+    nodes: list[GraphObject] = Field(default_factory=list)
     depth: int = 1
 
 
@@ -80,14 +86,14 @@ class AggregateResponse(BaseModel):
     type_name: str
     metric: str
     field: str | None = None
-    result: Any = None
+    result: AggregateResult | None = None
 
 
 class TimelineResponse(BaseModel):
     object_type: str
     object_id: str
     count: int
-    events: list[dict[str, Any]]
+    events: list[TimelineEvent]
 
 
 class SchemaTypeResponse(BaseModel):

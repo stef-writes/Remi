@@ -1,20 +1,21 @@
-"""In-memory memory store for development and testing."""
+"""In-memory implementations of MemoryStore and KnowledgeStore."""
 
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Any
 
 from remi.agent.graph.stores import KnowledgeStore, MemoryStore
 from remi.agent.graph.types import Entity, MemoryEntry, Relationship
 
 
 class InMemoryMemoryStore(MemoryStore):
+    """Dict-backed key-value memory for development and testing."""
+
     def __init__(self) -> None:
         self._data: dict[str, dict[str, MemoryEntry]] = defaultdict(dict)
 
-    async def store(self, namespace: str, key: str, value: Any, *, ttl: int | None = None) -> None:
+    async def store(self, namespace: str, key: str, value: str, *, ttl: int | None = None) -> None:
         self._data[namespace][key] = MemoryEntry(
             namespace=namespace,
             key=key,
@@ -22,7 +23,7 @@ class InMemoryMemoryStore(MemoryStore):
             created_at=datetime.now(UTC),
         )
 
-    async def recall(self, namespace: str, key: str) -> Any | None:
+    async def recall(self, namespace: str, key: str) -> str | None:
         entry = self._data.get(namespace, {}).get(key)
         return entry.value if entry else None
 
@@ -31,7 +32,7 @@ class InMemoryMemoryStore(MemoryStore):
         query_lower = query.lower()
         scored = []
         for entry in entries:
-            val_str = str(entry.value).lower()
+            val_str = entry.value.lower()
             key_str = entry.key.lower()
             if query_lower in val_str or query_lower in key_str:
                 scored.append(entry)
@@ -42,41 +43,11 @@ class InMemoryMemoryStore(MemoryStore):
 
 
 class InMemoryKnowledgeStore(KnowledgeStore):
-    """In-memory implementation of the knowledge graph store.
-
-    Combines key-value storage with entity/relationship graph for development.
-    """
+    """Dict-backed entity/relationship graph for development and testing."""
 
     def __init__(self) -> None:
-        self._data: dict[str, dict[str, MemoryEntry]] = defaultdict(dict)
         self._entities: dict[str, dict[str, Entity]] = defaultdict(dict)
         self._relationships: dict[str, list[Relationship]] = defaultdict(list)
-
-    async def store(self, namespace: str, key: str, value: Any, *, ttl: int | None = None) -> None:
-        self._data[namespace][key] = MemoryEntry(
-            namespace=namespace,
-            key=key,
-            value=value,
-            created_at=datetime.now(UTC),
-        )
-
-    async def recall(self, namespace: str, key: str) -> Any | None:
-        entry = self._data.get(namespace, {}).get(key)
-        return entry.value if entry else None
-
-    async def search(self, namespace: str, query: str, *, limit: int = 5) -> list[MemoryEntry]:
-        entries = list(self._data.get(namespace, {}).values())
-        query_lower = query.lower()
-        scored = []
-        for entry in entries:
-            val_str = str(entry.value).lower()
-            key_str = entry.key.lower()
-            if query_lower in val_str or query_lower in key_str:
-                scored.append(entry)
-        return scored[:limit]
-
-    async def list_keys(self, namespace: str) -> list[str]:
-        return list(self._data.get(namespace, {}).keys())
 
     async def put_entity(self, entity: Entity) -> None:
         now = datetime.now(UTC)
@@ -127,14 +98,12 @@ class InMemoryKnowledgeStore(KnowledgeStore):
         rels = self._relationships.get(namespace, [])
         result = []
         for r in rels:
-            if (
-                direction == "outgoing"
-                and r.source_id == entity_id
-                or direction == "incoming"
-                and r.target_id == entity_id
-                or direction == "both"
-                and (r.source_id == entity_id or r.target_id == entity_id)
-            ) and (relation_type is None or r.relation_type == relation_type):
+            matches_direction = (
+                (direction == "outgoing" and r.source_id == entity_id)
+                or (direction == "incoming" and r.target_id == entity_id)
+                or (direction == "both" and (r.source_id == entity_id or r.target_id == entity_id))
+            )
+            if matches_direction and (relation_type is None or r.relation_type == relation_type):
                 result.append(r)
         return result
 

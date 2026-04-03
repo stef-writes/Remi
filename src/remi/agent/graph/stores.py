@@ -1,4 +1,4 @@
-"""Knowledge graph store ABCs — Ontology, KnowledgeGraph, KnowledgeStore.
+"""Knowledge graph store ABCs — Ontology, KnowledgeGraph, MemoryStore, KnowledgeStore.
 
 DTOs (Entity, Relationship, etc.) live in ``remi.agent.graph.types``.
 """
@@ -9,17 +9,20 @@ import abc
 from typing import Any
 
 from remi.agent.graph.types import (
+    AggregateResult,
     Entity,
+    GraphLink,
+    GraphObject,
     KnowledgeProvenance,
     LinkTypeDef,
     MemoryEntry,
     ObjectTypeDef,
     Relationship,
+    TimelineEvent,
 )
 
-
 # ---------------------------------------------------------------------------
-# Ontology — the schema layer (TBox structure: what types exist)
+# Ontology — the schema layer (TBox: what types exist)
 # ---------------------------------------------------------------------------
 
 
@@ -60,7 +63,7 @@ class KnowledgeGraph(Ontology):
     """
 
     @abc.abstractmethod
-    async def get_object(self, type_name: str, object_id: str) -> dict[str, Any] | None: ...
+    async def get_object(self, type_name: str, object_id: str) -> GraphObject | None: ...
 
     @abc.abstractmethod
     async def search_objects(
@@ -70,12 +73,15 @@ class KnowledgeGraph(Ontology):
         filters: dict[str, Any] | None = None,
         order_by: str | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[GraphObject]: ...
 
     @abc.abstractmethod
     async def put_object(
         self, type_name: str, object_id: str, properties: dict[str, Any]
     ) -> None: ...
+
+    @abc.abstractmethod
+    async def delete_object(self, type_name: str, object_id: str) -> bool: ...
 
     @abc.abstractmethod
     async def get_links(
@@ -84,7 +90,7 @@ class KnowledgeGraph(Ontology):
         *,
         link_type: str | None = None,
         direction: str = "both",
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[GraphLink]: ...
 
     @abc.abstractmethod
     async def put_link(
@@ -103,7 +109,7 @@ class KnowledgeGraph(Ontology):
         link_types: list[str] | None = None,
         *,
         max_depth: int = 3,
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[GraphObject]: ...
 
     @abc.abstractmethod
     async def aggregate(
@@ -114,7 +120,7 @@ class KnowledgeGraph(Ontology):
         *,
         filters: dict[str, Any] | None = None,
         group_by: str | None = None,
-    ) -> Any: ...
+    ) -> AggregateResult: ...
 
     @abc.abstractmethod
     async def record_event(
@@ -133,7 +139,7 @@ class KnowledgeGraph(Ontology):
         *,
         event_types: list[str] | None = None,
         limit: int = 50,
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[TimelineEvent]: ...
 
     @abc.abstractmethod
     async def codify(
@@ -147,24 +153,27 @@ class KnowledgeGraph(Ontology):
         ...
 
 
-OntologyStore = KnowledgeGraph
 
 
 # ---------------------------------------------------------------------------
-# KnowledgeStore — low-level entity/relationship persistence
+# MemoryStore — key-value episodic memory (separate concern from graph)
 # ---------------------------------------------------------------------------
 
 
 class MemoryStore(abc.ABC):
-    """Key-value memory store."""
+    """Key-value memory store for agent episodic memory.
+
+    Intentionally separate from KnowledgeStore — these map to different
+    backends (e.g. Postgres JSONB vs Neo4j).
+    """
 
     @abc.abstractmethod
     async def store(
-        self, namespace: str, key: str, value: Any, *, ttl: int | None = None
+        self, namespace: str, key: str, value: str, *, ttl: int | None = None
     ) -> None: ...
 
     @abc.abstractmethod
-    async def recall(self, namespace: str, key: str) -> Any | None: ...
+    async def recall(self, namespace: str, key: str) -> str | None: ...
 
     @abc.abstractmethod
     async def search(self, namespace: str, query: str, *, limit: int = 5) -> list[MemoryEntry]: ...
@@ -173,8 +182,18 @@ class MemoryStore(abc.ABC):
     async def list_keys(self, namespace: str) -> list[str]: ...
 
 
-class KnowledgeStore(MemoryStore):
-    """Extended memory store with entity/relationship graph capabilities."""
+# ---------------------------------------------------------------------------
+# KnowledgeStore — low-level entity/relationship persistence
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeStore(abc.ABC):
+    """Low-level entity and relationship graph persistence.
+
+    This is the storage backend for the knowledge graph — entities,
+    relationships, traversal, namespaces. Does not inherit MemoryStore;
+    the two concerns target different backends.
+    """
 
     @abc.abstractmethod
     async def put_entity(self, entity: Entity) -> None: ...

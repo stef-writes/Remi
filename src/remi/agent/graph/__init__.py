@@ -1,33 +1,38 @@
 """Graph package — knowledge graph types, ABCs, and persistence.
 
-Re-exports from both ``types`` and ``stores`` so existing
-``from remi.agent.graph.types import KnowledgeGraph`` still works via
-``from remi.agent.graph import KnowledgeGraph``.
+Public imports::
+
+    from remi.agent.graph import KnowledgeGraph, Entity, GraphObject, ...
 """
 
-from remi.agent.graph.types import (
-    ActionDef,
-    Entity,
-    KnowledgeLink,
-    KnowledgeProvenance,
-    LinkTypeDef,
-    MemoryEntry,
-    ObjectTypeDef,
-    OntologyLink,
-    PropertyDef,
-    Relationship,
-)
 from remi.agent.graph.stores import (
     KnowledgeGraph,
     KnowledgeStore,
     MemoryStore,
     Ontology,
-    OntologyStore,
+)
+from remi.agent.graph.types import (
+    ActionDef,
+    AggregateResult,
+    Entity,
+    GraphLink,
+    GraphObject,
+    KnowledgeLink,
+    KnowledgeProvenance,
+    LinkTypeDef,
+    MemoryEntry,
+    ObjectTypeDef,
+    PropertyDef,
+    Relationship,
+    TimelineEvent,
 )
 
 __all__ = [
     "ActionDef",
+    "AggregateResult",
     "Entity",
+    "GraphLink",
+    "GraphObject",
     "KnowledgeGraph",
     "KnowledgeLink",
     "KnowledgeProvenance",
@@ -37,8 +42,7 @@ __all__ = [
     "MemoryStore",
     "ObjectTypeDef",
     "Ontology",
-    "OntologyLink",
-    "OntologyStore",
     "PropertyDef",
     "Relationship",
+    "TimelineEvent",
 ]

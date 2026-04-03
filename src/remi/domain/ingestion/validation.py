@@ -17,23 +17,9 @@ from typing import Any
 import structlog
 
 from remi.domain.ingestion.base import IngestionResult, RowWarning
+from remi.domain.ingestion.resolver import PERSISTABLE_TYPES, resolve_row_type
 
 _log = structlog.get_logger(__name__)
-
-_LEGACY_TYPE_MAP: dict[str, str] = {
-    "unit": "Unit",
-    "tenant_balance": "Tenant",
-    "lease": "Lease",
-    "property": "Property",
-}
-
-_KNOWN_TYPES: set[str] = {
-    "Unit",
-    "Tenant",
-    "Lease",
-    "Property",
-    "MaintenanceRequest",
-}
 
 _MAX_MONTHLY_RENT = Decimal("100_000")
 _MAX_BALANCE = Decimal("1_000_000")
@@ -57,9 +43,9 @@ def validate_rows(
         reject = False
 
         raw_type = str(row.get("type", "raw_row"))
-        resolved_type = _LEGACY_TYPE_MAP.get(raw_type, raw_type)
+        resolved_type = resolve_row_type(raw_type)
 
-        if resolved_type not in _KNOWN_TYPES:
+        if resolved_type not in PERSISTABLE_TYPES:
             result.ambiguous_rows.append(row)
             result.rows_rejected += 1
             _log.info("row_rejected_unknown_type", row_index=idx, raw_type=raw_type)

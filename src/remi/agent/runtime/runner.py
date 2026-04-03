@@ -34,8 +34,9 @@ from remi.agent.types import ChatSessionStore, ToolRegistry
 from remi.agent.graph.stores import MemoryStore
 from remi.agent.llm.factory import LLMProviderFactory
 from remi.agent.observe.types import Tracer
+from remi.agent.observe.usage import LLMUsageLedger
 from remi.agent.sandbox.types import Sandbox
-from remi.agent.signals import DomainRulebook, SignalStore
+from remi.agent.signals import DomainTBox, SignalStore
 from remi.types.ids import new_run_id
 from remi.types.paths import AGENTS_DIR
 
@@ -58,7 +59,7 @@ class ChatAgentService:
         provider_factory: LLMProviderFactory,
         tool_registry: ToolRegistry,
         sandbox: Sandbox,
-        domain_rulebook: DomainRulebook,
+        domain_tbox: DomainTBox,
         signal_store: SignalStore,
         memory_store: MemoryStore,
         tracer: Tracer,
@@ -67,11 +68,12 @@ class ChatAgentService:
         default_provider: str,
         default_model: str,
         context_builder: ContextBuilder | None = None,
+        usage_ledger: LLMUsageLedger | None = None,
     ) -> None:
         self._provider_factory = provider_factory
         self._tool_registry = tool_registry
         self._sandbox = sandbox
-        self._domain_rulebook = domain_rulebook
+        self._domain_tbox = domain_tbox
         self._signal_store = signal_store
         self._memory_store = memory_store
         self._tracer = tracer
@@ -80,6 +82,7 @@ class ChatAgentService:
         self._default_provider = default_provider
         self._default_model = default_model
         self._context_builder = context_builder
+        self._usage_ledger = usage_ledger
 
     def _load_app_yaml(self, agent_name: str) -> dict[str, Any]:
         """Load and return the raw app.yaml for an agent."""
@@ -96,7 +99,7 @@ class ChatAgentService:
             if module.get("kind") == "agent":
                 cfg: dict[str, Any] = module.get("config", {})
                 return cfg
-        raise ValueError(f"No agent module found in domain/configs/{agent_name}/app.yaml")
+        raise ValueError(f"No agent module found in domain/agents/{agent_name}/app.yaml")
 
     def _is_graph(self, data: dict[str, Any]) -> bool:
         """True when the YAML declares more than one module (i.e. a graph)."""
@@ -220,9 +223,10 @@ class ChatAgentService:
             provider_factory=self._provider_factory,
             tool_registry=self._tool_registry,
             tracer=self._tracer,
+            usage_ledger=self._usage_ledger,
             memory_store=self._memory_store,
             signal_store=self._signal_store,
-            domain_rulebook=self._domain_rulebook,
+            domain_tbox=self._domain_tbox,
             context_builder=self._context_builder,
             default_provider=self._default_provider,
             default_model=self._default_model,

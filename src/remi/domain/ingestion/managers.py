@@ -12,7 +12,6 @@ from enum import StrEnum
 
 import structlog
 
-from remi.types.text import manager_name_from_tag, slugify
 from remi.domain.portfolio.models import (
     Portfolio,
     PropertyManager,
@@ -21,6 +20,8 @@ from remi.domain.portfolio.protocols import (
     ManagerRepository,
     PortfolioRepository,
 )
+from remi.domain.portfolio.rules import manager_name_from_tag
+from remi.types.text import slugify
 
 logger = structlog.get_logger(__name__)
 

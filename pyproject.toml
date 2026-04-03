@@ -60,7 +60,7 @@ remi = "remi.shell.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/remi"]
-artifacts = ["src/remi/skills/*.md", "src/remi/application/agents/**/app.yaml"]
+artifacts = ["src/remi/domain/agents/**/app.yaml"]
 
 [tool.ruff]
 target-version = "py311"

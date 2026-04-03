@@ -28,7 +28,7 @@ REMI answers that question before she asks it. To the director it feels like a P
                          │ evaluated against
                          ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  LAYER 2 — DOMAIN (Rulebook + Ontology + Settings)               │
+│  LAYER 2 — DOMAIN (TBox + Ontology + Settings)               │
 │                                                                  │
 │  domain.yaml: signal definitions, thresholds, policies,          │
 │    causal chains, compositions, workflows                        │
@@ -50,10 +50,6 @@ REMI answers that question before she asks it. To the director it feels like a P
 │      │   Evaluators: existence, threshold, trend, delinquency,   │
 │      │   lease, maintenance, portfolio, composition               │
 │      └── StatisticalProducer — z-score outliers, concentrations  │
-│                                                                  │
-│  Hypothesis Pipeline                                             │
-│    PatternDetector → candidate signal definitions                │
-│    HypothesisGraduator → confirmed → live rulebook entries       │
 │                                                                  │
 │  Domain Services                                                 │
 │    DashboardQueryService — computes director dashboard state     │
@@ -97,9 +93,9 @@ REMI answers that question before she asks it. To the director it feels like a P
 
 ## Three Kinds of Knowledge
 
-### Domain Rulebook
+### Domain TBox
 
-The **DomainRulebook** defines what things mean in this business. It is institutional expertise formalized. It contains:
+The **DomainTBox** defines what things mean in this business. It is institutional expertise formalized. It contains:
 
 - **Signal definitions** — named domain states with descriptions, severity, entity scope, and evaluation rules
 - **Thresholds** — numeric calibrations (vacancy_chronic_days: 30, delinquency_critical_pct: 0.08, etc.)
@@ -161,10 +157,6 @@ The LLM does **not** detect signals. The entailment engine does that. The LLM's 
 ```
 Deduction  →  EntailmentEngine    →  "There IS a LeaseExpirationCliff"
                                      (certain, rule-based, pre-computed)
-
-Induction  →  PatternDetector     →  "days_vacant has outliers at 4.2σ —
-                                     propose a threshold signal definition"
-                                     (probabilistic, requires confirmation)
 
 Abduction  →  LLM                 →  "The cliff is likely unmanaged because
                                      three of the five expiring tenants have
