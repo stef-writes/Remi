@@ -15,9 +15,33 @@ _SEVERITY_ORDER = {
 }
 
 
+def _matches_scope(signal: Signal, scope: dict[str, str]) -> bool:
+    """Check whether a signal matches all scope key-value pairs.
+
+    A scope entry matches if the value equals entity_id or is present
+    in evidence under the same key.
+    """
+    for key, value in scope.items():
+        if signal.entity_id == value:
+            continue
+        if signal.evidence.get(key) == value:
+            continue
+        return False
+    return True
+
+
 class InMemorySignalStore(SignalStore):
     def __init__(self) -> None:
         self._signals: dict[str, Signal] = {}
+
+    def dump_state(self) -> list[dict[str, object]]:
+        return [s.model_dump(mode="json") for s in self._signals.values()]
+
+    def load_state(self, data: list[dict[str, object]]) -> None:
+        self._signals.clear()
+        for raw in data:
+            sig = Signal.model_validate(raw)
+            self._signals[sig.signal_id] = sig
 
     async def put_signal(self, signal: Signal) -> None:
         self._signals[signal.signal_id] = signal
@@ -28,25 +52,14 @@ class InMemorySignalStore(SignalStore):
     async def list_signals(
         self,
         *,
-        manager_id: str | None = None,
-        property_id: str | None = None,
+        scope: dict[str, str] | None = None,
         severity: str | None = None,
         signal_type: str | None = None,
     ) -> list[Signal]:
         results = list(self._signals.values())
 
-        if manager_id is not None:
-            results = [
-                s
-                for s in results
-                if s.entity_id == manager_id or s.evidence.get("manager_id") == manager_id
-            ]
-        if property_id is not None:
-            results = [
-                s
-                for s in results
-                if s.entity_id == property_id or s.evidence.get("property_id") == property_id
-            ]
+        if scope:
+            results = [s for s in results if _matches_scope(s, scope)]
         if severity is not None:
             results = [s for s in results if s.severity.value == severity]
         if signal_type is not None:
@@ -67,6 +80,15 @@ class InMemoryFeedbackStore(FeedbackStore):
 
     def __init__(self) -> None:
         self._entries: dict[str, SignalFeedback] = {}
+
+    def dump_state(self) -> list[dict[str, object]]:
+        return [f.model_dump(mode="json") for f in self._entries.values()]
+
+    def load_state(self, data: list[dict[str, object]]) -> None:
+        self._entries.clear()
+        for raw in data:
+            fb = SignalFeedback.model_validate(raw)
+            self._entries[fb.feedback_id] = fb
 
     async def record_feedback(self, feedback: SignalFeedback) -> None:
         self._entries[feedback.feedback_id] = feedback

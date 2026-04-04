@@ -6,6 +6,7 @@ types only — no abstract base classes.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -22,6 +23,22 @@ class KnowledgeProvenance(StrEnum):
     USER_STATED = "user_stated"
     INFERRED = "inferred"
     LEARNED = "learned"
+
+
+class FactProvenance(BaseModel, frozen=True):
+    """Rich provenance attached to every entity and edge in the graph.
+
+    ``KnowledgeProvenance`` is the coarse category; this model adds
+    source identity, confidence, document lineage, and override tracking.
+    """
+
+    source: str = "system"
+    confidence: float = 0.5
+    document_id: str | None = None
+    adapter: str | None = None
+    ingested_at: datetime | None = None
+    overridden_by: str | None = None
+    provenance_type: KnowledgeProvenance = KnowledgeProvenance.DATA_DERIVED
 
 
 class PropertyDef(BaseModel, frozen=True):
@@ -42,8 +59,6 @@ class KnowledgeLink(BaseModel, frozen=True):
     link_type: str
     target_id: str
     properties: dict[str, Any] = Field(default_factory=dict)
-
-
 
 
 class LinkTypeDef(BaseModel, frozen=True):
@@ -85,6 +100,40 @@ class ObjectTypeDef(BaseModel, frozen=True):
 
 
 # ---------------------------------------------------------------------------
+# FK-to-edge projection mapping (domain-agnostic structure)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FKProjection:
+    """Declares that ``fk_field`` on ``source_type`` should materialise
+    a ``link_type`` edge pointing at an entity of ``target_type``."""
+
+    fk_field: str
+    link_type: str
+    target_type: str
+
+
+ProjectionMapping = dict[str, list[FKProjection]]
+
+
+# ---------------------------------------------------------------------------
+# Annotation DTO — domain-agnostic unstructured attachment
+# ---------------------------------------------------------------------------
+
+
+class Annotation(BaseModel, frozen=True):
+    """Unstructured text attached to any entity in the knowledge graph."""
+
+    annotation_id: str
+    content: str
+    annotation_type: str = "note"
+    target_entity_id: str = ""
+    target_entity_type: str = ""
+    provenance: FactProvenance = Field(default_factory=FactProvenance)
+
+
+# ---------------------------------------------------------------------------
 # Low-level graph persistence DTOs
 # ---------------------------------------------------------------------------
 
@@ -97,6 +146,7 @@ class Entity(BaseModel):
     namespace: str = "default"
     properties: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: FactProvenance | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -109,6 +159,7 @@ class Relationship(BaseModel, frozen=True):
     relation_type: str
     namespace: str = "default"
     properties: dict[str, Any] = Field(default_factory=dict)
+    provenance: FactProvenance | None = None
     weight: float = 1.0
     created_at: datetime | None = None
 

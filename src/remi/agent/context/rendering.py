@@ -106,6 +106,7 @@ async def render_active_signals(
     question: str | None = None,
     embedder: Embedder | None = None,
     max_signals: int = 15,
+    empty_state_label: str = "monitored entities",
 ) -> str:
     """Fetch current signals, rank by semantic relevance, and render a compact summary."""
     try:
@@ -117,7 +118,8 @@ async def render_active_signals(
     if not signals:
         return (
             "## Active Signals (0)\n\n"
-            "No signals currently active. The portfolio appears within normal parameters. "
+            f"No signals currently active. The {empty_state_label} appear within "
+            "normal parameters. "
             "If the user asks about problems, verify by querying the data directly."
         )
 

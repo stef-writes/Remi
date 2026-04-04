@@ -34,7 +34,7 @@ from remi.agent.conversation.thread import (
 from remi.agent.llm.types import LLMProvider, estimate_cost
 from remi.agent.observe.types import SpanKind, Tracer, get_current_trace_id
 from remi.agent.runtime.base import BaseModule, Message, ModuleOutput
-from remi.agent.runtime.deps import OnEventCallback, RuntimeContext
+from remi.agent.runtime.deps import OnEventCallback, RuntimeContext, ScopeContext
 from remi.agent.runtime.llm_bridge import OnEventCallback as _OnEvent  # noqa: F811,F401
 from remi.agent.runtime.loop import run_agent_loop
 from remi.agent.runtime.tool_executor import ToolExecutor, build_tool_set
@@ -165,28 +165,11 @@ class AgentNode(BaseModule):
         tool_executor = ToolExecutor(tool_defs, tool_execute, tracer, log)
         thread = trim_thread(thread, cfg.max_history_turns)
 
-        mgr_id = context.extras.get("manager_id")
-        mgr_name = context.extras.get("manager_name")
-        if mgr_id and mgr_name:
-            prop_names = context.extras.get("manager_property_names", [])
-            unit_count = context.extras.get("manager_unit_count", 0)
-            prop_count = context.extras.get("manager_property_count", len(prop_names))
-            scope_parts = [
-                f"## Manager Focus: {mgr_name}\n",
-                f"The user has selected **{mgr_name}** (manager_id=`{mgr_id}`).",
-                f"This manager oversees {prop_count} properties with {unit_count} total units.",
-            ]
-            if prop_names:
-                scope_parts.append("Properties: " + ", ".join(prop_names[:20]))
-            scope_parts.append(
-                "\n**You MUST scope all tool calls to this manager.** "
-                f'Always pass `manager_id="{mgr_id}"` to onto_signals, '
-                "onto_search, onto_aggregate, semantic_search, and any "
-                "remi_data function that accepts manager_id. "
-                "Only discuss data relevant to this manager's portfolio "
-                "unless the user explicitly asks about the broader portfolio."
+        scope: ScopeContext = context.scope
+        if scope.scope_message:
+            _insert_before_last_user(
+                thread, Message(role="system", content=scope.scope_message)
             )
-            _insert_before_last_user(thread, Message(role="system", content="\n".join(scope_parts)))
 
         trace_cm = (
             tracer.start_trace(

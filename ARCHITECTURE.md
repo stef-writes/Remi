@@ -104,7 +104,7 @@ The **DomainTBox** defines what things mean in this business. It is institutiona
 - **Compositions** — compound signals from co-occurring constituents (DelinquencyLeaseCliff, OperationalBreakdown, DecliningPortfolio)
 - **Workflows** — operational step sequences (turnover, collections, maintenance)
 
-Lives in `src/remi/config/domain.yaml`. No code change required to update a threshold or add a signal.
+Lives in `src/remi/shell/config/domain.yaml`. No code change required to update a threshold or add a signal.
 
 ### Ontology
 
@@ -244,7 +244,7 @@ Every fact, signal, and observation carries a provenance tag:
 
 | File | Role |
 |------|------|
-| `src/remi/config/domain.yaml` | Source of truth — signals, thresholds, policies, causal chains, workflows |
+| `src/remi/shell/config/domain.yaml` | Source of truth — signals, thresholds, policies, causal chains, workflows |
 | `src/remi/config/container.py` | DI container — wires all stores, services, agents, tools |
 | `src/remi/config/settings.py` | Environment configuration (Pydantic settings) |
 | `src/remi/agents/director/app.yaml` | Director agent — fast Q&A, system prompt, tool set |

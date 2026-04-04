@@ -25,13 +25,16 @@ from typing import Any
 
 from remi.agent.documents.types import Document
 
-# Patterns that indicate a row is report metadata (title, export info, filters)
-# rather than a real column header row.
-_METADATA_PATTERNS = re.compile(
-    r"^(exported\s+on|properties:|units:|date\s+range|filter|exclude|include|"
-    r"base\s+report|property\s+groups|as\s+of|level\s+of\s+detail|bedrooms|"
-    r"bathrooms|amenities|appliances|report\s+builder|balance:|amount\s+owed)",
-    re.I,
+_GENERIC_METADATA_PATTERNS = (
+    r"exported\s+on",
+    r"date\s+range",
+    r"filter",
+    r"exclude",
+    r"include",
+    r"base\s+report",
+    r"as\s+of",
+    r"level\s+of\s+detail",
+    r"report\s+builder",
 )
 
 _MIN_HEADER_CELLS = 3
@@ -48,12 +51,21 @@ _EXCEL_CONTENT_TYPES = frozenset({
 # ---------------------------------------------------------------------------
 
 
-def parse_document(filename: str, content: bytes, content_type: str) -> Document:
+def parse_document(
+    filename: str,
+    content: bytes,
+    content_type: str,
+    *,
+    extra_skip_patterns: tuple[str, ...] = (),
+) -> Document:
     """Parse uploaded file bytes into a Document.
 
     Format is determined by content_type first, filename extension second.
     Raises ``ValueError`` for unsupported types so callers never need to
     branch on content_type themselves.
+
+    *extra_skip_patterns* are domain-specific regex patterns for report
+    header rows that should be skipped (passed through from DomainProfile).
     """
     ct = content_type.lower()
     name = filename.lower()
@@ -61,7 +73,7 @@ def parse_document(filename: str, content: bytes, content_type: str) -> Document
     if ct in _CSV_CONTENT_TYPES or name.endswith(".csv"):
         return parse_csv(filename, content)
     if ct in _EXCEL_CONTENT_TYPES or name.endswith((".xlsx", ".xls")):
-        return parse_excel(filename, content)
+        return parse_excel(filename, content, extra_skip_patterns=extra_skip_patterns)
 
     raise ValueError(
         f"Unsupported file type: {content_type!r}. "
@@ -96,7 +108,12 @@ def parse_csv(filename: str, content: bytes | str) -> Document:
     )
 
 
-def parse_excel(filename: str, content: bytes) -> Document:
+def parse_excel(
+    filename: str,
+    content: bytes,
+    *,
+    extra_skip_patterns: tuple[str, ...] = (),
+) -> Document:
     """Parse an Excel file (.xlsx / .xls) into a Document.
 
     Handles report-style exports (AppFolio, Yardi, etc.) that prepend several
@@ -134,7 +151,7 @@ def parse_excel(filename: str, content: bytes) -> Document:
             content_type=content_type_xlsx,
         )
 
-    header_idx = _find_header_row(all_rows)
+    header_idx = _find_header_row(all_rows, extra_skip_patterns=extra_skip_patterns)
     header = all_rows[header_idx]
     columns = [str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(header)]
 
@@ -162,8 +179,19 @@ def parse_excel(filename: str, content: bytes) -> Document:
 # ---------------------------------------------------------------------------
 
 
-def _find_header_row(rows: list[tuple[Any, ...]]) -> int:
+def _compile_skip_pattern(extra: tuple[str, ...] = ()) -> re.Pattern[str]:
+    """Compile metadata-skip regex from generic + domain-specific patterns."""
+    all_parts = list(_GENERIC_METADATA_PATTERNS) + list(extra)
+    return re.compile(r"^(" + "|".join(all_parts) + r")", re.I)
+
+
+def _find_header_row(
+    rows: list[tuple[Any, ...]],
+    *,
+    extra_skip_patterns: tuple[str, ...] = (),
+) -> int:
     """Return the index of the first row that looks like a real column header."""
+    pattern = _compile_skip_pattern(extra_skip_patterns)
     for idx, row in enumerate(rows):
         non_null = [c for c in row if c is not None]
         if len(non_null) < _MIN_HEADER_CELLS:
@@ -171,7 +199,7 @@ def _find_header_row(rows: list[tuple[Any, ...]]) -> int:
 
         first_val = str(non_null[0]).strip() if non_null else ""
 
-        if _METADATA_PATTERNS.match(first_val):
+        if pattern.match(first_val):
             continue
 
         if isinstance(non_null[0], (_dt.datetime, _dt.date)):

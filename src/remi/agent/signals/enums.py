@@ -32,7 +32,6 @@ class RuleCondition(StrEnum):
     BELOW_PERCENTILE = "below_percentile"
     CONSISTENT_DIRECTION = "consistent_direction"
     IN_LEGAL_TRACK = "in_legal_track"
-    STALLED_PAST_WINDOW = "stalled_past_window"
     EXISTS = "exists"
     BREACH_DETECTED = "breach_detected"
 

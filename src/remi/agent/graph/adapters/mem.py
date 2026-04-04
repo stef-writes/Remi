@@ -15,6 +15,19 @@ class InMemoryMemoryStore(MemoryStore):
     def __init__(self) -> None:
         self._data: dict[str, dict[str, MemoryEntry]] = defaultdict(dict)
 
+    def dump_state(self) -> dict[str, list[dict[str, object]]]:
+        return {
+            ns: [entry.model_dump(mode="json") for entry in entries.values()]
+            for ns, entries in self._data.items()
+        }
+
+    def load_state(self, data: dict[str, list[dict[str, object]]]) -> None:
+        self._data.clear()
+        for ns, raw_entries in data.items():
+            for raw in raw_entries:
+                entry = MemoryEntry.model_validate(raw)
+                self._data[ns][entry.key] = entry
+
     async def store(self, namespace: str, key: str, value: str, *, ttl: int | None = None) -> None:
         self._data[namespace][key] = MemoryEntry(
             namespace=namespace,
@@ -48,6 +61,33 @@ class InMemoryKnowledgeStore(KnowledgeStore):
     def __init__(self) -> None:
         self._entities: dict[str, dict[str, Entity]] = defaultdict(dict)
         self._relationships: dict[str, list[Relationship]] = defaultdict(list)
+
+    def dump_state(self) -> dict[str, object]:
+        return {
+            "entities": {
+                ns: [e.model_dump(mode="json") for e in ents.values()]
+                for ns, ents in self._entities.items()
+            },
+            "relationships": {
+                ns: [r.model_dump(mode="json") for r in rels]
+                for ns, rels in self._relationships.items()
+            },
+        }
+
+    def load_state(self, data: dict[str, object]) -> None:
+        self._entities.clear()
+        self._relationships.clear()
+        raw_entities = data.get("entities")
+        if isinstance(raw_entities, dict):
+            for ns, items in raw_entities.items():
+                for raw in items:
+                    entity = Entity.model_validate(raw)
+                    self._entities[ns][entity.entity_id] = entity
+        raw_rels = data.get("relationships")
+        if isinstance(raw_rels, dict):
+            for ns, items in raw_rels.items():
+                for raw in items:
+                    self._relationships[ns].append(Relationship.model_validate(raw))
 
     async def put_entity(self, entity: Entity) -> None:
         now = datetime.now(UTC)

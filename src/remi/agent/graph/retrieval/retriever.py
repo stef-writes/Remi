@@ -19,7 +19,7 @@ from remi.agent.observe.events import Event
 from remi.agent.signals import Signal, SignalStore
 from remi.agent.vectors.types import Embedder, SearchResult, VectorStore
 
-_NAME_FIELDS = ("tenant_name", "property_name", "manager_name")
+_DEFAULT_NAME_FIELDS: tuple[str, ...] = ("name",)
 
 _log = structlog.get_logger(__name__)
 
@@ -52,11 +52,13 @@ class GraphRetriever:
         vector_store: VectorStore | None = None,
         embedder: Embedder | None = None,
         signal_store: SignalStore | None = None,
+        name_fields: tuple[str, ...] | None = None,
     ) -> None:
         self._kg = knowledge_graph
         self._vs = vector_store
         self._embedder = embedder
         self._ss = signal_store
+        self._name_fields = name_fields or _DEFAULT_NAME_FIELDS
 
     async def retrieve(
         self,
@@ -64,8 +66,16 @@ class GraphRetriever:
         *,
         max_entities: int = 10,
         expand_depth: int = 1,
+        link_type_filter: set[str] | None = None,
+        entity_type_filter: set[str] | None = None,
     ) -> RetrievalResult:
-        """Resolve entities from the question and expand through the graph."""
+        """Resolve entities from the question and expand through the graph.
+
+        ``expand_depth``: how many hops to expand (1 = direct neighbors,
+        2 = neighbors of neighbors, etc.).
+        ``link_type_filter``: only follow these link types during expansion.
+        ``entity_type_filter``: only include neighbors of these entity types.
+        """
         result = RetrievalResult()
 
         resolved = await self._resolve_entities(question, max_entities=max_entities)
@@ -74,19 +84,13 @@ class GraphRetriever:
         for entity in resolved:
             if expand_depth > 0:
                 try:
-                    graph_links: list[GraphLink] = await self._kg.get_links(
-                        entity.entity_id, direction="both"
+                    neighborhood = await self._expand_neighborhood(
+                        entity.entity_id,
+                        depth=expand_depth,
+                        link_type_filter=link_type_filter,
+                        entity_type_filter=entity_type_filter,
                     )
-                    typed_links: list[KnowledgeLink] = [
-                        KnowledgeLink(
-                            source_id=gl.source_id,
-                            link_type=gl.link_type,
-                            target_id=gl.target_id,
-                            properties=gl.properties,
-                        )
-                        for gl in graph_links
-                    ]
-                    result.neighborhood[entity.entity_id] = typed_links
+                    result.neighborhood[entity.entity_id] = neighborhood
                 except Exception:
                     _log.warning(
                         Event.GRAPH_EXPAND_FAILED,
@@ -96,6 +100,10 @@ class GraphRetriever:
 
         if self._ss is not None:
             entity_ids = {e.entity_id for e in resolved}
+            for links in result.neighborhood.values():
+                for link in links:
+                    entity_ids.add(link.source_id)
+                    entity_ids.add(link.target_id)
             try:
                 all_signals = await self._ss.list_signals()
                 result.signals = [s for s in all_signals if s.entity_id in entity_ids]
@@ -103,6 +111,54 @@ class GraphRetriever:
                 _log.warning(Event.SIGNAL_RETRIEVAL_FAILED, exc_info=True)
 
         return result
+
+    async def _expand_neighborhood(
+        self,
+        entity_id: str,
+        *,
+        depth: int,
+        link_type_filter: set[str] | None,
+        entity_type_filter: set[str] | None,
+    ) -> list[KnowledgeLink]:
+        """Multi-hop BFS expansion from a single entity."""
+        visited_ids: set[str] = {entity_id}
+        frontier: set[str] = {entity_id}
+        all_links: list[KnowledgeLink] = []
+
+        for _hop in range(depth):
+            next_frontier: set[str] = set()
+            for fid in frontier:
+                graph_links: list[GraphLink] = await self._kg.get_links(
+                    fid, direction="both"
+                )
+                for gl in graph_links:
+                    if link_type_filter and gl.link_type not in link_type_filter:
+                        continue
+
+                    neighbor_id = gl.target_id if gl.source_id == fid else gl.source_id
+
+                    if entity_type_filter:
+                        neighbor_type = gl.properties.get("target_type", "")
+                        if neighbor_type and neighbor_type not in entity_type_filter:
+                            continue
+
+                    kl = KnowledgeLink(
+                        source_id=gl.source_id,
+                        link_type=gl.link_type,
+                        target_id=gl.target_id,
+                        properties=gl.properties,
+                    )
+                    all_links.append(kl)
+
+                    if neighbor_id not in visited_ids:
+                        visited_ids.add(neighbor_id)
+                        next_frontier.add(neighbor_id)
+
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        return all_links
 
     async def _resolve_entities(
         self,
@@ -176,7 +232,7 @@ class GraphRetriever:
         for candidate in candidates:
             hits = await self._vs.metadata_text_search(
                 candidate,
-                fields=list(_NAME_FIELDS),
+                fields=list(self._name_fields),
                 limit=limit,
             )
             for hit in hits:

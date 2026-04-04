@@ -35,19 +35,6 @@ tbox:
           condition: exceeds_threshold
           threshold_key: delinquency_critical_pct
 
-      - name: ChronicDelinquency
-        description: >
-          A tenant has carried a balance across 3+ reporting periods without
-          full cure. Indicates the collections workflow is stalled or the
-          manager is not escalating.
-        severity: high
-        entity: Tenant
-        horizon: trailing_90_days
-        rule:
-          metric: consecutive_balance_periods
-          condition: exceeds_threshold
-          threshold_key: chronic_delinquency_periods
-
       - name: LegalEscalationRisk
         description: >
           A tenant situation is approaching or already in a legal track —
@@ -89,12 +76,7 @@ tbox:
         deontic: MUST
 
     thresholds:
-      delinquency_warning_pct: 0.05
       delinquency_critical_pct: 0.08
-      chronic_delinquency_periods: 3
-      collections_grace_days: 5
-      collections_demand_days: 10
-      collections_filing_days: 30
 
     causal_chains:
 
@@ -130,19 +112,6 @@ tbox:
           condition: exceeds_threshold
           threshold_key: lease_cliff_pct
           window_key: lease_cliff_window_days
-
-      - name: RenewalStall
-        description: >
-          A lease is expiring within the renewal outreach window but
-          renewal_status is still NOT_STARTED or OFFERED with no response.
-          The renewal pipeline is stuck.
-        severity: medium
-        entity: Lease
-        horizon: next_90_days
-        rule:
-          metric: renewal_pipeline_age
-          condition: stalled_past_window
-          threshold_key: renewal_outreach_days_before
 
       - name: BelowMarketRent
         description: >
@@ -233,7 +202,6 @@ tbox:
     thresholds:
       maintenance_backlog_days: 30
       make_ready_deadline_days: 14
-      emergency_response_hours: 4
 
     causal_chains:
 
@@ -292,23 +260,9 @@ tbox:
           condition: exceeds_threshold
           threshold_key: concentration_risk_pct
 
-      - name: SubsidyConcentration
-        description: >
-          A property or manager's portfolio relies heavily on a single
-          subsidy program (Section 8, HCVP, FEPP, etc.). If that program's
-          funding changes, revenue exposure is outsized.
-        severity: medium
-        entity: Property
-        horizon: current
-        rule:
-          metric: subsidy_program_pct
-          condition: exceeds_threshold
-          threshold_key: subsidy_concentration_pct
-
     thresholds:
       vacancy_chronic_days: 30
       concentration_risk_pct: 0.40
-      subsidy_concentration_pct: 0.50
 
     causal_chains:
 
@@ -378,18 +332,6 @@ tbox:
           metric: policy_compliance
           condition: breach_detected
 
-      - name: OwnerEscalationRequired
-        description: >
-          A situation requires owner approval — payment plan over threshold,
-          non-renewal decision, capital expenditure authorization — and the
-          owner has not yet been consulted.
-        severity: high
-        entity: Property
-        horizon: event_driven
-        rule:
-          metric: pending_owner_decisions
-          condition: exists
-
     policies:
 
       - id: policy:subsidy_recertification
@@ -405,9 +347,6 @@ tbox:
           manager commits
         trigger: payment_plan_above_threshold
         deontic: MUST
-
-    thresholds:
-      owner_payment_plan_threshold: 5000
 
     causal_chains:
 
@@ -453,24 +392,6 @@ tbox:
       severity: high
       require_same_entity: true
 
-    - name: CollectionsBreakdown
-      description: >
-        A manager has chronic delinquency AND policy breaches — the
-        collections process is broken and required timelines are being
-        missed. Strongest indicator of revenue leakage.
-      constituents: [ChronicDelinquency, PolicyBreach]
-      scope: PropertyManager
-      severity: critical
-      require_same_entity: true
-
-    - name: RenewalCliff
-      description: >
-        A manager has both stalled renewals AND a lease expiration cliff.
-        The pipeline is stuck while a wave of expirations approaches.
-      constituents: [RenewalStall, LeaseExpirationCliff]
-      scope: PropertyManager
-      severity: critical
-      require_same_entity: true
 
 # =============================================================================
 # ABox Seeds — operational knowledge seeded at bootstrap

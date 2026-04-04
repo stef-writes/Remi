@@ -15,7 +15,7 @@ import structlog
 
 from remi.agent.types import ToolArg, ToolDefinition, ToolRegistry
 
-logger = structlog.get_logger("remi.domain.tools.http")
+logger = structlog.get_logger("remi.application.tools.http")
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "0.0.0.0"}
 
@@ -24,6 +24,7 @@ def register_http_tools(
     registry: ToolRegistry,
     *,
     api_base_url: str = "http://127.0.0.1:8000",
+    api_path_examples: str = "",
 ) -> None:
     """Register the ``http_request`` tool.
 
@@ -93,23 +94,20 @@ def register_http_tools(
             )
             return {"error": str(exc), "url": url, "method": method}
 
+    base_desc = (
+        "Make an HTTP request to the API. Use for any operation "
+        "not covered by other tools.\n\n"
+        "Base URL is auto-configured. Pass only the path."
+    )
+    if api_path_examples:
+        base_desc = f"{base_desc}\n\n{api_path_examples}"
+
     registry.register(
         "http_request",
         http_request,
         ToolDefinition(
             name="http_request",
-            description=(
-                "Make an HTTP request to the REMI API. Use for any operation "
-                "not covered by other tools: creating action items (POST), "
-                "updating records (PATCH), triggering signal inference, or "
-                "accessing endpoints that remi_data doesn't wrap.\n\n"
-                "Base URL is auto-configured. Pass only the path.\n\n"
-                "Examples:\n"
-                "  GET /api/v1/managers — list managers\n"
-                "  POST /api/v1/actions — create action item\n"
-                "  POST /api/v1/signals/infer — trigger signal inference\n"
-                "  GET /api/v1/ontology/search?object_type=Property — ontology query"
-            ),
+            description=base_desc,
             args=[
                 ToolArg(
                     name="method",

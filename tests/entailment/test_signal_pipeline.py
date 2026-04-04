@@ -7,10 +7,10 @@ from __future__ import annotations
 import pytest
 
 from remi.agent.signals.producers.composite import CompositeProducer
-from remi.domain.monitoring.signals.engine import EntailmentEngine
+from remi.application.services.monitoring.signals.engine import EntailmentEngine
 from remi.agent.graph.adapters.bridge import BridgedKnowledgeGraph
 from remi.agent.signals.producers.statistical import StatisticalProducer
-from remi.domain.core.portfolio.models import Unit, UnitStatus
+from remi.application.core.models import Unit, UnitStatus
 from remi.agent.signals import (
     DomainTBox,
     ProducerResult,
@@ -22,7 +22,7 @@ from remi.agent.signals import (
     SignalProducer,
 )
 from remi.agent.graph.adapters.mem import InMemoryKnowledgeStore
-from remi.domain.core.stores.mem import InMemoryPropertyStore
+from remi.application.infra.stores.mem import InMemoryPropertyStore
 from remi.agent.signals.persistence.mem import InMemoryFeedbackStore, InMemorySignalStore
 
 # -- Fixtures -----------------------------------------------------------------
@@ -231,7 +231,7 @@ async def test_entailment_engine_implements_signal_producer(
     property_store: InMemoryPropertyStore,
 ) -> None:
     """EntailmentEngine is a valid SignalProducer."""
-    from remi.domain.core.ontology.schema import load_domain_yaml
+    from remi.application.infra.ontology.schema import load_domain_yaml
 
     domain = DomainTBox.from_yaml(load_domain_yaml())
     engine = EntailmentEngine(domain=domain, property_store=property_store)
@@ -397,7 +397,7 @@ async def test_full_pipeline_integration(
     knowledge_graph: BridgedKnowledgeGraph,
 ) -> None:
     """End-to-end: rules + stats produce signals, feedback records outcomes."""
-    from remi.domain.core.ontology.schema import load_domain_yaml
+    from remi.application.infra.ontology.schema import load_domain_yaml
 
     await _bootstrap(knowledge_graph)
 
@@ -433,6 +433,6 @@ async def test_full_pipeline_integration(
 
 
 async def _bootstrap(knowledge_graph: BridgedKnowledgeGraph) -> None:
-    from remi.domain.core.ontology.seed import seed_knowledge_graph
+    from remi.application.infra.ontology.seed import seed_knowledge_graph
 
     await seed_knowledge_graph(knowledge_graph)

@@ -48,11 +48,29 @@ class RunParams:
 
 
 @dataclass(frozen=True)
+class ScopeContext:
+    """Domain-supplied focus scope injected into agent runs.
+
+    Built by the product layer (e.g. real-estate manager focus,
+    medical provider focus) and consumed generically by the runtime.
+    The runtime injects ``scope_message`` as a system message without
+    knowing what domain concepts it contains.
+    """
+
+    entity_id: str = ""
+    entity_name: str = ""
+    entity_type: str = ""
+    scope_message: str = ""
+    tool_scope: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class RuntimeContext:
     """Immutable execution context threaded through agent runs.
 
     ``deps`` carries typed container-lifetime dependencies.
     ``params`` carries typed per-request parameters.
+    ``scope`` carries domain-supplied focus context (typed).
     ``extras`` remains as a narrow escape hatch for dynamic/experimental data.
     """
 
@@ -61,6 +79,7 @@ class RuntimeContext:
     environment: str = "development"
     deps: RunDeps = field(default_factory=RunDeps)
     params: RunParams = field(default_factory=RunParams)
+    scope: ScopeContext = field(default_factory=ScopeContext)
     extras: dict[str, Any] = field(default_factory=dict)
 
     def with_extras(self, **kwargs: Any) -> RuntimeContext:
@@ -71,5 +90,6 @@ class RuntimeContext:
             environment=self.environment,
             deps=self.deps,
             params=self.params,
+            scope=self.scope,
             extras=merged,
         )

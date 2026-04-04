@@ -24,6 +24,7 @@ from remi.agent.mem import InMemoryChatSessionStore
 from remi.agent.observe.mem import InMemoryTraceStore
 from remi.agent.observe.types import Tracer, TraceStore
 from remi.agent.observe.usage import LLMUsageLedger
+from remi.agent.profile import DomainProfile
 from remi.agent.runtime.retry import RetryPolicy
 from remi.agent.runtime.runner import ChatAgentService
 from remi.agent.sandbox.factory import build_sandbox
@@ -39,33 +40,35 @@ from remi.agent.types import ChatSessionStore, ToolRegistry
 from remi.agent.vectors.embedder import build_embedder
 from remi.agent.vectors.store import InMemoryVectorStore
 from remi.agent.vectors.types import Embedder, VectorStore
-from remi.domain.monitoring.signals.pipeline import build_signal_pipeline
-from remi.domain.ingestion.embedding.pipeline import EmbeddingPipeline
-from remi.domain.ingestion.documents.pipeline import DocumentIngestService
-from remi.domain.ingestion.seeding.service import SeedService
-from remi.domain.ingestion.documents.service import IngestionService
-from remi.domain.core.ontology.bridge import build_knowledge_graph
-from remi.domain.core.ontology.schema import load_domain_yaml
-from remi.domain.core.ontology.seed import seed_knowledge_graph
-from remi.domain.core.portfolio.protocols import PropertyStore
-from remi.domain.intelligence.queries.auto_assign import AutoAssignService
-from remi.domain.intelligence.queries.dashboard import DashboardQueryService
-from remi.domain.intelligence.queries.leases import LeaseQueryService
-from remi.domain.intelligence.queries.maintenance import MaintenanceQueryService
-from remi.domain.intelligence.queries.managers import ManagerReviewService
-from remi.domain.intelligence.queries.portfolios import PortfolioQueryService
-from remi.domain.intelligence.queries.properties import PropertyQueryService
-from remi.domain.intelligence.queries.rent_roll import RentRollService
-from remi.domain.monitoring.snapshots.service import SnapshotService
-from remi.domain.intelligence.search.service import SearchService
-from remi.domain.core.stores.factory import (
+from remi.application.profile import build_re_profile
+from remi.application.infra.ontology.bridge import build_knowledge_graph
+from remi.application.infra.ontology.schema import load_domain_yaml
+from remi.application.infra.ontology.seed import seed_knowledge_graph
+from remi.application.core.protocols import PropertyStore
+from remi.application.infra.stores.factory import (
     build_document_store,
     build_property_store,
     build_rollup_store,
 )
-from remi.domain.tools import register_all_tools
-from remi.domain.tools.snapshots import register_snapshot_tools
-from remi.domain.tools.workflows import SubAgentInvoker, register_workflow_tools
+from remi.application.infra.stores.projecting import ProjectingPropertyStore
+from remi.application.services.ingestion.pipeline import DocumentIngestService
+from remi.application.services.ingestion.service import IngestionService
+from remi.application.services.embedding.pipeline import EmbeddingPipeline
+from remi.application.services.seeding.cache import StoreBundle
+from remi.application.services.seeding.service import SeedService
+from remi.application.services.queries.auto_assign import AutoAssignService
+from remi.application.services.queries.dashboard import DashboardQueryService
+from remi.application.services.queries.managers import ManagerReviewService
+from remi.application.services.queries import PortfolioQueryService
+from remi.application.services.queries import RentRollService
+from remi.application.services.search import SearchService
+from remi.application.services.monitoring.signals.pipeline import build_signal_pipeline
+from remi.application.core.rollups import RollupStore
+from remi.application.services.monitoring.snapshots.service import SnapshotService
+from remi.application.tools import register_all_tools
+from remi.application.tools.assertions import register_assertion_tools
+from remi.application.tools.snapshots import register_snapshot_tools
+from remi.application.tools.workflows import SubAgentInvoker, register_workflow_tools
 from remi.shell.config.settings import RemiSettings
 
 
@@ -74,6 +77,9 @@ class Container:
 
     def __init__(self, settings: RemiSettings | None = None) -> None:
         self.settings = settings or RemiSettings()
+
+        # -- Domain profile (operational config for agent layer) ---------------
+        self.profile: DomainProfile = build_re_profile()
 
         # -- Core infrastructure -----------------------------------------------
         memory_store = InMemoryMemoryStore()
@@ -95,9 +101,18 @@ class Container:
         rollup_store = build_rollup_store(self._db_session_factory)
 
         # -- Knowledge graph ---------------------------------------------------
-        self.knowledge_graph: BridgedKnowledgeGraph = build_knowledge_graph(
+        from remi.agent.graph.projector import GraphProjector
+
+        self.knowledge_graph: BridgedKnowledgeGraph
+        self.graph_projector: GraphProjector
+        self.knowledge_graph, self.graph_projector = build_knowledge_graph(
             self.property_store,
             self.knowledge_store,
+        )
+
+        # Wrap the store so every upsert auto-projects FK edges into the graph.
+        self.property_store = ProjectingPropertyStore(
+            self.property_store, self.graph_projector
         )
         self._bootstrap_pending = True
 
@@ -123,6 +138,13 @@ class Container:
             self.settings.secrets,
         )
 
+        # -- Adapter registry --------------------------------------------------
+        from remi.application.infra.adapters.appfolio.adapter import AppFolioAdapter
+        from remi.application.infra.adapters.protocol import AdapterRegistry
+
+        self.adapter_registry = AdapterRegistry()
+        self.adapter_registry.register(AppFolioAdapter())
+
         # -- Services ----------------------------------------------------------
         pipeline_runner = IngestionPipelineRunner(
             provider_factory=self.provider_factory,
@@ -143,10 +165,7 @@ class Container:
             property_store=self.property_store,
             rollup_store=rollup_store,
         )
-        self.property_query = PropertyQueryService(property_store=self.property_store)
         self.portfolio_query = PortfolioQueryService(property_store=self.property_store)
-        self.lease_query = LeaseQueryService(property_store=self.property_store)
-        self.maintenance_query = MaintenanceQueryService(property_store=self.property_store)
         self.manager_review = ManagerReviewService(property_store=self.property_store)
         self.rent_roll_service = RentRollService(property_store=self.property_store)
         self.auto_assign_service = AutoAssignService(
@@ -186,6 +205,7 @@ class Container:
             snapshot_service=self.snapshot_service,
             signal_pipeline=self.signal_pipeline,
             embedding_pipeline=self.embedding_pipeline,
+            metadata_skip_patterns=self.profile.metadata_skip_patterns,
         )
 
         # -- Tools (phase 1 — before chat_agent exists) ------------------------
@@ -204,9 +224,11 @@ class Container:
             sandbox=self.sandbox,
             search_service=self.search_service,
             api_base_url=_api_base,
+            profile=self.profile,
         )
 
         # -- Seed service ------------------------------------------------------
+        store_bundle = self._build_store_bundle(rollup_store)
         self.seed_service = SeedService(
             document_ingest=self.document_ingest,
             auto_assign=self.auto_assign_service,
@@ -215,6 +237,8 @@ class Container:
             property_store=self.property_store,
             snapshot_service=self.snapshot_service,
             rollup_store=rollup_store,
+            store_bundle=store_bundle,
+            metadata_skip_patterns=self.profile.metadata_skip_patterns,
         )
 
         # -- Chat agent --------------------------------------------------------
@@ -224,6 +248,8 @@ class Container:
             knowledge_graph=self.knowledge_graph,
             vector_store=self.vector_store,
             embedder=self.embedder,
+            name_fields=self.profile.name_fields,
+            empty_state_label=self.profile.empty_state_label,
         )
         self.chat_agent = ChatAgentService(
             provider_factory=self.provider_factory,
@@ -260,6 +286,38 @@ class Container:
         register_delegation_tools(
             self.tool_registry,
             agent_invoker=cast(AgentInvoker, self.chat_agent),
+            available_agents=self.profile.available_agents,
+        )
+        register_assertion_tools(
+            self.tool_registry,
+            knowledge_graph=self.knowledge_graph,
+        )
+
+    def _build_store_bundle(self, rollup_store: RollupStore) -> StoreBundle | None:
+        """Build a StoreBundle only when all stores are in-memory."""
+        from remi.agent.documents.mem import InMemoryDocumentStore
+        from remi.agent.graph.adapters.mem import InMemoryKnowledgeStore
+        from remi.agent.signals.persistence.mem import InMemoryFeedbackStore, InMemorySignalStore
+        from remi.application.infra.stores.mem import InMemoryPropertyStore
+        from remi.application.infra.stores.rollups import InMemoryRollupStore
+
+        if not (
+            isinstance(self.property_store, InMemoryPropertyStore)
+            and isinstance(self.knowledge_store, InMemoryKnowledgeStore)
+            and isinstance(self.document_store, InMemoryDocumentStore)
+            and isinstance(self.signal_store, InMemorySignalStore)
+            and isinstance(self.feedback_store, InMemoryFeedbackStore)
+            and isinstance(rollup_store, InMemoryRollupStore)
+        ):
+            return None
+
+        return StoreBundle(
+            property_store=self.property_store,
+            knowledge_store=self.knowledge_store,
+            document_store=self.document_store,
+            signal_store=self.signal_store,
+            feedback_store=self.feedback_store,
+            rollup_store=rollup_store,
         )
 
     async def ensure_bootstrapped(self) -> None:

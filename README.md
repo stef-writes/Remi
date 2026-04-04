@@ -12,13 +12,28 @@ The director's core question: **which of my managers needs my attention, and why
 # Install with dev dependencies
 uv sync --extra dev
 
-# Start the API server (seed from AppFolio reports)
-uv run remi serve --seed
+# Option A: Demo with synthetic data (no files or LLM keys needed for seed)
+uv run remi demo --generate
+
+# Option B: Demo with real AppFolio exports
+uv run remi demo --dir data/reports/my-client/
+
+# Option C: Seed + serve separately
+uv run remi seed --dir data/reports/my-client/
+uv run remi serve
 
 # Start the frontend (separate terminal)
 cd frontend && npm install && npm run dev
 
 # Open http://localhost:3000
+```
+
+### Database Lifecycle
+
+```bash
+uv run remi db status                 # Backend, entity counts, seed state
+uv run remi db reset                  # Drop all tables, recreate
+uv run remi db reset --seed <dir>     # Reset + re-seed from reports
 ```
 
 ### CLI Examples
@@ -39,13 +54,13 @@ REMI is an agent operating system built on four packages. Each has a single job.
 
 ```
 src/remi/
-  agent/       AI infrastructure — LLM runtime, signals, graph, vectors, sandbox, documents, tracing
-  domain/      Real estate product — portfolio models, queries, evaluators, ingestion, ontology, search, tools
-  types/       Shared vocabulary — ids, clock, errors, enums, result, text
-  shell/       Composition root — DI container, settings, API, CLI
+  agent/           AI infrastructure — LLM runtime, signals, graph, vectors, sandbox, documents, tracing
+  application/     Real estate product — core models, services, infra adapters, API, CLI, tools, agents
+  types/           Shared vocabulary — ids, clock, errors, enums, result, text
+  shell/           Composition root — DI container, settings, API factory, CLI entry point
 ```
 
-Dependency direction: `domain/` imports from `agent/` — never the reverse. `shell/` wires both. `types/` imports nothing.
+Dependency direction: `types/ ← agent/ ← application/ ← shell/`. `shell/` imports from everything. `types/` imports nothing.
 
 The `Container` (in `shell/config/container.py`) is pure wiring — it calls factory functions defined in the modules that own the things being built.
 
@@ -56,7 +71,7 @@ The `Container` (in `shell/config/container.py`) is pure wiring — it calls fac
 | Layer | What | Where |
 |-------|------|-------|
 | **Domain TBox** | What things mean — signal definitions, thresholds, policies, causal chains | `shell/config/domain.yaml` |
-| **Ontology** | What entity types exist and how they relate — typed properties, structural links, constraints | `domain/ontology/schema.py` |
+| **Ontology** | What entity types exist and how they relate — typed properties, structural links, constraints | `application/infra/ontology/schema.py` |
 | **Knowledge Graph** | What actually happened — entities, relationships, observations | `PropertyStore` + `KnowledgeStore` via `BridgedKnowledgeGraph` |
 
 The **Entailment Engine** evaluates TBox rules against knowledge graph facts and produces **Signals** — named, evidenced, severity-ranked domain states.
@@ -102,7 +117,7 @@ Defined in `domain.yaml`, detected by the entailment engine.
 
 ## Agents
 
-Two conversational agents, declared via YAML in `domain/agents/`.
+Two conversational agents, declared via YAML in `application/agents/`.
 
 | Agent | Purpose | Mode |
 |-------|---------|------|
@@ -117,7 +132,7 @@ Internal agents (not user-facing):
 
 ## Tools
 
-Tools registered in `domain/tools/`, available to agents:
+Tools registered in `application/tools/`, available to agents:
 
 ### Knowledge Graph (12 tools)
 
@@ -171,7 +186,7 @@ Tools registered in `domain/tools/`, available to agents:
 | Actions | `/actions` | CRUD for action items and notes |
 | Notes | `/notes` | CRUD for standalone notes |
 | Agents | `/agents` | `GET /models`, `GET /` |
-| Seed | `/seed` | `POST /reports`, `POST /demo` |
+| Seed | `/seed` | `POST /reports` (from dir), `POST /reports/bundled` (sample data) |
 
 ### WebSocket
 
@@ -267,36 +282,28 @@ src/remi/
   ingestion/        Generic LLM pipeline runner (YAML-driven steps)
   tools/            Domain-agnostic tools (sandbox, vectors, memory, trace)
 
-── domain/          Real estate product intelligence
-  portfolio/        Entity DTOs (Property, Unit, Tenant, Lease, etc.), protocols, business rules
-  stores/           RE persistence adapters (in-memory, Postgres)
-  queries/          RE query services (dashboard, rent roll, leases, maintenance, etc.)
-  evaluators/       RE signal producers (delinquency, lease, maintenance, portfolio, etc.)
-  ingestion/        RE inbound data pipeline — ontology-driven resolver
-    resolver.py     Schema-driven: LLM rows → domain models → PropertyStore + KnowledgeStore
-    service.py      IngestionService — orchestrates LLM pipeline + resolver
-    pipeline.py     DocumentIngestService — upload → parse → ingest → signal → embed
-    managers.py     Frequency-based manager classification + ManagerResolver
-    seed.py         Batch ingestion of sample report exports
-    embedding.py    Post-ingestion embedding pipeline
-    validation.py   Row-level validation
-    adapters/       Platform-specific schema hints (AppFolio)
-  ontology/         RE knowledge graph schema — entity types, structural links
-  search/           RE-aware hybrid search + pattern detection
-  tools/            RE agent capabilities (register_all_tools)
-  configs/          RE agent YAML manifests (director, researcher, action_planner, document_ingestion)
+── application/      Real estate product (hexagonal)
+  core/             Pure business: models, protocols, rules, rollups
+  services/         Orchestration: queries, ingestion, embedding, monitoring,
+                    seeding, search
+  infra/            Port implementations: stores (mem, pg), ontology bridge,
+                    adapters (appfolio)
+  api/              FastAPI routers + schemas (one module per resource)
+  cli/              Typer commands (one module per concept)
+  tools/            Agent tool registrations (register_all_tools)
+  agents/           RE agent YAML manifests (director, researcher, action_planner)
 
 ── types/           Shared vocabulary — ids, clock, errors, enums, result, text
 
 ── shell/           Composition root
   config/           DI container, settings, domain.yaml
-  api/              FastAPI routers, schemas, middleware, WebSocket
-  cli/              Typer CLI entry points
+  api/              FastAPI app factory, middleware, error handler
+  cli/              Typer entry point
 ```
 
 ## Data Ingestion
 
-REMI ingests property management report exports (XLSX/CSV). Ingestion is **ontology-driven** — the domain ontology in `domain/ontology/schema.py` defines entity types and their fields, and the LLM extraction pipeline uses this schema directly in its prompts.
+REMI ingests property management report exports (XLSX/CSV). Ingestion is **ontology-driven** — the ontology in `application/infra/ontology/schema.py` defines entity types and their fields, and the LLM extraction pipeline uses this schema directly in its prompts.
 
 ### Pipeline
 

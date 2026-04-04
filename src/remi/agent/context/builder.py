@@ -59,12 +59,14 @@ class ContextBuilder:
         graph_retriever: GraphRetriever | None = None,
         embedder: Embedder | None = None,
         token_budget: int = _DEFAULT_TOKEN_BUDGET,
+        empty_state_label: str = "monitored entities",
     ) -> None:
         self._domain = domain
         self._signal_store = signal_store
         self._graph_retriever = graph_retriever
         self._embedder = embedder
         self._token_budget = token_budget
+        self._empty_state_label = empty_state_label
 
     async def build(
         self,
@@ -100,6 +102,7 @@ class ContextBuilder:
                 self._signal_store,
                 question=question,
                 embedder=self._embedder,
+                empty_state_label=self._empty_state_label,
             )
             try:
                 frame.signals = await self._signal_store.list_signals()
@@ -241,6 +244,8 @@ def build_context_builder(
     knowledge_graph: KnowledgeGraph,
     vector_store: VectorStore | None = None,
     embedder: Embedder | None = None,
+    name_fields: tuple[str, ...] | None = None,
+    empty_state_label: str = "monitored entities",
 ) -> ContextBuilder:
     """Factory: assembles a ContextBuilder with its GraphRetriever."""
     graph_retriever = GraphRetriever(
@@ -248,10 +253,12 @@ def build_context_builder(
         vector_store=vector_store,
         embedder=embedder,
         signal_store=signal_store,
+        name_fields=name_fields,
     )
     return ContextBuilder(
         domain=domain,
         signal_store=signal_store,
         graph_retriever=graph_retriever,
         embedder=embedder,
+        empty_state_label=empty_state_label,
     )

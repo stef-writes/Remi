@@ -8,31 +8,33 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from remi.shell.api.agents.router import router as agents_router
-from remi.shell.api.realtime.router import router as realtime_router
 from remi.agent.observe.events import Event
-from remi.shell.api.documents.router import router as documents_router
-from remi.shell.api.ontology.router import router as ontology_router
-from remi.shell.api.search_routes.router import router as search_router
-from remi.shell.api.seed.router import router as seed_router
-from remi.shell.api.signals.router import router as signals_router
-from remi.shell.api.actions.router import router as actions_router
-from remi.shell.api.dashboard.router import router as dashboard_router
-from remi.shell.api.leases.router import router as leases_router
-from remi.shell.api.maintenance.router import router as maintenance_router
-from remi.shell.api.managers.router import router as managers_router
-from remi.shell.api.notes.router import router as notes_router
-from remi.shell.api.portfolios.router import router as portfolios_router
-from remi.shell.api.properties.router import router as properties_router
-from remi.shell.api.tenants.router import router as tenants_router
-from remi.shell.api.units.router import router as units_router
-from remi.shell.api.usage.router import router as usage_router
 from remi.agent.observe.logging import configure_logging
+from remi.application.api.actions import router as actions_router
+from remi.application.api.agents import router as agents_router
+from remi.application.api.dashboard import router as dashboard_router
+from remi.application.api.documents import router as documents_router
+from remi.application.api.knowledge import router as knowledge_router
+from remi.application.api.leases import router as leases_router
+from remi.application.api.maintenance import router as maintenance_router
+from remi.application.api.managers import router as managers_router
+from remi.application.api.notes import router as notes_router
+from remi.application.api.ontology import router as ontology_router
+from remi.application.api.portfolios import router as portfolios_router
+from remi.application.api.properties import router as properties_router
+from remi.application.api.realtime import router as realtime_router
+from remi.application.api.search import router as search_router
+from remi.application.api.seed import router as seed_router
+from remi.application.api.signals import router as signals_router
+from remi.application.api.tenants import router as tenants_router
+from remi.application.api.units import router as units_router
+from remi.application.api.usage import router as usage_router
 from remi.shell.api.error_handler import install_error_handlers
 from remi.shell.api.middleware import RequestIDMiddleware
 from remi.shell.config.container import Container
@@ -57,6 +59,7 @@ def _attach_routers(application: FastAPI) -> None:
     application.include_router(actions_router, prefix="/api/v1")
     application.include_router(notes_router, prefix="/api/v1")
     application.include_router(usage_router, prefix="/api/v1")
+    application.include_router(knowledge_router, prefix="/api/v1")
     application.include_router(realtime_router)
 
 
@@ -98,8 +101,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     seed_task: asyncio.Task[None] | None = None
-    if os.environ.pop("REMI_SEED", None):
-        seed_task = asyncio.create_task(_run_seed(container, log))
+    seed_dir = os.environ.pop("REMI_SEED_DIR", None)
+    force_seed = bool(os.environ.pop("REMI_FORCE_SEED", None))
+    if seed_dir:
+        seed_task = asyncio.create_task(
+            _run_seed(container, Path(seed_dir), log, force=force_seed)
+        )
     app.state.seed_task = seed_task
 
     capture_task = asyncio.create_task(
@@ -112,10 +119,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log.info(Event.SERVER_SHUTDOWN)
 
 
-async def _run_seed(container: Container, log: Any) -> None:
+async def _run_seed(
+    container: Container, report_dir: Path, log: Any, *, force: bool = False
+) -> None:
     """Run seed in the background so the server starts accepting requests immediately."""
     try:
-        seed_result = await container.seed_service.seed_from_reports()
+        seed_result = await container.seed_service.seed_from_reports(
+            report_dir, force=force,
+        )
         log.info(
             "seed_complete",
             managers=seed_result.managers_created,

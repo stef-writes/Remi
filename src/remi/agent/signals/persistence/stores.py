@@ -21,8 +21,7 @@ class SignalStore(abc.ABC):
     async def list_signals(
         self,
         *,
-        manager_id: str | None = None,
-        property_id: str | None = None,
+        scope: dict[str, str] | None = None,
         severity: str | None = None,
         signal_type: str | None = None,
     ) -> list[Signal]: ...

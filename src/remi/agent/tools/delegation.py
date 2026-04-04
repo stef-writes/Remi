@@ -17,21 +17,7 @@ import structlog
 
 from remi.agent.types import ToolArg, ToolDefinition, ToolRegistry
 
-logger = structlog.get_logger("remi.domain.tools.delegation")
-
-AVAILABLE_AGENTS = {
-    "researcher": (
-        "Deep statistical analysis engine. Use for: trend analysis, regression, "
-        "clustering, anomaly detection, hypothesis testing, producing research "
-        "reports. Runs Python with pandas/scipy/sklearn and follows a phased "
-        "protocol (LOAD → EXPLORE → HYPOTHESIZE → MODEL → VALIDATE → SYNTHESIZE)."
-    ),
-    "action_planner": (
-        "Action item generator. Use for: analyzing a manager's portfolio data "
-        "and proposing prioritized, concrete action items. Receives a JSON "
-        "payload with portfolio context and returns structured action plans."
-    ),
-}
+logger = structlog.get_logger("remi.agent.tools.delegation")
 
 
 class AgentInvoker(Protocol):
@@ -50,13 +36,20 @@ def register_delegation_tools(
     registry: ToolRegistry,
     *,
     agent_invoker: AgentInvoker | None = None,
+    available_agents: dict[str, str] | None = None,
 ) -> None:
     """Register the ``delegate_to_agent`` tool.
 
-    Only registered when an ``agent_invoker`` (typically ``ChatAgentService``)
-    is available — i.e. phase 2 of container wiring.
+    *available_agents* maps agent name → description. Supplied by the
+    domain profile; when empty, the tool is not registered.
+
+    Only registered when both an ``agent_invoker`` and at least one
+    available agent are provided.
     """
     if agent_invoker is None:
+        return
+    agents = available_agents or {}
+    if not agents:
         return
 
     _invoker = agent_invoker
@@ -71,10 +64,10 @@ def register_delegation_tools(
         if not task:
             return {"error": "task is required"}
 
-        if agent_name not in AVAILABLE_AGENTS:
+        if agent_name not in agents:
             return {
                 "error": f"Unknown agent '{agent_name}'",
-                "available_agents": list(AVAILABLE_AGENTS.keys()),
+                "available_agents": list(agents.keys()),
             }
 
         prompt = task
@@ -105,7 +98,7 @@ def register_delegation_tools(
         }
 
     agent_descriptions = "\n".join(
-        f"  - **{name}**: {desc}" for name, desc in AVAILABLE_AGENTS.items()
+        f"  - **{name}**: {desc}" for name, desc in agents.items()
     )
 
     registry.register(
@@ -114,7 +107,7 @@ def register_delegation_tools(
         ToolDefinition(
             name="delegate_to_agent",
             description=(
-                "Delegate a task to a specialist agent in the REMI workforce. "
+                "Delegate a task to a specialist agent. "
                 "The specialist runs autonomously with its own tools and "
                 "returns its output. Use this for tasks that require deep "
                 "analysis, structured research, or specialized workflows.\n\n"
@@ -125,7 +118,7 @@ def register_delegation_tools(
                     name="agent_name",
                     description=(
                         f"Name of the specialist agent to invoke. "
-                        f"One of: {', '.join(AVAILABLE_AGENTS.keys())}"
+                        f"One of: {', '.join(agents.keys())}"
                     ),
                     required=True,
                 ),

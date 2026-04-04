@@ -11,6 +11,15 @@ class InMemoryDocumentStore(DocumentStore):
     def __init__(self) -> None:
         self._docs: dict[str, Document] = {}
 
+    def dump_state(self) -> list[dict[str, object]]:
+        return [d.model_dump(mode="json") for d in self._docs.values()]
+
+    def load_state(self, data: list[dict[str, object]]) -> None:
+        self._docs.clear()
+        for raw in data:
+            doc = Document.model_validate(raw)
+            self._docs[doc.id] = doc
+
     async def save(self, document: Document) -> None:
         self._docs[document.id] = document
 

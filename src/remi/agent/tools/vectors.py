@@ -16,6 +16,9 @@ def register_vector_tools(
     *,
     vector_store: VectorStore,
     embedder: Embedder,
+    search_hint: str = "",
+    entity_type_hint: str = "",
+    scope_filter_args: list[ToolArg] | None = None,
 ) -> None:
     vs = vector_store
     emb = embedder
@@ -34,11 +37,10 @@ def register_vector_tools(
         min_score = float(args.get("min_score", 0.3))
 
         metadata_filter: dict[str, Any] | None = None
-        if manager_id := args.get("manager_id"):
-            metadata_filter = {"manager_id": manager_id}
-        if property_id := args.get("property_id"):
-            metadata_filter = metadata_filter or {}
-            metadata_filter["property_id"] = property_id
+        for farg in (scope_filter_args or []):
+            if val := args.get(farg.name):
+                metadata_filter = metadata_filter or {}
+                metadata_filter[farg.name] = val
 
         results = await vs.search(
             query_vector,
@@ -60,51 +62,42 @@ def register_vector_tools(
             for r in results
         ]
 
+    base_desc = (
+        "Search for entities or data rows by meaning, not exact text. "
+        "Finds records whose text is semantically similar to your query."
+    )
+    if search_hint:
+        base_desc = f"{base_desc} {search_hint}"
+
+    entity_type_desc = entity_type_hint or "Filter by entity type"
+
+    search_args = [
+        ToolArg(
+            name="query",
+            description="Natural language description of what you're looking for",
+            required=True,
+        ),
+        ToolArg(name="entity_type", description=entity_type_desc),
+        *(scope_filter_args or []),
+        ToolArg(
+            name="limit",
+            description="Max results to return (default: 10)",
+            type="integer",
+        ),
+        ToolArg(
+            name="min_score",
+            description="Minimum similarity score 0-1 (default: 0.3)",
+            type="number",
+        ),
+    ]
+
     registry.register(
         "semantic_search",
         semantic_search,
         ToolDefinition(
             name="semantic_search",
-            description=(
-                "Search for entities or raw report rows by meaning, not exact text. "
-                "Finds tenants, units, properties, maintenance requests, and individual "
-                "rows from uploaded documents whose text is semantically similar to your "
-                "query. Use this for fuzzy lookups ('problem tenants', 'mold issues', "
-                "'that building on Ella Street', 'overdue rent on unit 4B') where exact "
-                "filters won't work. DocumentRow results include the original report row "
-                "as text plus metadata with document_id, filename, report_type, and row_index."
-            ),
-            args=[
-                ToolArg(
-                    name="query",
-                    description="Natural language description of what you're looking for",
-                    required=True,
-                ),
-                ToolArg(
-                    name="entity_type",
-                    description=(
-                        "Filter by type: Tenant, Unit, Property, MaintenanceRequest, DocumentRow"
-                    ),
-                ),
-                ToolArg(
-                    name="manager_id",
-                    description="Filter results to a specific manager's entities",
-                ),
-                ToolArg(
-                    name="property_id",
-                    description="Filter results to a specific property's entities",
-                ),
-                ToolArg(
-                    name="limit",
-                    description="Max results to return (default: 10)",
-                    type="integer",
-                ),
-                ToolArg(
-                    name="min_score",
-                    description="Minimum similarity score 0-1 (default: 0.3)",
-                    type="number",
-                ),
-            ],
+            description=base_desc,
+            args=search_args,
         ),
     )
 

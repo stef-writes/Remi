@@ -29,6 +29,7 @@ __all__ = [
     "ChatSessionStore",
     "ToolFn",
     "ToolRegistry",
+    "ToolProvider",
 ]
 
 
@@ -160,3 +161,15 @@ class ToolRegistry(abc.ABC):
 
     @abc.abstractmethod
     def has(self, name: str) -> bool: ...
+
+
+class ToolProvider(abc.ABC):
+    """A self-contained unit that registers tools onto a ToolRegistry.
+
+    Each provider owns its dependencies — it receives them at construction
+    time and registers tools with their closures fully bound.  The container
+    builds providers, then calls ``register`` on each one.
+    """
+
+    @abc.abstractmethod
+    def register(self, registry: ToolRegistry) -> None: ...

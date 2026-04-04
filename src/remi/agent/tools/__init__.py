@@ -2,7 +2,7 @@
 
 Sandbox, HTTP, memory, vectors, delegation, trace, and the tool registry
 are generic capabilities that could power any domain. They live here, not
-in ``domain/tools/`` (which holds real-estate-specific agent capabilities).
+in ``application/tools/`` (which holds real-estate-specific agent capabilities).
 
 Public API::
 

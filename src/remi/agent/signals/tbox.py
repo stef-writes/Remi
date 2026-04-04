@@ -47,8 +47,6 @@ class SignalDefinition(BaseModel, frozen=True):
     entity: str
     horizon: Horizon
     rule: InferenceRule
-    related_policies: list[str] = Field(default_factory=list)
-    caused_by: list[str] = Field(default_factory=list)
 
 
 class Policy(BaseModel, frozen=True):
@@ -205,19 +203,6 @@ class DomainTBox(BaseModel, frozen=True):
     def signal(self, name: str) -> SignalDefinition | None:
         return self.signals.get(name)
 
-    def policies_for_trigger(self, trigger: str) -> list[Policy]:
-        return [p for p in self.policies if p.trigger == trigger]
-
-    def policies_for_signal(self, signal_name: str) -> list[Policy]:
-        name_lower = signal_name.lower()
-        return [p for p in self.policies if name_lower in p.trigger.lower()]
-
-    def causal_parents(self, effect: str) -> list[CausalChain]:
-        return [c for c in self.causal_chains if c.effect == effect]
-
-    def causal_children(self, cause: str) -> list[CausalChain]:
-        return [c for c in self.causal_chains if c.cause == cause]
-
     def all_signal_names(self) -> list[str]:
         names = list(self.signals.keys())
         names.extend(c.name for c in self.compositions)
@@ -271,18 +256,6 @@ class MutableTBox:
 
     def signal(self, name: str) -> SignalDefinition | None:
         return self._base.signal(name)
-
-    def policies_for_trigger(self, trigger: str) -> list[Policy]:
-        return self._base.policies_for_trigger(trigger)
-
-    def policies_for_signal(self, signal_name: str) -> list[Policy]:
-        return self._base.policies_for_signal(signal_name)
-
-    def causal_parents(self, effect: str) -> list[CausalChain]:
-        return self._base.causal_parents(effect)
-
-    def causal_children(self, cause: str) -> list[CausalChain]:
-        return self._base.causal_children(cause)
 
     def all_signal_names(self) -> list[str]:
         return self._base.all_signal_names()

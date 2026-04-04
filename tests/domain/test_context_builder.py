@@ -18,7 +18,7 @@ from remi.agent.context.frame import (
     WorldState,
 )
 from remi.agent.graph.retrieval.retriever import ResolvedEntity
-from remi.domain.core.ontology.schema import load_domain_yaml
+from remi.application.infra.ontology.schema import load_domain_yaml
 from remi.agent.signals.persistence.mem import InMemorySignalStore
 
 # -- token utilities ----------------------------------------------------------

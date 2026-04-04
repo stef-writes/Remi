@@ -53,21 +53,19 @@ Use `structlog` for all logging, not `print` or `logging` directly.
 
 ## Architecture: Four Packages
 
-Full rationale: `docs/architecture.md`
-
 ```
 src/remi/
-  agent/     # AI infrastructure — LLM, vectors, sandbox, tracing, signals,
-             # graph, documents, DB, runtime, context, conversation,
-             # ingestion runner, tools
-  domain/    # RE product — portfolio, stores, queries, evaluators, ingestion,
-             # ontology, search, tools, configs
-  types/     # Shared vocabulary — ids, clock, errors, enums
-  shell/     # Composition root — DI container, settings, API, CLI
+  agent/           # AI infrastructure — LLM, vectors, sandbox, tracing, signals,
+                   # graph, documents, DB, runtime, context, conversation,
+                   # ingestion runner, tools
+  application/     # RE product (hexagonal) — core models/protocols, services,
+                   # infra adapters, API routers, CLI commands, tools, agents
+  types/           # Shared vocabulary — ids, clock, errors, enums
+  shell/           # Composition root — DI container, settings, API factory, CLI entry
 ```
 
-**Dependency direction:** `domain/` imports from `agent/` — never the reverse.
-`shell/` imports from both. `types/` imports nothing.
+**Dependency direction:** `types/ ← agent/ ← application/ ← shell/`.
+`shell/` imports from everything. `types/` imports nothing.
 
 **When creating or moving code, say which package it belongs to before placing it.**
 
@@ -80,17 +78,17 @@ The LLM's job is abductive reasoning: explain, connect, recommend, codify.
 |------|------|
 | `src/remi/shell/config/domain.yaml` | Source of truth for signal definitions, thresholds, rules |
 | `src/remi/shell/config/container.py` | DI container — wires everything |
-| `src/remi/domain/agents/director/app.yaml` | Director agent manifest |
-| `src/remi/domain/agents/researcher/app.yaml` | Researcher agent manifest |
+| `src/remi/application/agents/director/app.yaml` | Director agent manifest |
+| `src/remi/application/agents/researcher/app.yaml` | Researcher agent manifest |
 | `src/remi/agent/runtime/node.py` | AgentNode — config-driven think-act-observe loop |
-| `src/remi/domain/evaluators/engine.py` | Entailment engine — evaluates rules, produces signals |
-| `src/remi/domain/ingestion/service.py` | IngestionService — report type detection + dispatch |
-| `src/remi/domain/ingestion/managers.py` | Manager classification + ManagerResolver |
+| `src/remi/application/services/monitoring/signals/engine.py` | Entailment engine — evaluates rules, produces signals |
+| `src/remi/application/services/ingestion/service.py` | IngestionService — report type detection + dispatch |
+| `src/remi/application/services/ingestion/managers.py` | Manager classification + ManagerResolver |
 | `src/remi/agent/context/builder.py` | Assembles agent context from graph + signals |
-| `src/remi/agent/graph/retriever.py` | Retrieves entities and relationships from the graph |
-| `src/remi/domain/queries/dashboard.py` | Computes director dashboard state from signals |
-| `src/remi/domain/queries/managers.py` | Manager performance review logic |
-| `src/remi/domain/queries/auto_assign.py` | Assigns unassigned properties to existing managers |
+| `src/remi/agent/graph/retrieval/retriever.py` | Retrieves entities and relationships from the graph |
+| `src/remi/application/services/queries/dashboard.py` | Computes director dashboard state from signals |
+| `src/remi/application/services/queries/managers.py` | Manager performance review logic |
+| `src/remi/application/services/queries/auto_assign.py` | Assigns unassigned properties to existing managers |
 | `src/remi/types/errors.py` | Shared error types |
 
 ## When Making Structural Decisions
@@ -99,4 +97,4 @@ The LLM's job is abductive reasoning: explain, connect, recommend, codify.
 - Before adding logic to an existing file, flag if it's growing beyond a single responsibility
 - Prefer small focused modules
 - `types/` is for primitives only — no business logic there
-- `domain/queries/` is for domain query logic that isn't part of the agent loop
+- `application/services/queries/` owns read-models — not part of the agent loop

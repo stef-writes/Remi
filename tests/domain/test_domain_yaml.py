@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from remi.domain.core.ontology.schema import load_domain_yaml
-from remi.domain.core.portfolio.models import EntityType
+from remi.application.infra.ontology.schema import load_domain_yaml
+from remi.application.core.models.enums import EntityType
 from remi.agent.signals import (
     CausalChain,
     Deontic,
@@ -29,6 +29,12 @@ EXPECTED_SIGNAL_NAMES = {
     "LegalEscalationRisk",
     "BelowMarketRent",
     "ConcentrationRisk",
+}
+
+EXPECTED_COMPOSITION_NAMES = {
+    "DelinquencyLeaseCliff",
+    "OperationalBreakdown",
+    "DecliningPortfolio",
 }
 
 
@@ -152,20 +158,9 @@ class TestDomainQueries:
         assert domain.signal("VacancyDuration") is not None
         assert domain.signal("NonexistentSignal") is None
 
-    def test_causal_parents(self) -> None:
-        domain = _domain()
-        parents = domain.causal_parents("extended_vacancy")
-        assert len(parents) >= 1
-        assert any(c.cause == "slow_maintenance" for c in parents)
-
-    def test_causal_children(self) -> None:
-        domain = _domain()
-        children = domain.causal_children("below_market_rent")
-        assert len(children) >= 1
-        assert any(c.effect == "missed_revenue" for c in children)
-
-    def test_all_signal_names(self) -> None:
+    def test_all_signal_names_includes_compositions(self) -> None:
         domain = _domain()
         names = domain.all_signal_names()
-        assert len(names) >= len(EXPECTED_SIGNAL_NAMES)
+        assert len(names) >= len(EXPECTED_SIGNAL_NAMES) + len(EXPECTED_COMPOSITION_NAMES)
         assert "VacancyDuration" in names
+        assert "DelinquencyLeaseCliff" in names

@@ -24,19 +24,18 @@ from typing import Any, Literal, Protocol
 import structlog
 import yaml
 
-from remi.agent.config import AgentConfig
 from remi.agent.context.builder import ContextBuilder
-from remi.agent.runtime.base import InputModule, Message, ModuleOutput
-from remi.agent.runtime.deps import RunDeps, RunParams, RuntimeContext
-from remi.agent.runtime.node import AgentNode
-from remi.agent.runtime.retry import RetryPolicy
-from remi.agent.types import ChatSessionStore, ToolRegistry
 from remi.agent.graph.stores import MemoryStore
 from remi.agent.llm.factory import LLMProviderFactory
 from remi.agent.observe.types import Tracer
 from remi.agent.observe.usage import LLMUsageLedger
+from remi.agent.runtime.base import InputModule, Message, ModuleOutput
+from remi.agent.runtime.deps import RunDeps, RunParams, RuntimeContext, ScopeContext
+from remi.agent.runtime.node import AgentNode
+from remi.agent.runtime.retry import RetryPolicy
 from remi.agent.sandbox.types import Sandbox
 from remi.agent.signals import DomainTBox, SignalStore
+from remi.agent.types import ChatSessionStore, ToolRegistry
 from remi.types.ids import new_run_id
 from remi.types.paths import AGENTS_DIR
 
@@ -99,7 +98,7 @@ class ChatAgentService:
             if module.get("kind") == "agent":
                 cfg: dict[str, Any] = module.get("config", {})
                 return cfg
-        raise ValueError(f"No agent module found in domain/agents/{agent_name}/app.yaml")
+        raise ValueError(f"No agent module found in application/agents/{agent_name}/app.yaml")
 
     def _is_graph(self, data: dict[str, Any]) -> bool:
         """True when the YAML declares more than one module (i.e. a graph)."""
@@ -217,6 +216,7 @@ class ChatAgentService:
         run_id: str | None = None,
         *,
         params: RunParams | None = None,
+        scope: ScopeContext | None = None,
         extra: dict[str, Any] | None = None,
     ) -> RuntimeContext:
         deps = RunDeps(
@@ -236,6 +236,7 @@ class ChatAgentService:
             run_id=run_id or new_run_id(),
             deps=deps,
             params=params or RunParams(),
+            scope=scope or ScopeContext(),
             extras=extra or {},
         )
 
@@ -308,6 +309,7 @@ class ChatAgentService:
         mode: Literal["ask", "agent"] = "agent",
         provider: str | None = None,
         model: str | None = None,
+        scope: ScopeContext | None = None,
         extra: dict[str, Any] | None = None,
     ) -> str:
         """Multi-turn agent execution over a message thread."""
@@ -328,7 +330,7 @@ class ChatAgentService:
             provider_name=provider,
             model_name=model,
         )
-        ctx = self._build_context(run_id=run_id, params=params, extra=extra)
+        ctx = self._build_context(run_id=run_id, params=params, scope=scope, extra=extra)
 
         thread_msgs: list[dict[str, Any]] = []
         for msg in thread:

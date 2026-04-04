@@ -4,20 +4,14 @@ from __future__ import annotations
 
 import typer
 
-# application slice
-from remi.shell.cli.agents import ai_cmd
-from remi.shell.cli.bench import cmd as bench_cmd
-from remi.shell.cli.research import cmd as research_cmd
-
-# domain/intelligence slice
-from remi.shell.cli.ontology import cmd as onto_cmd
-from remi.shell.cli.search import cmd as search_cmd
-from remi.shell.cli.trace import cmd as trace_cmd
-from remi.shell.cli.vectors import cmd as vectors_cmd
-from remi.shell.cli.documents import cmd as documents_cmd
-
-# domain/portfolio slice
-from remi.shell.cli.properties import (
+from remi.application.cli.agents import ai_cmd
+from remi.application.cli.bench import cmd as bench_cmd
+from remi.application.cli.db import cmd as db_cmd
+from remi.application.cli.demo import cmd as demo_cmd
+from remi.application.cli.documents import cmd as documents_cmd
+from remi.application.cli.graph import cmd as graph_cmd
+from remi.application.cli.ontology import cmd as onto_cmd
+from remi.application.cli.properties import (
     leases_cmd,
     maintenance_cmd,
     portfolio_cmd,
@@ -26,7 +20,11 @@ from remi.shell.cli.properties import (
     tenants_cmd,
     units_cmd,
 )
-from remi.shell.cli.seed import cmd as seed_cmd
+from remi.application.cli.research import cmd as research_cmd
+from remi.application.cli.search import cmd as search_cmd
+from remi.application.cli.seed import cmd as seed_cmd
+from remi.application.cli.trace import cmd as trace_cmd
+from remi.application.cli.vectors import cmd as vectors_cmd
 
 cli = typer.Typer(
     name="remi",
@@ -47,6 +45,9 @@ cli.add_typer(documents_cmd)
 cli.add_typer(onto_cmd)
 cli.add_typer(search_cmd)
 cli.add_typer(seed_cmd)
+cli.add_typer(db_cmd)
+cli.add_typer(demo_cmd)
+cli.add_typer(graph_cmd)
 cli.add_typer(trace_cmd)
 cli.add_typer(vectors_cmd)
 cli.add_typer(bench_cmd)
@@ -59,7 +60,7 @@ def dashboard(
 ) -> None:
     """Open the live portfolio dashboard (Textual TUI)."""
     try:
-        from remi.shell.cli.dashboard import run as run_dashboard
+        from remi.application.cli.dashboard import run as run_dashboard
     except ImportError as exc:
         typer.echo(f"Dashboard requires textual: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -71,19 +72,30 @@ def serve(
     host: str = typer.Option("127.0.0.1", help="Host to bind to"),
     port: int = typer.Option(8000, help="Port to listen on"),
     reload: bool = typer.Option(False, help="Enable auto-reload"),
-    seed: bool = typer.Option(False, "--seed", help="Ingest AppFolio reports at startup"),
+    seed: str = typer.Option(
+        "",
+        "--seed",
+        help="Seed from this report directory at startup.",
+    ),
+    force_seed: bool = typer.Option(
+        False,
+        "--force-seed",
+        help="Re-run LLM pipeline even if a seed cache exists.",
+    ),
 ) -> None:
     """Start the API server."""
     import os
 
     import uvicorn
 
-    from remi.shell.cli.banner import print_banner
+    from remi.application.cli.banner import print_banner
 
     if seed:
-        os.environ["REMI_SEED"] = "1"
+        os.environ["REMI_SEED_DIR"] = seed
+    if force_seed:
+        os.environ["REMI_FORCE_SEED"] = "1"
 
-    print_banner(host=host, port=port, reload=reload, seed=seed)
+    print_banner(host=host, port=port, reload=reload, seed=bool(seed))
 
     uvicorn.run(
         "remi.shell.api.main:app",
