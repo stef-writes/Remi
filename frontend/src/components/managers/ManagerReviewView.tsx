@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { fmt$, fmtDate, pct } from "@/lib/format";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { MaintenanceTab } from "./MaintenanceTab";
 import { ReviewPrepTab } from "./ReviewPrepTab";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { MetricStrip } from "@/components/ui/MetricStrip";
@@ -20,13 +21,14 @@ import type {
   VacancyTracker,
 } from "@/lib/types";
 
-type Tab = "overview" | "delinquency" | "leases" | "vacancies" | "review";
+type Tab = "overview" | "delinquency" | "leases" | "vacancies" | "maintenance" | "review";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "delinquency", label: "Delinquency" },
   { key: "leases", label: "Leases" },
   { key: "vacancies", label: "Vacancies" },
+  { key: "maintenance", label: "Maintenance" },
   { key: "review", label: "Review Prep" },
 ];
 
@@ -141,7 +143,7 @@ function OverviewTab({ review }: { review: ManagerReview }) {
             {review.top_issues.map((issue) => (
               <Link
                 key={issue.unit_id}
-                href={`/properties/${issue.property_id}`}
+                href={`/properties/${issue.property_id}/units/${issue.unit_id}`}
                 className="flex items-center gap-4 px-5 py-2.5 border-b border-border-subtle hover:bg-surface-raised transition-colors"
               >
                 <div className="flex-1 min-w-0">
@@ -197,8 +199,20 @@ function DelinquencyTab({ data }: { data: DelinquencyBoard | null }) {
               {data.tenants.map((t) => (
                 <tr key={t.tenant_id} className="border-b border-border-subtle hover:bg-surface-raised">
                   <td className="px-4 py-2 text-fg font-medium">{t.tenant_name}</td>
-                  <td className="px-4 py-2 text-fg-secondary">{t.property_name || "—"}</td>
-                  <td className="px-4 py-2 text-fg-secondary font-mono">{t.unit_number || "—"}</td>
+                  <td className="px-4 py-2">
+                    {t.property_id ? (
+                      <Link href={`/properties/${t.property_id}`} className="text-fg-secondary hover:text-accent transition-colors">{t.property_name || "—"}</Link>
+                    ) : (
+                      <span className="text-fg-secondary">{t.property_name || "—"}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 font-mono">
+                    {t.property_id && t.unit_id ? (
+                      <Link href={`/properties/${t.property_id}/units/${t.unit_id}`} className="text-fg-secondary hover:text-accent transition-colors">{t.unit_number || "—"}</Link>
+                    ) : (
+                      <span className="text-fg-secondary">{t.unit_number || "—"}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2">
                     <Badge variant={t.status === "evict" ? "red" : t.status === "notice" ? "amber" : "blue"}>{t.status}</Badge>
                   </td>
@@ -249,8 +263,12 @@ function LeasesTab({ data }: { data: LeaseCalendar | null }) {
               {data.leases.map((l) => (
                 <tr key={l.lease_id} className="border-b border-border-subtle hover:bg-surface-raised">
                   <td className="px-4 py-2 text-fg font-medium">{l.tenant_name}</td>
-                  <td className="px-4 py-2 text-fg-secondary">{l.property_name}</td>
-                  <td className="px-4 py-2 text-fg-secondary font-mono">{l.unit_number}</td>
+                  <td className="px-4 py-2">
+                    <Link href={`/properties/${l.property_id}`} className="text-fg-secondary hover:text-accent transition-colors">{l.property_name}</Link>
+                  </td>
+                  <td className="px-4 py-2 font-mono">
+                    <Link href={`/properties/${l.property_id}/units/${l.unit_id}`} className="text-fg-secondary hover:text-accent transition-colors">{l.unit_number}</Link>
+                  </td>
                   <td className="px-4 py-2 text-right text-fg-secondary font-mono">{fmt$(l.monthly_rent)}</td>
                   <td className="px-4 py-2 text-right font-mono">
                     <span className={l.market_rent > l.monthly_rent ? "text-warn" : "text-fg-secondary"}>{fmt$(l.market_rent)}</span>
@@ -301,8 +319,12 @@ function VacanciesTab({ data }: { data: VacancyTracker | null }) {
             <tbody>
               {data.units.map((u) => (
                 <tr key={u.unit_id} className="border-b border-border-subtle hover:bg-surface-raised">
-                  <td className="px-4 py-2 text-fg font-medium">{u.property_name}</td>
-                  <td className="px-4 py-2 text-fg-secondary font-mono">{u.unit_number}</td>
+                  <td className="px-4 py-2">
+                    <Link href={`/properties/${u.property_id}`} className="text-fg font-medium hover:text-accent transition-colors">{u.property_name}</Link>
+                  </td>
+                  <td className="px-4 py-2 font-mono">
+                    <Link href={`/properties/${u.property_id}/units/${u.unit_id}`} className="text-fg-secondary hover:text-accent transition-colors">{u.unit_number}</Link>
+                  </td>
                   <td className="px-4 py-2">
                     <Badge variant={u.occupancy_status?.includes("vacant") ? "red" : "amber"}>
                       {(u.occupancy_status || "vacant").replace(/_/g, " ")}
@@ -401,7 +423,7 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
     setDeleting(true);
     try {
       await api.deleteManager(managerId);
-      router.push("/");
+      router.push("/managers");
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to delete manager");
       setDeleting(false);
@@ -428,12 +450,13 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
   const delCount = delinquency?.total_delinquent ?? 0;
   const leaseCount = leases?.total_expiring ?? 0;
   const vacCount = (vacancies?.total_vacant ?? 0) + (vacancies?.total_notice ?? 0);
+  const maintCount = review.open_maintenance;
 
   return (
     <PageContainer wide>
         {/* Header */}
         <div>
-          <Link href="/" className="text-xs text-fg-faint hover:text-fg-secondary transition-colors">
+          <Link href="/managers" className="text-xs text-fg-faint hover:text-fg-secondary transition-colors">
             &larr; All Managers
           </Link>
 
@@ -502,14 +525,14 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
+        <div className="flex items-center gap-1 border-b border-border overflow-x-auto scrollbar-none">
           {TABS.map(({ key, label }) => {
-            const count = key === "delinquency" ? delCount : key === "leases" ? leaseCount : key === "vacancies" ? vacCount : key === "review" ? actionCount : 0;
+            const count = key === "delinquency" ? delCount : key === "leases" ? leaseCount : key === "vacancies" ? vacCount : key === "maintenance" ? maintCount : key === "review" ? actionCount : 0;
             return (
               <button
                 key={key}
                 onClick={() => setTab(key)}
-                className={`px-4 py-2.5 text-xs font-medium border-b-2 transition-all ${
+                className={`px-3 sm:px-4 py-2.5 text-xs font-medium border-b-2 transition-all whitespace-nowrap shrink-0 ${
                   tab === key
                     ? "border-accent text-fg"
                     : "border-transparent text-fg-muted hover:text-fg-secondary"
@@ -518,7 +541,7 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
                 {label}
                 {count > 0 && key !== "overview" && (
                   <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full ${
-                    key === "delinquency" || key === "vacancies" ? "bg-error-soft text-error" : key === "leases" ? "bg-warn-soft text-warn" : key === "review" ? "bg-accent/20 text-accent" : "bg-surface-sunken text-fg-faint"
+                    key === "delinquency" || key === "vacancies" ? "bg-error-soft text-error" : key === "leases" ? "bg-warn-soft text-warn" : key === "maintenance" ? "bg-sky-500/20 text-sky-400" : key === "review" ? "bg-accent/20 text-accent" : "bg-surface-sunken text-fg-faint"
                   }`}>
                     {count}
                   </span>
@@ -533,6 +556,7 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
         {tab === "delinquency" && <DelinquencyTab data={delinquency} />}
         {tab === "leases" && <LeasesTab data={leases} />}
         {tab === "vacancies" && <VacanciesTab data={vacancies} />}
+        {tab === "maintenance" && <MaintenanceTab properties={review.properties} />}
         {tab === "review" && <ReviewPrepTab managerId={managerId} />}
     </PageContainer>
   );

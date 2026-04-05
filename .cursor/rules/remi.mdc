@@ -120,8 +120,8 @@ Everything related to a feature lives together.
 - `cli/intelligence/` contains dashboard, search, ontology, trace
 - `services/ingestion/` contains rules, pipeline, persist, resolver
 
-Horizontal grouping (all query services in `queries/`) is acceptable
-only when the grouped items share a contract, not just a technical role.
+Avoid horizontal grouping by technical role (e.g. all queries together).
+Group by entity or capability.
 
 ### Clean Architecture Boundaries
 The four packages enforce strict dependency rings:
@@ -153,8 +153,8 @@ inner ring and implement it in the outer ring.
 ## Architecture: An Agent Operating System
 
 REMI is an agent operating system — the runtime that lets an AI agent
-reason over a director's book of business. Four packages; the directory
-tree is the documentation.
+reason over a property management book of business. Four packages; the
+directory tree is the documentation.
 
 ```
 types/ ← agent/ ← application/ ← shell/
@@ -187,10 +187,23 @@ src/remi/
 
   application/        # Real estate product (hexagonal)
     core/             Pure business: models, protocols, rules, events
-    services/         Orchestration: queries, ingestion, embedding,
-                      seeding, search
+    portfolio/        Entity resolvers — the read side of the domain:
+      managers.py     Manager aggregation and ranking
+      properties.py   Property list and detail
+      units.py        Cross-property unit queries
+      leases.py       Lease list and expiring-lease queries
+      maintenance.py  Maintenance list and summary
+      portfolios.py   Portfolio list and summary
+      dashboard.py    Composite dashboard views
+      rent_roll.py    Detailed rent-roll assembly
+      auto_assign.py  KB-tag-based property-to-manager assignment
+      _models.py      Read-model types (Pydantic)
+    services/         Orchestration pipelines (not entity access):
       ingestion/      Rule-based + LLM ingestion (rules.py, pipeline.py,
                       service.py, persist.py, managers.py)
+      embedding/      Vector indexing pipeline
+      seeding/        Batch report loading (PortfolioLoader)
+      search.py       RE-aware hybrid search
     infra/            Port implementations: stores (mem, pg), ontology,
                       ports (agent ↔ application bridges)
     tools/            Agent tool registrations
@@ -245,11 +258,15 @@ Port interfaces for storage live in `application/core/protocols.py` as
 
 ## Boundary Model Discipline
 
-- **`application/services/queries/` owns read-models** (`RentRollResult`, etc.).
-- **`shell/api/` schemas re-export** from queries — no duplicate Pydantic classes.
-  Only HTTP-specific types (request bodies, envelope wrappers) are defined in `shell/api/`.
-- **CLI delegates** to services and renders the result — no inline store queries.
+- **`application/portfolio/` owns read-models** (`RentRollResult`, etc.).
+- **`api/` schemas re-export** from `portfolio/` — no duplicate Pydantic classes.
+  Only HTTP-specific types (request bodies, envelope wrappers) are defined in `api/`.
+- **CLI delegates** to resolvers and renders the result — no inline store queries.
 - **No `SomeApiType(**service_result.model_dump())`** between identical types.
+
+**There is no `services/queries/` package.** Entity resolvers live in
+`application/portfolio/`. Do not create or import from
+`remi.application.services.queries`.
 
 ## Container Discipline
 

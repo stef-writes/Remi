@@ -25,8 +25,7 @@ from remi.application.core.models import (
     UnitStatus,
 )
 from remi.application.infra.stores.mem import InMemoryPropertyStore
-from remi.application.services.queries.dashboard import DashboardQueryService
-from remi.application.services.queries.managers import ManagerReviewService
+from remi.application.portfolio import DashboardQueryService, ManagerReviewService
 from remi.application.tools.workflows import WorkflowToolProvider
 
 _ADDR = Address(street="100 Smithfield St", city="Pittsburgh", state="PA", zip_code="15222")

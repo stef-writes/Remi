@@ -11,32 +11,22 @@ from typing import Any
 
 import structlog
 
-from remi.agent.documents import Document, DocumentKind, DocumentStore, TextChunk, parse_document
 from remi.agent.graph import (
     Entity,
-    FactProvenance,
-    KnowledgeGraph,
-    KnowledgeProvenance,
     KnowledgeStore,
     Relationship,
 )
 from remi.agent.vectors import (
     Embedder,
     EmbeddingRecord,
-    EmbeddingRequest,
-    SearchResult,
     VectorStore,
 )
 from remi.application.core.protocols import (
-    DocumentParser,
-    DocumentRepository,
     EmbedRequest,
     KBEntity,
     KBRelationship,
     KnowledgeReader,
     KnowledgeWriter,
-    ParsedDocument,
-    ParsedTextChunk,
     TextIndexer,
     TextSearchHit,
     VectorSearch,
@@ -128,113 +118,6 @@ class KnowledgeStoreReader(KnowledgeReader):
 
 
 # ---------------------------------------------------------------------------
-# Document parsing & storage
-# ---------------------------------------------------------------------------
-
-
-def _doc_to_parsed(doc: Document) -> ParsedDocument:
-    return ParsedDocument(
-        id=doc.id,
-        filename=doc.filename,
-        content_type=doc.content_type,
-        kind=doc.kind.value,
-        column_names=doc.column_names,
-        rows=doc.rows,
-        row_count=doc.row_count,
-        chunks=[
-            ParsedTextChunk(index=c.index, text=c.text, page=c.page)
-            for c in doc.chunks
-        ],
-        raw_text=doc.raw_text,
-        page_count=doc.page_count,
-        tags=list(doc.tags),
-        size_bytes=doc.size_bytes,
-        effective_date=doc.effective_date,
-        metadata=dict(doc.metadata),
-    )
-
-
-def _parsed_to_doc(pd: ParsedDocument) -> Document:
-    return Document(
-        id=pd.id,
-        filename=pd.filename,
-        content_type=pd.content_type,
-        kind=DocumentKind(pd.kind),
-        column_names=pd.column_names,
-        rows=pd.rows,
-        row_count=pd.row_count,
-        chunks=[
-            TextChunk(index=c.index, text=c.text, page=c.page)
-            for c in pd.chunks
-        ],
-        raw_text=pd.raw_text,
-        page_count=pd.page_count,
-        tags=list(pd.tags),
-        size_bytes=pd.size_bytes,
-        metadata=pd.metadata,
-    )
-
-
-class AgentDocumentParser(DocumentParser):
-    """Adapts ``agent.documents.parse_document`` to ``DocumentParser``."""
-
-    def parse(
-        self,
-        filename: str,
-        content: bytes,
-        content_type: str,
-        *,
-        extra_skip_patterns: tuple[str, ...] = (),
-    ) -> ParsedDocument:
-        doc = parse_document(
-            filename, content, content_type,
-            extra_skip_patterns=extra_skip_patterns,
-        )
-        return _doc_to_parsed(doc)
-
-
-class AgentDocumentRepository(DocumentRepository):
-    """Adapts ``agent.documents.DocumentStore`` to ``DocumentRepository``."""
-
-    def __init__(self, store: DocumentStore) -> None:
-        self._store = store
-
-    @property
-    def inner(self) -> DocumentStore:
-        return self._store
-
-    async def save(self, doc: ParsedDocument) -> None:
-        await self._store.save(_parsed_to_doc(doc))
-
-    async def get(self, doc_id: str) -> ParsedDocument | None:
-        doc = await self._store.get(doc_id)
-        if doc is None:
-            return None
-        return _doc_to_parsed(doc)
-
-    async def list_documents(self) -> list[ParsedDocument]:
-        docs = await self._store.list_documents()
-        return [_doc_to_parsed(d) for d in docs]
-
-    async def search_documents(
-        self,
-        *,
-        query: str | None = None,
-        kind: str | None = None,
-        tags: list[str] | None = None,
-        limit: int = 50,
-    ) -> list[ParsedDocument]:
-        dk = DocumentKind(kind) if kind else None
-        docs = await self._store.search_documents(
-            query=query, kind=dk, tags=tags, limit=limit,
-        )
-        return [_doc_to_parsed(d) for d in docs]
-
-    async def update_tags(self, doc_id: str, tags: list[str]) -> bool:
-        return await self._store.update_tags(doc_id, tags)
-
-
-# ---------------------------------------------------------------------------
 # Embedding / vector search
 # ---------------------------------------------------------------------------
 
@@ -285,7 +168,7 @@ class AgentVectorSearch(VectorSearch):
         self._vs = vector_store
         self._embedder = embedder
 
-    def _to_hit(self, r: SearchResult) -> TextSearchHit:
+    def _to_hit(self, r: Any) -> TextSearchHit:
         return TextSearchHit(
             entity_id=r.record.source_entity_id,
             entity_type=r.record.source_entity_type,
@@ -325,8 +208,6 @@ class AgentVectorSearch(VectorSearch):
 
 
 __all__ = [
-    "AgentDocumentParser",
-    "AgentDocumentRepository",
     "AgentTextIndexer",
     "AgentVectorSearch",
     "KnowledgeStoreReader",

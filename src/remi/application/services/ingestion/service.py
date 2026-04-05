@@ -16,16 +16,23 @@ from typing import Any
 
 import structlog
 
+from remi.agent.documents import DocumentContent
 from remi.agent.pipeline import IngestionPipelineRunner
+from remi.application.core.models import Document, DocumentType
 from remi.application.core.protocols import (
     KBEntity,
     KBRelationship,
     KnowledgeWriter,
-    ParsedDocument,
     PropertyStore,
 )
 from remi.application.infra.ontology.schema import entity_schemas_for_prompt
-from remi.application.services.ingestion.base import IngestionResult
+from remi.application.services.ingestion.base import (
+    IngestionResult,
+    ReviewItem,
+    ReviewKind,
+    ReviewOption,
+    ReviewSeverity,
+)
 from remi.application.services.ingestion.managers import ManagerResolver
 from remi.application.services.ingestion.persist import resolve_and_persist
 from remi.application.services.ingestion.resolver import PERSISTABLE_TYPES
@@ -34,6 +41,13 @@ from remi.application.services.ingestion.validation import validate_rows
 logger = structlog.get_logger(__name__)
 
 _PIPELINE = "document_ingestion"
+
+_REPORT_TYPE_TO_DOC_TYPE: dict[str, DocumentType] = {
+    "rent_roll": DocumentType.REPORT,
+    "delinquency": DocumentType.REPORT,
+    "lease_expiration": DocumentType.REPORT,
+    "property_directory": DocumentType.REPORT,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +163,7 @@ class IngestionService:
 
     async def ingest_mapped_rows(
         self,
-        doc: ParsedDocument,
+        content: DocumentContent,
         *,
         report_type: str,
         rows: list[dict[str, Any]],
@@ -161,12 +175,26 @@ class IngestionService:
         already been done deterministically.
         """
         namespace = "ontology"
-        result = IngestionResult(document_id=doc.id)
+        result = IngestionResult(document_id=content.id)
         result.report_type = report_type
 
         upload_portfolio_id: str | None = None
         if manager:
-            upload_portfolio_id = await self._manager_resolver.ensure_manager(manager)
+            resolution = await self._manager_resolver.ensure_manager(manager)
+            upload_portfolio_id = resolution.portfolio_id
+            if resolution.created_new:
+                result.review_items.append(
+                    ReviewItem(
+                        kind=ReviewKind.MANAGER_INFERRED,
+                        severity=ReviewSeverity.INFO,
+                        message=(
+                            f"Created new manager '{resolution.manager_name}' "
+                            f"from upload parameter"
+                        ),
+                        entity_type="PropertyManager",
+                        entity_id=resolution.manager_id,
+                    )
+                )
 
         validated = validate_rows(rows, result)
         if validated:
@@ -174,7 +202,7 @@ class IngestionService:
                 validated,
                 report_type=report_type,
                 platform="appfolio",
-                doc_id=doc.id,
+                doc_id=content.id,
                 namespace=namespace,
                 kb=self._kb,
                 ps=self._ps,
@@ -185,15 +213,15 @@ class IngestionService:
         else:
             logger.warning(
                 "rules_mapped_rows_empty_after_validation",
-                doc_id=doc.id,
+                doc_id=content.id,
                 report_type=report_type,
             )
 
-        await self._write_doc_entity(doc, result, namespace)
+        await self._persist_document_entity(content, result)
 
         logger.info(
             "rules_ingestion_complete",
-            doc_id=doc.id,
+            doc_id=content.id,
             report_type=report_type,
             entities=result.entities_created,
             relationships=result.relationships_created,
@@ -204,50 +232,67 @@ class IngestionService:
 
     async def ingest(
         self,
-        doc: ParsedDocument,
+        content: DocumentContent,
         *,
         manager: str | None = None,
     ) -> IngestionResult:
         namespace = "ontology"
-        result = IngestionResult(document_id=doc.id)
+        result = IngestionResult(document_id=content.id)
 
         upload_portfolio_id: str | None = None
         if manager:
-            upload_portfolio_id = await self._manager_resolver.ensure_manager(manager)
+            resolution = await self._manager_resolver.ensure_manager(manager)
+            upload_portfolio_id = resolution.portfolio_id
+            if resolution.created_new:
+                result.review_items.append(
+                    ReviewItem(
+                        kind=ReviewKind.MANAGER_INFERRED,
+                        severity=ReviewSeverity.INFO,
+                        message=(
+                            f"Created new manager '{resolution.manager_name}' "
+                            f"from upload parameter"
+                        ),
+                        entity_type="PropertyManager",
+                        entity_id=resolution.manager_id,
+                    )
+                )
 
         pipeline_input = json.dumps(
             {
-                "column_names": doc.column_names,
-                "sample_rows": doc.rows[:5],
-                "all_rows": doc.rows,
+                "column_names": content.column_names,
+                "sample_rows": content.rows[:5],
+                "all_rows": content.rows,
                 "known_types": [t.to_dict() for t in _KNOWN_TYPES],
             },
             default=str,
         )
 
+        pipeline_ctx = {
+            "entity_schemas": entity_schemas_for_prompt(filter_names=PERSISTABLE_TYPES),
+        }
+
         try:
             pipeline_result = await self._runner.run(
                 _PIPELINE,
                 pipeline_input,
-                context={
-                    "entity_schemas": entity_schemas_for_prompt(filter_names=PERSISTABLE_TYPES),
-                },
+                context=pipeline_ctx,
+                skip_steps={"enrich"},
             )
         except Exception:
-            logger.exception("ingestion_pipeline_failed", doc_id=doc.id)
-            await self._write_doc_entity(doc, result, namespace)
+            logger.exception("ingestion_pipeline_failed", doc_id=content.id)
+            await self._persist_document_entity(content, result)
             return result
 
         extract_output = pipeline_result.step("extract")
-        enrich_output = pipeline_result.step("enrich")
+        enrich_output = None
 
         if not isinstance(extract_output, dict):
             logger.warning(
                 "extraction_output_not_dict",
-                doc_id=doc.id,
+                doc_id=content.id,
                 output_type=type(extract_output).__name__,
             )
-            await self._write_doc_entity(doc, result, namespace)
+            await self._persist_document_entity(content, result)
             return result
 
         report_type = str(extract_output.get("report_type") or "unknown")
@@ -262,6 +307,26 @@ class IngestionService:
 
         rows = [r for r in raw_rows if isinstance(r, dict)]
         result.report_type = report_type
+
+        if report_type == "unknown":
+            result.review_items.append(
+                ReviewItem(
+                    kind=ReviewKind.CLASSIFICATION_UNCERTAIN,
+                    severity=ReviewSeverity.ACTION_NEEDED,
+                    message=(
+                        f"Could not determine report type for '{content.filename}'"
+                    ),
+                    entity_type="Document",
+                    entity_id=content.id,
+                    options=[
+                        ReviewOption(id="rent_roll", label="Rent Roll"),
+                        ReviewOption(id="delinquency", label="Delinquency"),
+                        ReviewOption(id="lease_expiration", label="Lease Expiration"),
+                        ReviewOption(id="property_directory", label="Property Directory"),
+                    ],
+                )
+            )
+
         rows = validate_rows(rows, result)
 
         if rows:
@@ -269,7 +334,7 @@ class IngestionService:
                 rows,
                 report_type=report_type,
                 platform=platform,
-                doc_id=doc.id,
+                doc_id=content.id,
                 namespace=namespace,
                 kb=self._kb,
                 ps=self._ps,
@@ -280,31 +345,43 @@ class IngestionService:
         else:
             logger.warning(
                 "extraction_produced_no_rows",
-                doc_id=doc.id,
-                filename=doc.filename,
+                doc_id=content.id,
+                filename=content.filename,
                 report_type=report_type,
             )
 
-        if isinstance(enrich_output, dict):
+        if unknown_rows:
+            try:
+                enrich_result = await self._runner.run(
+                    _PIPELINE,
+                    pipeline_input,
+                    context=pipeline_ctx,
+                    skip_steps={"classify", "extract"},
+                )
+                enrich_output = enrich_result.step("enrich")
+                pipeline_result.total_usage = (
+                    pipeline_result.total_usage + enrich_result.total_usage
+                )
+            except Exception:
+                logger.warning(
+                    "enrich_pipeline_failed", doc_id=content.id, exc_info=True,
+                )
+                enrich_output = None
+
+        if unknown_rows and isinstance(enrich_output, dict):
             raw_enriched = enrich_output.get("enriched_rows") or []
             if isinstance(raw_enriched, list):
                 enriched = [EnrichedRow.from_raw(r) for r in raw_enriched]
                 await self._apply_enriched_rows(
                     [e for e in enriched if e is not None], namespace, result,
-                    doc_id=doc.id,
+                    doc_id=content.id,
                 )
-        elif unknown_rows:
-            logger.info(
-                "unknown_rows_not_enriched",
-                doc_id=doc.id,
-                count=len(unknown_rows),
-            )
 
-        await self._write_doc_entity(doc, result, namespace)
+        await self._persist_document_entity(content, result)
 
         logger.info(
             "ingestion_complete",
-            doc_id=doc.id,
+            doc_id=content.id,
             report_type=result.report_type,
             entities=result.entities_created,
             relationships=result.relationships_created,
@@ -344,31 +421,39 @@ class IngestionService:
                 )
                 result.relationships_created += 1
 
-    async def _write_doc_entity(
+    async def _persist_document_entity(
         self,
-        doc: ParsedDocument,
+        content: DocumentContent,
         result: IngestionResult,
-        namespace: str,
+        *,
+        manager_id: str | None = None,
+        property_id: str | None = None,
+        unit_id: str | None = None,
+        lease_id: str | None = None,
     ) -> None:
-        props: dict[str, str] = {
-            "filename": doc.filename,
-            "content_type": doc.content_type,
-            "kind": doc.kind,
-            "row_count": str(doc.row_count),
-            "chunk_count": str(len(doc.chunks)),
-            "page_count": str(doc.page_count),
-            "report_type": result.report_type,
-            "document_id": doc.id,
-            "size_bytes": str(doc.size_bytes),
-        }
-        if doc.tags:
-            props["tags"] = ",".join(doc.tags)
+        """Upsert the promoted Document domain model via PropertyStore.
 
-        await self._kb.put_entity(
-            KBEntity(
-                entity_id=f"document:{doc.id}",
-                entity_type="document",
-                namespace=namespace,
-                properties=props,
-            )
+        FK projection on the ProjectingPropertyStore auto-materializes
+        graph edges (SCOPED_TO, FILED_UNDER, EVIDENCES, MANAGED_BY).
+        """
+        doc_type = _REPORT_TYPE_TO_DOC_TYPE.get(
+            result.report_type, DocumentType.OTHER,
         )
+        doc = Document(
+            id=content.id,
+            filename=content.filename,
+            content_type=content.content_type,
+            document_type=doc_type,
+            kind=content.kind.value,
+            row_count=content.row_count,
+            chunk_count=len(content.chunks),
+            page_count=content.page_count,
+            size_bytes=content.size_bytes,
+            tags=list(content.tags),
+            report_type=result.report_type,
+            manager_id=manager_id,
+            property_id=property_id,
+            unit_id=unit_id,
+            lease_id=lease_id,
+        )
+        await self._ps.upsert_document(doc)

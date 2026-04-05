@@ -9,10 +9,10 @@ from typing import Any, Protocol
 import structlog
 
 from remi.agent.config import AgentConfig
-from remi.agent.runtime.deps import RuntimeContext
-from remi.agent.types import ToolDefinition, ToolResult
 from remi.agent.llm.types import ToolCallRequest
 from remi.agent.observe.types import SpanKind, Tracer
+from remi.agent.runtime.deps import RuntimeContext
+from remi.agent.types import ToolDefinition, ToolResult
 
 
 class ToolExecuteFn(Protocol):

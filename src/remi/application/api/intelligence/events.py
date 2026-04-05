@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from remi.application.api.dependencies import get_event_store
-from remi.application.core.events import EventStore
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import NotFoundError
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -59,11 +58,11 @@ def _changeset_to_dict(cs: object) -> dict[str, Any]:
 
 @router.get("")
 async def list_recent_events(
+    c: Ctr,
     limit: int = Query(20, ge=1, le=100),
-    event_store: EventStore = Depends(get_event_store),
 ) -> dict[str, Any]:
     """List the most recent ChangeSets across all sources."""
-    changesets = await event_store.list_recent(limit=limit)
+    changesets = await c.event_store.list_recent(limit=limit)
     return {
         "count": len(changesets),
         "changesets": [_changeset_to_dict(cs) for cs in changesets],
@@ -73,10 +72,10 @@ async def list_recent_events(
 @router.get("/{changeset_id}")
 async def get_changeset(
     changeset_id: str,
-    event_store: EventStore = Depends(get_event_store),
+    c: Ctr,
 ) -> dict[str, Any]:
     """Retrieve a specific ChangeSet by ID."""
-    cs = await event_store.get(changeset_id)
+    cs = await c.event_store.get(changeset_id)
     if cs is None:
         raise NotFoundError("ChangeSet", changeset_id)
     return _changeset_to_dict(cs)
@@ -85,11 +84,11 @@ async def get_changeset(
 @router.get("/entity/{entity_id}")
 async def entity_history(
     entity_id: str,
+    c: Ctr,
     limit: int = Query(50, ge=1, le=200),
-    event_store: EventStore = Depends(get_event_store),
 ) -> dict[str, Any]:
     """List ChangeSets that touched a specific entity."""
-    changesets = await event_store.list_by_entity(entity_id, limit=limit)
+    changesets = await c.event_store.list_by_entity(entity_id, limit=limit)
     return {
         "entity_id": entity_id,
         "count": len(changesets),

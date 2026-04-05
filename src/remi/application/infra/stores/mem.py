@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from remi.application.core.models import (
     ActionItem,
     ActionItemStatus,
+    Document,
+    DocumentType,
     Lease,
     LeaseStatus,
     MaintenanceRequest,
@@ -58,6 +60,7 @@ class InMemoryPropertyStore(PropertyStore):
         self._vendors: dict[str, Vendor] = {}
         self._action_items: dict[str, ActionItem] = {}
         self._notes: dict[str, Note] = {}
+        self._documents: dict[str, Document] = {}
 
     # -- Owner --
     async def get_owner(self, owner_id: str) -> Owner | None:
@@ -405,3 +408,42 @@ class InMemoryPropertyStore(PropertyStore):
 
     async def delete_note(self, note_id: str) -> bool:
         return self._notes.pop(note_id, None) is not None
+
+    # -- Document --
+    async def get_document(self, doc_id: str) -> Document | None:
+        return self._documents.get(doc_id)
+
+    async def list_documents(
+        self,
+        *,
+        unit_id: str | None = None,
+        property_id: str | None = None,
+        manager_id: str | None = None,
+        lease_id: str | None = None,
+        document_type: DocumentType | None = None,
+    ) -> list[Document]:
+        items = list(self._documents.values())
+        if unit_id:
+            items = [d for d in items if d.unit_id == unit_id]
+        if property_id:
+            items = [d for d in items if d.property_id == property_id]
+        if manager_id:
+            items = [d for d in items if d.manager_id == manager_id]
+        if lease_id:
+            items = [d for d in items if d.lease_id == lease_id]
+        if document_type:
+            items = [d for d in items if d.document_type == document_type]
+        return items
+
+    async def upsert_document(self, doc: Document) -> WriteResult[Document]:
+        existing = self._documents.get(doc.id)
+        if existing:
+            merged: Document = _merge(existing, doc)  # type: ignore[assignment]
+            self._documents[doc.id] = merged
+            outcome = WriteOutcome.NOOP if merged == existing else WriteOutcome.UPDATED
+            return WriteResult(entity=merged, outcome=outcome)
+        self._documents[doc.id] = doc
+        return WriteResult(entity=doc, outcome=WriteOutcome.CREATED)
+
+    async def delete_document(self, doc_id: str) -> bool:
+        return self._documents.pop(doc_id, None) is not None

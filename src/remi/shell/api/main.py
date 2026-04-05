@@ -40,7 +40,7 @@ from remi.application.api.system import (
     agents_router,
     documents_router,
     realtime_router,
-    seed_router,
+    reports_router,
     usage_router,
 )
 from remi.shell.api.error_handler import install_error_handlers
@@ -64,7 +64,7 @@ def _attach_routers(application: FastAPI) -> None:
     application.include_router(units_router, prefix="/api/v1")
     application.include_router(ontology_router, prefix="/api/v1")
     application.include_router(search_router, prefix="/api/v1")
-    application.include_router(seed_router, prefix="/api/v1")
+    application.include_router(reports_router, prefix="/api/v1")
     application.include_router(actions_router, prefix="/api/v1")
     application.include_router(notes_router, prefix="/api/v1")
     application.include_router(usage_router, prefix="/api/v1")
@@ -109,38 +109,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         environment=settings.environment,
     )
 
-    seed_task: asyncio.Task[None] | None = None
-    seed_dir = os.environ.pop("REMI_SEED_DIR", None)
-    force_seed = bool(os.environ.pop("REMI_FORCE_SEED", None))
-    if seed_dir:
-        seed_task = asyncio.create_task(
-            _run_seed(container, Path(seed_dir), log, force=force_seed)
+    load_task: asyncio.Task[None] | None = None
+    report_dir = os.environ.pop("REMI_LOAD_DIR", None)
+    if report_dir:
+        load_task = asyncio.create_task(
+            _load_reports_bg(container, Path(report_dir), log)
         )
-    app.state.seed_task = seed_task
+    app.state.load_task = load_task
 
     yield
-    if seed_task and not seed_task.done():
-        seed_task.cancel()
+    if load_task and not load_task.done():
+        load_task.cancel()
     log.info(Event.SERVER_SHUTDOWN)
 
 
-async def _run_seed(
-    container: Container, report_dir: Path, log: Any, *, force: bool = False
+async def _load_reports_bg(
+    container: Container, report_dir: Path, log: Any,
 ) -> None:
-    """Run seed in the background so the server starts accepting requests immediately."""
+    """Load reports in the background so the server starts accepting requests immediately."""
     try:
-        seed_result = await container.seed_service.seed_from_reports(
-            report_dir, force=force,
-        )
+        result = await container.portfolio_loader.load_reports(report_dir)
         log.info(
-            "seed_complete",
-            managers=seed_result.managers_created,
-            properties=seed_result.properties_created,
-            reports=len(seed_result.reports_ingested),
-            errors=seed_result.errors,
+            "load_reports_complete",
+            files=result.files_processed,
+            entities=result.total_entities,
+            relationships=result.total_relationships,
+            embedded=result.total_embedded,
+            errors=len(result.errors),
         )
     except Exception:
-        log.exception("seed_failed")
+        log.exception("load_reports_failed")
 
 
 def create_app() -> FastAPI:
@@ -157,9 +155,6 @@ def create_app() -> FastAPI:
     install_error_handlers(application)
     _attach_routers(application)
     _attach_health(application)
-    # Middleware executes in reverse-add order (last-added = outermost).
-    # RequestID sits closest to the handler. CORS is outermost so its
-    # headers appear on every response including errors.
     application.add_middleware(RequestIDMiddleware)
     _add_cors(application, settings)
     return application
@@ -185,15 +180,15 @@ def _attach_health(application: FastAPI) -> None:
                 span_count = len(store._spans)
         uptime_s = round(_time.time() - _boot_time)
 
-        seed_task: _aio.Task[None] | None = getattr(application.state, "seed_task", None)
-        if seed_task is None:
-            seed_status = "not_requested"
-        elif not seed_task.done():
-            seed_status = "running"
-        elif seed_task.exception():
-            seed_status = "failed"
+        load_task: _aio.Task[None] | None = getattr(application.state, "load_task", None)
+        if load_task is None:
+            load_status = "not_requested"
+        elif not load_task.done():
+            load_status = "running"
+        elif load_task.exception():
+            load_status = "failed"
         else:
-            seed_status = "complete"
+            load_status = "complete"
 
         llm_calls = 0
         llm_cost_usd = 0.0
@@ -208,7 +203,7 @@ def _attach_health(application: FastAPI) -> None:
             "status": "ok",
             "version": application.version,
             "uptime_s": uptime_s,
-            "seed": seed_status,
+            "data_load": load_status,
             "traces": trace_count,
             "spans": span_count,
             "llm_calls": llm_calls,

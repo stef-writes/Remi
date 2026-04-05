@@ -15,6 +15,8 @@ from remi.agent.graph import GraphProjector
 from remi.application.core.models import (
     ActionItem,
     ActionItemStatus,
+    Document,
+    DocumentType,
     Lease,
     LeaseStatus,
     MaintenanceRequest,
@@ -292,3 +294,33 @@ class ProjectingPropertyStore(PropertyStore):
 
     async def delete_note(self, note_id: str) -> bool:
         return await self._inner.delete_note(note_id)
+
+    # -- Documents ------------------------------------------------------------
+
+    async def get_document(self, doc_id: str) -> Document | None:
+        return await self._inner.get_document(doc_id)
+
+    async def list_documents(
+        self,
+        *,
+        unit_id: str | None = None,
+        property_id: str | None = None,
+        manager_id: str | None = None,
+        lease_id: str | None = None,
+        document_type: DocumentType | None = None,
+    ) -> list[Document]:
+        return await self._inner.list_documents(
+            unit_id=unit_id,
+            property_id=property_id,
+            manager_id=manager_id,
+            lease_id=lease_id,
+            document_type=document_type,
+        )
+
+    async def upsert_document(self, doc: Document) -> WriteResult[Document]:
+        result = await self._inner.upsert_document(doc)
+        await self._project("Document", doc.id, doc.model_dump(mode="json"))
+        return result
+
+    async def delete_document(self, doc_id: str) -> bool:
+        return await self._inner.delete_document(doc_id)

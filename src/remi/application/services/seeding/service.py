@@ -1,15 +1,11 @@
-"""SeedService — ingest AppFolio report exports in dependency order.
+"""PortfolioLoader — bulk-ingest AppFolio report exports.
 
-Encapsulates the full seed workflow: parse XLSX reports, auto-assign
-properties to managers via embedded tags, run signal + embedding pipelines.
-Used by both the CLI (``remi seed``) and the API (``POST /api/v1/seed/reports``).
+Loads a directory of reports in two passes:
+  1. property_directory files first — establishes managers, portfolios,
+     and properties so that all subsequent reports resolve portfolio_id inline.
+  2. all other tabular and reference files second.
 
-Accepts any directory of XLSX/CSV exports — report type is detected by
-the LLM ingestion pipeline from column headers and row content, not from
-filenames.  Property directory reports (the "migration" type that creates
-managers and properties) are detected by a lightweight column-header
-heuristic and ingested first so that dependent reports can attach to
-existing entities.
+After both passes, runs a single embedding pass over the full store.
 """
 
 from __future__ import annotations
@@ -18,197 +14,224 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import structlog
-from pydantic import BaseModel
 
-from remi.application.core.protocols import DocumentParser, PropertyStore
+from remi.agent.documents import parse_document
+from remi.agent.documents.types import DocumentKind
+from remi.application.portfolio.auto_assign import AutoAssignService
 from remi.application.services.embedding.pipeline import EmbeddingPipeline
 from remi.application.services.ingestion.pipeline import DocumentIngestService
-from remi.application.services.queries.auto_assign import AutoAssignService
+from remi.application.services.ingestion.rules import detect_report_type
 
 logger = structlog.get_logger(__name__)
 
-_REPORT_EXTENSIONS = frozenset({".xlsx", ".xls", ".csv"})
-
-_PROPERTY_DIR_COLUMNS = frozenset({
-    "site manager name",
-    "property manager",
-    "manager name",
-    "assigned manager",
-})
+REPORT_SUFFIXES: frozenset[str] = frozenset(
+    {".csv", ".xlsx", ".xls", ".pdf", ".docx", ".txt"}
+)
 
 
-class IngestedReport(BaseModel, frozen=True):
-    filename: str
-    report_type: str
-    rows: int
-    entities: int
-    relationships: int
+def discover_reports(directory: str | Path) -> list[Path]:
+    """Return sorted list of ingestible report files in *directory*."""
+    target = Path(directory)
+    if not target.is_dir():
+        return []
+    return sorted(
+        f for f in target.iterdir() if f.is_file() and f.suffix.lower() in REPORT_SUFFIXES
+    )
 
 
-@dataclass
-class SeedResult:
-    ok: bool = True
-    reports_ingested: list[IngestedReport] = field(default_factory=list)
-    managers_created: int = 0
-    properties_created: int = 0
-    auto_assigned: int = 0
-    errors: list[str] = field(default_factory=list)
+def _content_type_for(path: Path) -> str:
+    return {
+        ".csv": "text/csv",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xls": "application/vnd.ms-excel",
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".txt": "text/plain",
+    }.get(path.suffix.lower(), "application/octet-stream")
 
 
-def _is_property_directory(
-    path: Path,
-    doc_parser: DocumentParser,
-    extra_skip_patterns: tuple[str, ...] = (),
-) -> bool:
-    """Heuristic: parse just the column headers and check for manager columns."""
+def _is_property_directory(path: Path) -> bool:
+    """Return True if this file's column headers match a property_directory report.
+
+    Parses the file once to inspect column names. Non-tabular files (PDF, DOCX,
+    TXT) return False immediately since they can never be a property directory.
+    """
+    if path.suffix.lower() in {".pdf", ".docx", ".txt"}:
+        return False
     try:
-        doc = doc_parser.parse(
-            path.name, path.read_bytes(), "",
-            extra_skip_patterns=extra_skip_patterns,
-        )
-        lower_cols = {c.lower().strip() for c in doc.column_names}
-        return bool(lower_cols & _PROPERTY_DIR_COLUMNS)
+        content_bytes = path.read_bytes()
+        content_type = _content_type_for(path)
+        parsed = parse_document(path.name, content_bytes, content_type)
+        if parsed.kind != DocumentKind.TABULAR:
+            return False
+        match = detect_report_type(parsed.column_names)
+        return match is not None and match[0] == "property_directory"
     except Exception:
+        logger.warning(
+            "report_type_detection_failed",
+            filename=path.name,
+            exc_info=True,
+        )
         return False
 
 
-def discover_reports(
-    report_dir: Path,
-    doc_parser: DocumentParser,
-    extra_skip_patterns: tuple[str, ...] = (),
-) -> list[Path]:
-    """Find report files and order them: property directories first.
-
-    Uses a lightweight column-header heuristic to detect property directory
-    reports so they are ingested before dependent report types.
-    """
-    all_files = sorted(
-        p for p in report_dir.iterdir()
-        if p.is_file() and p.suffix.lower() in _REPORT_EXTENSIONS
-    )
-    if not all_files:
-        return []
-
-    prop_dirs: list[Path] = []
+def _partition_files(files: list[Path]) -> tuple[list[Path], list[Path]]:
+    """Split files into (property_directory_files, other_files)."""
+    prop_dir: list[Path] = []
     others: list[Path] = []
-    for p in all_files:
-        if _is_property_directory(p, doc_parser, extra_skip_patterns):
-            prop_dirs.append(p)
+    for f in files:
+        if _is_property_directory(f):
+            prop_dir.append(f)
         else:
-            others.append(p)
+            others.append(f)
+    return prop_dir, others
 
-    return prop_dirs + others
+
+@dataclass
+class LoadResult:
+    files_processed: int = 0
+    total_entities: int = 0
+    total_relationships: int = 0
+    total_embedded: int = 0
+    errors: list[str] = field(default_factory=list)
 
 
-class SeedService:
-    """Orchestrates seeding from a directory of AppFolio exports."""
+class PortfolioLoader:
+    """Bulk-loads AppFolio report exports into the property store and KB.
+
+    Processes property_directory files first to establish the manager/portfolio
+    registry, then ingests all other reports. A single embedding pass runs
+    after all files have been processed.
+    """
 
     def __init__(
         self,
         document_ingest: DocumentIngestService,
-        auto_assign: AutoAssignService,
         embedding_pipeline: EmbeddingPipeline,
-        property_store: PropertyStore,
-        document_parser: DocumentParser,
+        auto_assign: AutoAssignService | None = None,
         metadata_skip_patterns: tuple[str, ...] = (),
     ) -> None:
-        self._ingest = document_ingest
-        self._auto_assign = auto_assign
+        self._document_ingest = document_ingest
         self._embedding_pipeline = embedding_pipeline
-        self._ps = property_store
-        self._doc_parser = document_parser
+        self._auto_assign = auto_assign
         self._skip_patterns = metadata_skip_patterns
 
-    async def seed_from_reports(
+    async def load_reports(
         self,
-        report_dir: Path | None = None,
+        directory: str | Path,
         *,
-        force: bool = False,
-    ) -> SeedResult:
-        """Ingest reports in dependency order, auto-assign, run pipelines.
+        manager: str | None = None,
+        run_embed: bool = True,
+    ) -> LoadResult:
+        """Ingest all report files in *directory*, property_directory first.
 
-        Accepts any directory of XLSX/CSV exports.  Report type is detected
-        by the LLM pipeline — filenames don't matter.  Property directory
-        reports are discovered via column-header heuristic and ingested first.
+        Args:
+            directory: Path to a directory of AppFolio exports, or a single file.
+            manager: Optional manager tag to associate with all ingested data.
+            run_embed: Whether to run the embedding pipeline after all files.
+
+        Returns:
+            LoadResult summarising files processed, entities created, and any errors.
         """
-        if report_dir is None:
-            raise ValueError(
-                "report_dir is required — pass the directory containing your "
-                "AppFolio XLSX/CSV exports."
-            )
-        result = SeedResult()
+        result = LoadResult()
+        target = Path(directory)
 
-        if not report_dir.exists():
-            result.ok = False
-            result.errors.append(f"Report directory not found: {report_dir}")
+        if not target.exists():
+            result.errors.append(f"Directory not found: {directory}")
             return result
 
-        ordered = discover_reports(report_dir, self._doc_parser, self._skip_patterns)
-        if not ordered:
-            result.ok = False
-            result.errors.append(
-                f"No report files ({', '.join(_REPORT_EXTENSIONS)}) "
-                f"found in {report_dir}"
-            )
+        if target.is_dir():
+            files = discover_reports(target)
+        else:
+            files = [target] if target.suffix.lower() in REPORT_SUFFIXES else []
+
+        if not files:
+            logger.info("load_reports_no_files", directory=str(directory))
             return result
+
+        prop_dir_files, other_files = _partition_files(files)
+
+        if prop_dir_files:
+            logger.info(
+                "load_reports_pass1_start",
+                count=len(prop_dir_files),
+                files=[f.name for f in prop_dir_files],
+            )
+        else:
+            logger.warning(
+                "load_reports_no_property_directory",
+                directory=str(directory),
+                hint="Upload a Property Directory report first for correct manager assignment.",
+            )
+
+        for file in [*prop_dir_files, *other_files]:
+            await self._ingest_file(file, manager=manager, result=result)
+
+        if self._auto_assign:
+            try:
+                assign_result = await self._auto_assign.auto_assign()
+                logger.info(
+                    "load_reports_auto_assign",
+                    assigned=assign_result.assigned,
+                    unresolved=assign_result.unresolved,
+                )
+            except Exception:
+                logger.warning("load_reports_auto_assign_failed", exc_info=True)
+                result.errors.append("auto_assign failed")
+
+        if run_embed:
+            try:
+                embed_result = await self._embedding_pipeline.run_full()
+                result.total_embedded = embed_result.embedded
+                logger.info("load_reports_embedding_complete", embedded=embed_result.embedded)
+            except Exception:
+                logger.warning("load_reports_embedding_failed", exc_info=True)
+                result.errors.append("embedding_pipeline failed")
 
         logger.info(
-            "seed_reports_discovered",
-            count=len(ordered),
-            files=[p.name for p in ordered],
+            "load_reports_complete",
+            files=result.files_processed,
+            entities=result.total_entities,
+            relationships=result.total_relationships,
+            embedded=result.total_embedded,
+            errors=len(result.errors),
         )
-
-        for path in ordered:
-            try:
-                content = path.read_bytes()
-                ingest_result = await self._ingest.ingest_upload(
-                    path.name,
-                    content,
-                    "",
-                    manager=None,
-                    run_pipelines=False,
-                )
-                result.reports_ingested.append(
-                    IngestedReport(
-                        filename=path.name,
-                        report_type=ingest_result.report_type,
-                        rows=ingest_result.doc.row_count,
-                        entities=ingest_result.entities_extracted,
-                        relationships=ingest_result.relationships_extracted,
-                    )
-                )
-                logger.info(
-                    "seed_report_ingested",
-                    filename=path.name,
-                    report_type=ingest_result.report_type,
-                    rows=ingest_result.doc.row_count,
-                    entities=ingest_result.entities_extracted,
-                )
-            except Exception as exc:
-                msg = f"{path.name}: {exc}"
-                result.errors.append(msg)
-                logger.exception("seed_report_failed", filename=path.name)
-
-        try:
-            assign_result = await self._auto_assign.auto_assign()
-            result.auto_assigned = assign_result.assigned
-            logger.info("seed_auto_assign_complete", assigned=assign_result.assigned)
-        except Exception as exc:
-            result.errors.append(f"auto_assign: {exc}")
-            logger.exception("seed_auto_assign_failed")
-
-        # TODO: replace with delta — currently re-embeds all entities
-        try:
-            embed_result = await self._embedding_pipeline.run_full()
-            logger.info("seed_embeddings_complete", embedded=embed_result.embedded)
-        except Exception as exc:
-            result.errors.append(f"embedding_pipeline: {exc}")
-            logger.exception("seed_embeddings_failed")
-
-        managers = await self._ps.list_managers()
-        properties = await self._ps.list_properties()
-        result.managers_created = len(managers)
-        result.properties_created = len(properties)
-
-        result.ok = len(result.errors) == 0
         return result
+
+    async def _ingest_file(
+        self,
+        file: Path,
+        *,
+        manager: str | None,
+        result: LoadResult,
+    ) -> None:
+        logger.info("load_file_start", filename=file.name)
+        try:
+            content_bytes = file.read_bytes()
+            content_type = _content_type_for(file)
+
+            ingest_result = await self._document_ingest.ingest_upload(
+                file.name,
+                content_bytes,
+                content_type,
+                manager=manager,
+                run_pipelines=False,
+            )
+
+            result.files_processed += 1
+            result.total_entities += ingest_result.entities_extracted
+            result.total_relationships += ingest_result.relationships_extracted
+            if ingest_result.pipeline_warnings:
+                result.errors.extend(ingest_result.pipeline_warnings)
+
+            logger.info(
+                "load_file_complete",
+                filename=file.name,
+                entities=ingest_result.entities_extracted,
+                rels=ingest_result.relationships_extracted,
+                report_type=ingest_result.report_type,
+            )
+
+        except Exception:
+            logger.warning("load_file_failed", filename=file.name, exc_info=True)
+            result.errors.append(f"Failed: {file.name}")

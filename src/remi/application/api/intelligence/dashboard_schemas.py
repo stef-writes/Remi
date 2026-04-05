@@ -1,21 +1,23 @@
 """Dashboard API response schemas.
 
-Re-exports from the service module — the service owns the canonical models.
+Re-exports from the portfolio module — the resolver owns the canonical models.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel
 
-from remi.application.services.queries import (  # noqa: F401
+from remi.application.portfolio import (  # noqa: F401
     DelinquencyBoard,
     DelinquentTenant,
     ExpiringLease,
     LeaseCalendar,
     ManagerOverview,
+    NeedsManagerResult,
     PortfolioOverview,
     RentRollUnit,
     RentRollView,
+    UnassignedProperty,
     VacancyTracker,
     VacantUnit,
 )
@@ -27,7 +29,7 @@ __all__ = [
     "ExpiringLease",
     "LeaseCalendar",
     "ManagerOverview",
-    "NeedsManagerResponse",
+    "NeedsManagerResult",
     "PortfolioOverview",
     "RentRollUnit",
     "RentRollView",
@@ -35,17 +37,6 @@ __all__ = [
     "VacancyTracker",
     "VacantUnit",
 ]
-
-
-class UnassignedProperty(BaseModel, frozen=True):
-    id: str
-    name: str
-    address: str
-
-
-class NeedsManagerResponse(BaseModel, frozen=True):
-    total: int
-    properties: list[UnassignedProperty]
 
 
 class AutoAssignResponse(BaseModel, frozen=True):

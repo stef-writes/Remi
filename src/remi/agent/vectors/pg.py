@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -117,9 +116,10 @@ class PostgresVectorStore(VectorStore):
         scored: list[SearchResult] = []
         for row in rows:
             record = _row_to_record(row)
-            if metadata_filter:
-                if not all(record.metadata.get(k) == v for k, v in metadata_filter.items()):
-                    continue
+            if metadata_filter and not all(
+                record.metadata.get(k) == v for k, v in metadata_filter.items()
+            ):
+                continue
             score = _cosine_similarity(query_vector, record.vector)
             if score >= min_score:
                 scored.append(SearchResult(record=record, score=round(score, 6)))

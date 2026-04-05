@@ -223,6 +223,7 @@ export function useSessions(agent: string) {
             question: text,
             session_id: sessionId,
             mode,
+            ...(opts?.managerId && { manager_id: opts.managerId }),
           }),
           signal: controller.signal,
         });
@@ -442,7 +443,18 @@ export function useSessions(agent: string) {
 
   const activeSession = activeSessionId ? sessionStates.get(activeSessionId) ?? null : null;
 
-  const connected = true;
+  const [connected, setConnected] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => {
+      fetch(`${API_BASE}/health`, { method: "GET" })
+        .then((r) => { if (!cancelled) setConnected(r.ok); })
+        .catch(() => { if (!cancelled) setConnected(false); });
+    };
+    check();
+    const id = setInterval(check, 15_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
   return {
     connected,

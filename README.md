@@ -1,10 +1,10 @@
 # REMI — Real Estate Management Intelligence
 
-An agent operating system for directors of property management. REMI is the runtime that lets an AI agent reason over the book of business — grounded in actual portfolio data and a typed real estate ontology.
+An AI-powered property management platform. Upload your reports, get an operational command center with an autonomous AI assistant — grounded in actual portfolio data and a typed real estate ontology.
 
-To the director it feels like a capable autonomous assistant. Under the hood it is a layered agent OS: domain ontology, knowledge graph, event system, and LLM runtime — all wired together so the agent can query, analyze, and recommend over real data.
+REMI works for a single property manager running 10 properties or a portfolio leader overseeing multiple managers across hundreds of units. The same platform scales from day-to-day property operations to portfolio-level oversight.
 
-The director's core question: **which of my managers needs my attention, and why?**
+Under the hood it is a layered agent OS: domain ontology, knowledge graph, event system, and LLM runtime — all wired together so the agent can query, analyze, and recommend over real data.
 
 ## Quick Start
 
@@ -164,9 +164,8 @@ Next.js 16 app with React 19, Tailwind 4, and Framer Motion. Connects to the API
 
 | Route | Page |
 |-------|------|
-| `/` | Home |
-| `/dashboard` | Director dashboard — portfolio overview |
-| `/ask` | Chat interface — talk to the director or researcher agent |
+| `/` | Command center — search, attention signals, portfolio pulse, managers |
+| `/ask` | Chat interface — talk to the AI assistant or researcher agent |
 | `/delinquency` | Delinquency analysis |
 | `/vacancies` | Vacancy tracking |
 | `/leases` | Lease expiration analysis |
@@ -257,7 +256,7 @@ The rules engine handles all four AppFolio report types without LLM:
 
 ### Seeding order
 
-The property directory is always ingested first (detected by column-header heuristic in `SeedService`). This establishes the source of truth for managers and properties. Subsequent reports add units, leases, tenants, and delinquency data to existing properties.
+The property directory is always ingested first (detected by column-header heuristic in `PortfolioLoader`). This establishes the source of truth for managers and properties. Subsequent reports add units, leases, tenants, and delinquency data to existing properties.
 
 `AutoAssignService` assigns unassigned properties to *existing* managers only — it never creates new ones.
 

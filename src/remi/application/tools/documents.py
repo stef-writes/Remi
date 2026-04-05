@@ -1,4 +1,4 @@
-"""Document tools — in-process calls to DocumentStore and ingestion pipeline.
+"""Document tools — in-process calls to ContentStore and ingestion pipeline.
 
 Provides: document_list, document_query, document_search, ingest_document.
 """
@@ -7,42 +7,60 @@ from __future__ import annotations
 
 from typing import Any
 
-from remi.agent.documents import DocumentStore
+import structlog
+
+from remi.agent.documents import ContentStore
 from remi.agent.types import ToolArg, ToolDefinition, ToolProvider, ToolRegistry
-from remi.application.core.protocols import VectorSearch
+from remi.application.core.protocols import PropertyStore, VectorSearch
 from remi.application.services.ingestion.pipeline import DocumentIngestService
+
+_log = structlog.get_logger(__name__)
 
 
 class DocumentToolProvider(ToolProvider):
     def __init__(
         self,
-        document_store: DocumentStore,
+        content_store: ContentStore,
+        property_store: PropertyStore,
         document_ingest: DocumentIngestService | None = None,
         vector_search: VectorSearch | None = None,
     ) -> None:
-        self._document_store = document_store
+        self._content_store = content_store
+        self._property_store = property_store
         self._document_ingest = document_ingest
         self._vector_search = vector_search
 
     def register(self, registry: ToolRegistry) -> None:
-        store = self._document_store
+        cs = self._content_store
+        ps = self._property_store
 
         # -- document_list ---------------------------------------------------------
 
         async def document_list(args: dict[str, Any]) -> Any:
-            docs = await store.list_documents()
+            unit_id = args.get("unit_id")
+            property_id = args.get("property_id")
+            manager_id = args.get("manager_id")
+            docs = await ps.list_documents(
+                unit_id=unit_id,
+                property_id=property_id,
+                manager_id=manager_id,
+            )
             return [
                 {
                     "id": d.id,
                     "filename": d.filename,
-                    "kind": d.kind.value,
-                    "columns": d.column_names,
+                    "kind": d.kind,
+                    "document_type": d.document_type.value,
                     "row_count": d.row_count,
-                    "chunk_count": len(d.chunks),
+                    "chunk_count": d.chunk_count,
                     "page_count": d.page_count,
                     "tags": d.tags,
                     "uploaded_at": d.uploaded_at.isoformat(),
-                    "report_type": d.metadata.get("report_type"),
+                    "report_type": d.report_type,
+                    "unit_id": d.unit_id,
+                    "property_id": d.property_id,
+                    "manager_id": d.manager_id,
+                    "lease_id": d.lease_id,
                 }
                 for d in docs
             ]
@@ -53,10 +71,14 @@ class DocumentToolProvider(ToolProvider):
             ToolDefinition(
                 name="document_list",
                 description=(
-                    "List all documents in the knowledge base with metadata "
-                    "(filename, kind, columns/chunks, tags, upload date)."
+                    "List documents in the knowledge base with metadata. "
+                    "Filter by unit_id, property_id, or manager_id to scope results."
                 ),
-                args=[],
+                args=[
+                    ToolArg(name="unit_id", description="Filter by unit"),
+                    ToolArg(name="property_id", description="Filter by property"),
+                    ToolArg(name="manager_id", description="Filter by manager"),
+                ],
             ),
         )
 
@@ -69,29 +91,29 @@ class DocumentToolProvider(ToolProvider):
             limit = int(args.get("limit", 50))
 
             if doc_id:
-                maybe = await store.get(doc_id)
-                docs = [maybe] if maybe is not None else []
+                maybe = await cs.get(doc_id)
+                contents = [maybe] if maybe is not None else []
             else:
-                docs = await store.list_documents()
+                contents = await cs.list_documents()
 
-            if not docs:
+            if not contents:
                 return {"rows": [], "chunks": [], "total": 0}
 
             all_rows: list[dict[str, Any]] = []
             all_chunks: list[dict[str, Any]] = []
 
-            for doc in docs:
-                if doc.kind.value == "tabular":
-                    rows = await store.query_rows(doc.id, filters=filters, limit=limit * 2)
+            for content in contents:
+                if content.kind.value == "tabular":
+                    rows = await cs.query_rows(content.id, filters=filters, limit=limit * 2)
                     for row in rows:
-                        row["_document_id"] = doc.id
-                        row["_filename"] = doc.filename
+                        row["_document_id"] = content.id
+                        row["_filename"] = content.filename
                     all_rows.extend(rows)
-                elif doc.kind.value == "text":
-                    for chunk in doc.chunks[:limit * 2]:
+                elif content.kind.value == "text":
+                    for chunk in content.chunks[:limit * 2]:
                         entry: dict[str, Any] = {
-                            "_document_id": doc.id,
-                            "_filename": doc.filename,
+                            "_document_id": content.id,
+                            "_filename": content.filename,
                             "chunk_index": chunk.index,
                             "page": chunk.page,
                             "text": chunk.text,
@@ -152,14 +174,24 @@ class DocumentToolProvider(ToolProvider):
             async def document_search(args: dict[str, Any]) -> Any:
                 query = args.get("query", "")
                 limit = int(args.get("limit", 10))
+                unit_id = args.get("unit_id")
+                property_id = args.get("property_id")
                 if not query.strip():
                     return {"results": [], "total": 0}
+
+                metadata_filter: dict[str, Any] | None = None
+                if unit_id or property_id:
+                    metadata_filter = {}
+                    if unit_id:
+                        metadata_filter["unit_id"] = unit_id
+                    if property_id:
+                        metadata_filter["property_id"] = property_id
 
                 results = await vs.semantic_search(
                     query,
                     limit=limit,
                     min_score=0.25,
-                    metadata_filter=None,
+                    metadata_filter=metadata_filter,
                 )
 
                 doc_types = {"DocumentRow", "DocumentChunk"}
@@ -184,10 +216,10 @@ class DocumentToolProvider(ToolProvider):
                 ToolDefinition(
                     name="document_search",
                     description=(
-                        "Semantic search across all knowledge base documents. "
+                        "Semantic search across knowledge base documents. "
                         "Finds relevant passages from PDFs, contracts, reports, and other "
-                        "uploaded files using vector similarity. Returns matching text snippets "
-                        "with source document info."
+                        "uploaded files using vector similarity. Filter by unit_id or "
+                        "property_id to scope results."
                     ),
                     args=[
                         ToolArg(
@@ -195,6 +227,8 @@ class DocumentToolProvider(ToolProvider):
                             description="Natural language search query",
                             required=True,
                         ),
+                        ToolArg(name="unit_id", description="Scope to a specific unit"),
+                        ToolArg(name="property_id", description="Scope to a specific property"),
                         ToolArg(
                             name="limit",
                             description="Max results (default: 10)",
@@ -205,7 +239,6 @@ class DocumentToolProvider(ToolProvider):
             )
 
         # -- ingest_document -------------------------------------------------------
-        # Only registered when the ingestion service is available (API context).
 
         if self._document_ingest is not None:
             ingest = self._document_ingest
@@ -215,11 +248,20 @@ class DocumentToolProvider(ToolProvider):
 
                 file_path = args.get("file_path", "")
                 manager = args.get("manager")
+                unit_id = args.get("unit_id")
+                property_id = args.get("property_id")
+                lease_id = args.get("lease_id")
+                document_type = args.get("document_type")
 
                 try:
                     async with aiofiles.open(file_path, "rb") as f:
                         content = await f.read()
                 except (OSError, FileNotFoundError) as exc:
+                    _log.warning(
+                        "ingest_document_file_error",
+                        file_path=file_path,
+                        exc_info=True,
+                    )
                     return {"error": f"Cannot read file: {exc}"}
 
                 from pathlib import Path as _Path
@@ -230,7 +272,10 @@ class DocumentToolProvider(ToolProvider):
                     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     ".xls": "application/vnd.ms-excel",
                     ".pdf": "application/pdf",
-                    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ".docx": (
+                        "application/vnd.openxmlformats-officedocument"
+                        ".wordprocessingml.document"
+                    ),
                     ".txt": "text/plain",
                     ".md": "text/markdown",
                     ".jpg": "image/jpeg",
@@ -243,7 +288,12 @@ class DocumentToolProvider(ToolProvider):
                 filename = _Path(file_path).name
 
                 result = await ingest.ingest_upload(
-                    filename, content, content_type, manager=manager
+                    filename, content, content_type,
+                    manager=manager,
+                    unit_id=unit_id,
+                    property_id=property_id,
+                    lease_id=lease_id,
+                    document_type=document_type,
                 )
                 return {
                     "doc_id": result.doc.id,
@@ -260,10 +310,9 @@ class DocumentToolProvider(ToolProvider):
                 ToolDefinition(
                     name="ingest_document",
                     description=(
-                        "Ingest a document file through the LLM extraction pipeline. "
-                        "Classifies the report type, extracts all rows into domain entities, "
-                        "enriches unknown rows, and runs the signal pipeline. "
-                        "Use this when a new report file is available and needs to be processed."
+                        "Ingest a document file through the extraction pipeline. "
+                        "Classifies the report type, extracts entities, and runs embedding. "
+                        "Scope params attach the document to domain entities in the graph."
                     ),
                     args=[
                         ToolArg(
@@ -271,9 +320,20 @@ class DocumentToolProvider(ToolProvider):
                             description="Absolute path to the document file to ingest",
                             required=True,
                         ),
+                        ToolArg(name="manager", description="Manager tag to associate"),
+                        ToolArg(name="unit_id", description="Unit to scope the document to"),
                         ToolArg(
-                            name="manager",
-                            description="Optional manager tag to associate with the document",
+                            name="property_id",
+                            description="Property to scope the document to",
+                        ),
+                        ToolArg(
+                            name="lease_id",
+                            description="Lease this document evidences",
+                        ),
+                        ToolArg(
+                            name="document_type",
+                            description="Type: lease, amendment, notice, report, "
+                            "inspection, correspondence, other",
                         ),
                     ],
                 ),

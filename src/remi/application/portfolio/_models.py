@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 from remi.application.core.models import Address
 
-
 # -- Portfolio entities ------------------------------------------------------
 
 
@@ -71,6 +70,10 @@ class PropertyDetail(BaseModel):
     address: Address
     property_type: str
     year_built: int | None
+    portfolio_id: str | None = None
+    portfolio_name: str | None = None
+    manager_id: str | None = None
+    manager_name: str | None = None
     total_units: int
     occupied: int
     vacant: int
@@ -331,7 +334,9 @@ class DelinquentTenant(BaseModel):
     tenant_id: str
     tenant_name: str
     status: str
+    property_id: str | None = None
     property_name: str
+    unit_id: str | None = None
     unit_number: str
     balance_owed: float
     balance_0_30: float
@@ -350,7 +355,9 @@ class DelinquencyBoard(BaseModel):
 class ExpiringLease(BaseModel):
     lease_id: str
     tenant_name: str
+    property_id: str
     property_name: str
+    unit_id: str
     unit_number: str
     monthly_rent: float
     market_rent: float
@@ -411,6 +418,41 @@ class VacancyTracker(BaseModel):
     total_market_rent_at_risk: float
     avg_days_vacant: float | None
     units: list[VacantUnit]
+
+
+# -- Tenant models -----------------------------------------------------------
+
+
+class LeaseInfo(BaseModel, frozen=True):
+    lease_id: str
+    unit: str
+    property_id: str
+    start: str
+    end: str
+    monthly_rent: float
+    status: str
+
+
+class TenantDetail(BaseModel, frozen=True):
+    tenant_id: str
+    name: str
+    email: str | None = None
+    phone: str | None = None
+    leases: list[LeaseInfo]
+
+
+# -- Dashboard models -------------------------------------------------------
+
+
+class UnassignedProperty(BaseModel, frozen=True):
+    id: str
+    name: str
+    address: str
+
+
+class NeedsManagerResult(BaseModel, frozen=True):
+    total: int
+    properties: list[UnassignedProperty]
 
 
 # -- Auto-assign result -----------------------------------------------------

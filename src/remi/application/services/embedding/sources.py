@@ -1,7 +1,7 @@
 """Multi-source text extraction for the embedding pipeline.
 
 These extractors aggregate across multiple stores (PropertyStore +
-signal store, or DocumentRepository) to build rich embedding text.
+signal store, ContentStore) to build rich embedding text.
 Single-entity extractors that only need a PropertyStore live in
 ``extraction.py``.
 """
@@ -14,7 +14,8 @@ from typing import Any, Protocol, runtime_checkable
 
 import structlog
 
-from remi.application.core.protocols import DocumentRepository, EmbedRequest, PropertyStore
+from remi.agent.documents import ContentStore
+from remi.application.core.protocols import EmbedRequest, PropertyStore
 
 _log = structlog.get_logger(__name__)
 
@@ -155,74 +156,105 @@ async def extract_managers(
     return requests
 
 
-async def extract_document_rows(doc_repo: DocumentRepository) -> list[EmbedRequest]:
+async def extract_document_rows(
+    content_store: ContentStore,
+    ps: PropertyStore,
+) -> list[EmbedRequest]:
     """Embed each row of every stored tabular document as a searchable evidence record.
 
-    Rows with fewer than 10 characters of serialized text are skipped.
+    Scope metadata from the promoted Document model flows into embedding records.
     """
     requests: list[EmbedRequest] = []
-    docs = await doc_repo.list_documents()
+    contents = await content_store.list_documents()
+    doc_index = {d.id: d for d in await ps.list_documents()}
 
-    for doc in docs:
-        if doc.kind != "tabular":
+    for content in contents:
+        if content.kind.value != "tabular":
             continue
 
-        report_type = doc.metadata.get("report_type", "unknown")
-        manager_id = doc.metadata.get("manager_id", "")
+        doc_meta = doc_index.get(content.id)
+        report_type = doc_meta.report_type if doc_meta else "unknown"
+        manager_id = doc_meta.manager_id if doc_meta else None
+        unit_id = doc_meta.unit_id if doc_meta else None
+        property_id = doc_meta.property_id if doc_meta else None
 
-        for i, row in enumerate(doc.rows):
+        for i, row in enumerate(content.rows):
             parts = [f"{k}: {v}" for k, v in row.items() if v is not None and str(v).strip()]
             text = ". ".join(parts)
             if len(text.strip()) < 10:
                 continue
 
+            meta: dict[str, Any] = {
+                "document_id": content.id,
+                "filename": content.filename,
+                "report_type": report_type,
+                "row_index": i,
+            }
+            if manager_id:
+                meta["manager_id"] = manager_id
+            if unit_id:
+                meta["unit_id"] = unit_id
+            if property_id:
+                meta["property_id"] = property_id
+
             requests.append(
                 EmbedRequest(
-                    id=f"vec:document:{doc.id}:row:{i}",
+                    id=f"vec:document:{content.id}:row:{i}",
                     text=text,
-                    source_entity_id=doc.id,
+                    source_entity_id=content.id,
                     source_entity_type="DocumentRow",
                     source_field="row",
-                    metadata={
-                        "document_id": doc.id,
-                        "filename": doc.filename,
-                        "report_type": report_type,
-                        "row_index": i,
-                        "manager_id": manager_id,
-                    },
+                    metadata=meta,
                 )
             )
 
     return requests
 
 
-async def extract_document_chunks(doc_repo: DocumentRepository) -> list[EmbedRequest]:
+async def extract_document_chunks(
+    content_store: ContentStore,
+    ps: PropertyStore,
+) -> list[EmbedRequest]:
     """Embed each text chunk of every stored text document as a searchable passage."""
     requests: list[EmbedRequest] = []
-    docs = await doc_repo.list_documents()
+    contents = await content_store.list_documents()
+    doc_index = {d.id: d for d in await ps.list_documents()}
 
-    for doc in docs:
-        if doc.kind != "text":
+    for content in contents:
+        if content.kind.value != "text":
             continue
 
-        for chunk in doc.chunks:
+        doc_meta = doc_index.get(content.id)
+        manager_id = doc_meta.manager_id if doc_meta else None
+        unit_id = doc_meta.unit_id if doc_meta else None
+        property_id = doc_meta.property_id if doc_meta else None
+
+        for chunk in content.chunks:
             if len(chunk.text.strip()) < 10:
                 continue
 
+            meta: dict[str, Any] = {
+                "document_id": content.id,
+                "filename": content.filename,
+                "page": chunk.page,
+                "chunk_index": chunk.index,
+                "tags": ",".join(content.tags),
+            }
+            if manager_id:
+                meta["manager_id"] = manager_id
+            if unit_id:
+                meta["unit_id"] = unit_id
+            if property_id:
+                meta["property_id"] = property_id
+
             requests.append(
                 EmbedRequest(
-                    id=f"vec:document:{doc.id}:chunk:{chunk.index}",
+                    id=f"vec:document:{content.id}:chunk:{chunk.index}",
                     text=chunk.text,
-                    source_entity_id=doc.id,
+                    source_entity_id=content.id,
                     source_entity_type="DocumentChunk",
                     source_field="chunk",
-                    metadata={
-                        "document_id": doc.id,
-                        "filename": doc.filename,
-                        "page": chunk.page,
-                        "chunk_index": chunk.index,
-                        "tags": ",".join(doc.tags),
-                    },
+                    metadata=meta,
                 )
             )
 

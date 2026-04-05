@@ -15,9 +15,9 @@ from remi.agent.signals.enums import Deontic, Horizon, RuleCondition, Severity
 
 
 class InferenceRule(BaseModel, frozen=True):
-    """A declarative rule the entailment engine evaluates.
+    """A declarative rule that signal producers evaluate.
 
-    The engine dispatches on ``condition``. Each condition type knows
+    Producers dispatch on ``condition``. Each condition type knows
     which fields it needs (threshold_key, window_key, periods, etc.).
     """
 
@@ -31,10 +31,10 @@ class InferenceRule(BaseModel, frozen=True):
 
 
 class SignalDefinition(BaseModel, frozen=True):
-    """A named domain concept the entailment engine can detect.
+    """A named domain concept that signal producers can detect.
 
-    This is the TBox entry for a signal — what it means, when it fires,
-    and how to evaluate it. The engine reads this; no Python method per signal.
+    TBox entry for a signal — what it means, when it fires, and how to
+    evaluate it. Producers read this; no Python method per signal.
 
     ``entity`` is a plain string so any domain can define its own entity
     types. REMI uses EntityType enum values; a health domain could pass
@@ -116,13 +116,13 @@ class DomainTBox(BaseModel, frozen=True):
         raw_thresholds: dict[str, float] = {}
         raw_chains: list[dict[str, Any]] = []
 
-        _TOP_LEVEL_KEYS = {
+        top_level_keys = {
             "compositions", "signals", "policies",
             "thresholds", "causal_chains",
         }
 
         for key, section in tbox.items():
-            if key in _TOP_LEVEL_KEYS or not isinstance(section, dict):
+            if key in top_level_keys or not isinstance(section, dict):
                 continue
             raw_signals.extend(section.get("signals", []))
             raw_policies.extend(section.get("policies", []))

@@ -35,7 +35,7 @@ def new_span_id() -> str:
 class SpanKind(StrEnum):
     """Epistemological category of a span."""
 
-    ENTAILMENT = "entailment"
+    SIGNAL_PRODUCTION = "signal_production"
     PERCEPTION = "perception"
     LLM_CALL = "llm_call"
     TOOL_CALL = "tool_call"

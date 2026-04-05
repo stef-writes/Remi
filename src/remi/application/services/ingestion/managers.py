@@ -8,6 +8,7 @@ PropertyManager + Portfolio records.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 
 import structlog
@@ -24,6 +25,19 @@ from remi.application.core.rules import manager_name_from_tag
 from remi.types.text import slugify
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class ManagerResolution:
+    """Metadata about how a manager tag was resolved."""
+
+    portfolio_id: str
+    manager_id: str
+    manager_name: str
+    created_new: bool
+    alias_matched: bool = False
+    alias_from: str | None = None
+    alias_to: str | None = None
 
 _MIN_PROPERTIES_FOR_MANAGER = 3
 
@@ -103,15 +117,18 @@ class ManagerResolver:
         self._managers = manager_repo
         self._portfolios = portfolio_repo
 
-    async def ensure_manager(self, manager_tag: str) -> str:
-        """Create or retrieve a manager + portfolio. Returns portfolio_id.
+    async def ensure_manager(self, manager_tag: str) -> ManagerResolution:
+        """Create or retrieve a manager + portfolio.
 
-        When the resolved name doesn't match an existing manager exactly,
-        we check for a first-name match and merge into that record rather
-        than creating a duplicate. The longer name wins.
+        Returns a ``ManagerResolution`` with the portfolio_id and metadata
+        about how the tag was resolved (exact match, alias, or new creation).
         """
         mgr_name = manager_name_from_tag(manager_tag)
         manager_id = slugify(f"manager:{mgr_name}")
+        created_new = False
+        alias_matched = False
+        alias_from: str | None = None
+        alias_to: str | None = None
 
         existing = await self._managers.get_manager(manager_id)
         if existing:
@@ -121,9 +138,13 @@ class ManagerResolver:
         else:
             resolved_id, resolved_name = await self._resolve_alias(mgr_name)
             if resolved_id:
+                alias_matched = True
+                alias_from = mgr_name
+                alias_to = resolved_name
                 manager_id = resolved_id
                 mgr_name = resolved_name  # type: ignore[assignment]
             else:
+                created_new = True
                 await self._managers.upsert_manager(
                     PropertyManager(id=manager_id, name=mgr_name, manager_tag=manager_tag)
                 )
@@ -136,7 +157,15 @@ class ManagerResolver:
                 name=f"{mgr_name} Portfolio",
             )
         )
-        return portfolio_id
+        return ManagerResolution(
+            portfolio_id=portfolio_id,
+            manager_id=manager_id,
+            manager_name=mgr_name,
+            created_new=created_new,
+            alias_matched=alias_matched,
+            alias_from=alias_from,
+            alias_to=alias_to,
+        )
 
     async def _resolve_alias(self, name: str) -> tuple[str | None, str | None]:
         """Find an existing manager that matches the given name.

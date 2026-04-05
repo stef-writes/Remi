@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from remi.agent.documents import DocumentStore
-from remi.agent.documents.mem import InMemoryDocumentStore
+from remi.agent.documents import ContentStore
+from remi.agent.documents.mem import InMemoryContentStore
 from remi.application.core.protocols import PropertyStore
 from remi.types.config import RemiSettings
 
@@ -24,7 +24,7 @@ class StoreSuite:
     """
 
     property_store: PropertyStore
-    document_store: DocumentStore
+    content_store: ContentStore
     _bootstrap: _BootstrapHook | None = None
 
     async def ensure_tables_created(self) -> None:
@@ -40,7 +40,7 @@ class _BootstrapHook:
     _fn: object  # async () -> None
 
     async def __call__(self) -> None:
-        from typing import Awaitable, Callable
+        from collections.abc import Awaitable, Callable
 
         fn: Callable[[], Awaitable[None]] = self._fn  # type: ignore[assignment]
         await fn()
@@ -71,18 +71,18 @@ def build_store_suite(settings: RemiSettings) -> StoreSuite:
         engine = create_async_engine_from_url(dsn)
         session_factory = async_session_factory(engine)
 
-        from remi.agent.documents.pg import PostgresDocumentStore
+        from remi.agent.documents.pg import PostgresContentStore
 
         async def _bootstrap() -> None:
             await create_tables(engine)
 
         return StoreSuite(
             property_store=PostgresPropertyStore(session_factory),
-            document_store=PostgresDocumentStore(session_factory),
+            content_store=PostgresContentStore(session_factory),
             _bootstrap=_BootstrapHook(_bootstrap),
         )
 
     return StoreSuite(
         property_store=InMemoryPropertyStore(),
-        document_store=InMemoryDocumentStore(),
+        content_store=InMemoryContentStore(),
     )

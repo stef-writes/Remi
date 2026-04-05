@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { fmt$ } from "@/lib/format";
 import { MetricCard } from "@/components/ui/MetricCard";
@@ -23,14 +24,14 @@ export function LeasesView() {
 
   return (
     <PageContainer>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-fg">Expiring Leases</h1>
             <p className="text-sm text-fg-muted mt-1">
               Leases expiring within {days} days and month-to-month
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <div className="flex rounded-lg border border-border overflow-hidden">
               {WINDOWS.map((w) => (
                 <button
@@ -92,16 +93,38 @@ export function LeasesView() {
                 </thead>
                 <tbody>
                   {data.leases.map((l) => {
-                    const urgent = l.days_left <= 30 && !l.is_month_to_month;
+                    const belowMarket = l.market_rent > 0 && l.monthly_rent < l.market_rent;
+                    const gap = belowMarket ? l.market_rent - l.monthly_rent : 0;
+                    const urgencyClass =
+                      l.is_month_to_month ? "" :
+                      l.days_left <= 30 ? "bg-error-soft/30" :
+                      l.days_left <= 60 ? "bg-warn-soft/30" : "";
+                    const daysClass =
+                      l.is_month_to_month ? "text-fg-muted" :
+                      l.days_left <= 30 ? "text-error font-semibold" :
+                      l.days_left <= 60 ? "text-warn font-semibold" : "text-fg-secondary";
                     return (
-                      <tr key={l.lease_id} className="border-b border-border-subtle hover:bg-surface-raised transition-colors">
+                      <tr key={l.lease_id} className={`border-b border-border-subtle hover:bg-surface-raised transition-colors ${urgencyClass}`}>
                         <td className="px-4 py-2.5 text-fg font-medium">{l.tenant_name}</td>
-                        <td className="px-4 py-2.5 text-fg-secondary text-xs">{l.property_name}</td>
-                        <td className="px-4 py-2.5 text-fg-secondary font-mono text-xs">{l.unit_number}</td>
+                        <td className="px-4 py-2.5 text-xs">
+                          <Link href={`/properties/${l.property_id}`} className="text-fg-secondary hover:text-accent transition-colors">
+                            {l.property_name}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-xs">
+                          <Link href={`/properties/${l.property_id}/units/${l.unit_id}`} className="text-fg-secondary hover:text-accent transition-colors">
+                            {l.unit_number}
+                          </Link>
+                        </td>
                         <td className="px-4 py-2.5 text-right font-mono text-fg-secondary">{fmt$(l.monthly_rent)}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-fg-muted">{fmt$(l.market_rent)}</td>
+                        <td className="px-4 py-2.5 text-right font-mono">
+                          <span className="text-fg-muted">{fmt$(l.market_rent)}</span>
+                          {belowMarket && (
+                            <span className="ml-1.5 text-[10px] text-warn">+{fmt$(gap)}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-fg-secondary text-xs">{l.end_date}</td>
-                        <td className={`px-4 py-2.5 text-right font-mono ${urgent ? "text-error font-semibold" : "text-fg-secondary"}`}>
+                        <td className={`px-4 py-2.5 text-right font-mono ${daysClass}`}>
                           {l.days_left}
                         </td>
                         <td className="px-4 py-2.5">
@@ -109,6 +132,8 @@ export function LeasesView() {
                             <Badge variant="amber">MTM</Badge>
                           ) : l.days_left <= 30 ? (
                             <Badge variant="red">Urgent</Badge>
+                          ) : l.days_left <= 60 ? (
+                            <Badge variant="amber">Soon</Badge>
                           ) : (
                             <Badge variant="default">Fixed</Badge>
                           )}

@@ -5,7 +5,7 @@ Organized by director capability:
     portfolio/       managers, property, units, portfolios, rent_roll
     operations/      leases, maintenance, tenants
     intelligence/    dashboard, search, ontology, graph, trace, research
-    system/          agents, documents, seed, demo, vectors, bench, db
+    system/          agents, documents, load, demo, vectors, bench, db
 
 Cross-cutting modules at root:
     shared.py        Container bootstrap, formatting, output helpers

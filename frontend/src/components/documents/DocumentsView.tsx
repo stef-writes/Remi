@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import { Empty } from "@/components/ui/Empty";
+import { UploadPanel } from "@/components/documents/UploadPanel";
+import { useFileUpload } from "@/hooks/useFileUpload";
 import type { DocumentMeta, DocumentKind, ManagerListItem, SignalSummary } from "@/lib/types";
 
 const KIND_LABELS: Record<DocumentKind, string> = {
@@ -77,11 +79,9 @@ export function DocumentsView() {
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [chunks, setChunks] = useState<{ index: number; text: string; page: number | null }[]>([]);
 
-  const [uploading, setUploading] = useState(false);
-  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const fileRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [showUpload, setShowUpload] = useState(false);
 
   const [activeTab, setActiveTab] = useState<Tab>("documents");
   const [signals, setSignals] = useState<SignalSummary[]>([]);
@@ -118,6 +118,11 @@ export function DocumentsView() {
     return () => clearTimeout(debounceRef.current);
   }, [load]);
 
+  const upload = useFileUpload({
+    manager: selectedManager || undefined,
+    onAllComplete: load,
+  });
+
   useEffect(() => {
     if (activeTab === "signals" && signals.length === 0) {
       setSignalsLoading(true);
@@ -128,36 +133,6 @@ export function DocumentsView() {
       api.listEvents(30).then((r) => setEvents(r.changesets as unknown as Array<Record<string, unknown>>)).catch(() => {}).finally(() => setEventsLoading(false));
     }
   }, [activeTab, signals.length, events.length]);
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    setUploadMsg(null);
-
-    try {
-      const result = await api.uploadDocument(file, selectedManager || undefined);
-      const parts = [
-        result.filename,
-        result.kind === "tabular"
-          ? `${result.row_count} rows · ${result.report_type.replace(/_/g, " ")}`
-          : result.kind === "text"
-            ? `${result.chunk_count} passages${result.page_count ? ` · ${result.page_count} pages` : ""}`
-            : "image",
-      ];
-      if (result.knowledge.entities_extracted > 0) {
-        parts.push(`${result.knowledge.entities_extracted} entities extracted`);
-      }
-      setUploadMsg(parts.join(" · "));
-      await load();
-    } catch (err) {
-      setUploadMsg(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
 
   const selectDoc = async (id: string) => {
     setSelected(id);
@@ -219,8 +194,8 @@ export function DocumentsView() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 border-b border-border-subtle px-6 py-4 space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="shrink-0 border-b border-border-subtle px-4 sm:px-6 py-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-bold text-fg tracking-tight">Knowledge Base</h1>
             <p className="text-[11px] text-fg-faint mt-0.5">
@@ -228,11 +203,11 @@ export function DocumentsView() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <select
               value={selectedManager}
               onChange={(e) => setSelectedManager(e.target.value)}
-              className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-fg-secondary focus:outline-none focus:border-fg-faint"
+              className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-fg-secondary focus:outline-none focus:border-fg-faint min-w-0"
             >
               <option value="">All managers</option>
               {managers.map((m) => (
@@ -240,32 +215,32 @@ export function DocumentsView() {
               ))}
             </select>
 
-            <label
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-accent-fg text-xs font-medium cursor-pointer hover:opacity-90 transition-opacity ${uploading ? "opacity-50 pointer-events-none" : ""}`}
+            <button
+              onClick={() => setShowUpload((v) => !v)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-accent-fg text-xs font-medium hover:opacity-90 transition-opacity shrink-0"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              {uploading ? "Uploading..." : "Upload"}
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,.xlsx,.xls,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.gif,.webp"
-                className="hidden"
-                onChange={handleUpload}
-              />
-            </label>
+              <span className="hidden sm:inline">Upload</span>
+              {upload.processing && (
+                <span className="w-3 h-3 rounded-full border-2 border-accent-fg border-t-transparent animate-spin" />
+              )}
+            </button>
           </div>
         </div>
 
-        {uploadMsg && (
-          <p className={`text-[11px] leading-relaxed ${uploadMsg.includes("fail") || uploadMsg.includes("error") ? "text-error" : "text-ok"}`}>
-            {uploadMsg}
-          </p>
+        {showUpload && (
+          <UploadPanel
+            entries={upload.entries}
+            processing={upload.processing}
+            onFiles={upload.addFiles}
+            onClear={upload.clear}
+          />
         )}
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 border-b border-border-subtle -mb-3 -mx-6 px-6">
+        <div className="flex items-center gap-1 border-b border-border-subtle -mb-3 -mx-4 sm:-mx-6 px-4 sm:px-6 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -289,8 +264,8 @@ export function DocumentsView() {
       {activeTab === "documents" && (
         <>
           {/* Search + Filters */}
-          <div className="shrink-0 px-6 py-3 flex items-center gap-2 border-b border-border-subtle">
-            <div className="relative flex-1 max-w-md">
+          <div className="shrink-0 px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2 border-b border-border-subtle">
+            <div className="relative flex-1 min-w-[180px] max-w-md">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-fg-ghost" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
@@ -339,9 +314,9 @@ export function DocumentsView() {
           </div>
 
           {/* Content */}
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
             {/* Document grid */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className={`flex-1 overflow-y-auto p-4 ${detail ? "hidden lg:block" : ""}`}>
               {loading && <div className="p-8 text-center text-xs text-fg-faint animate-pulse">Loading...</div>}
 
               {!loading && documents.length === 0 && (
@@ -413,10 +388,19 @@ export function DocumentsView() {
 
             {/* Detail panel */}
             {detail && (
-              <div className="w-[480px] shrink-0 border-l border-border flex flex-col overflow-hidden">
-                <div className="shrink-0 px-5 py-4 border-b border-border-subtle">
+              <div className="w-full lg:w-[480px] shrink-0 border-t lg:border-t-0 lg:border-l border-border flex flex-col overflow-hidden">
+                <div className="shrink-0 px-4 sm:px-5 py-4 border-b border-border-subtle">
                   <div className="flex items-center gap-2">
-                    <FileIcon kind={detail.kind} className="w-4 h-4 text-fg-muted" />
+                    <button
+                      onClick={() => { setSelected(null); setDetail(null); setRows([]); setChunks([]); }}
+                      className="lg:hidden shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-sunken transition-colors"
+                      aria-label="Back to documents"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                      </svg>
+                    </button>
+                    <FileIcon kind={detail.kind} className="w-4 h-4 text-fg-muted shrink-0" />
                     <h2 className="text-sm font-bold text-fg truncate">{detail.filename}</h2>
                   </div>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -527,7 +511,7 @@ export function DocumentsView() {
                   )}
                 </div>
 
-                <div className="shrink-0 px-5 py-3 border-t border-border-subtle">
+                <div className="shrink-0 px-4 sm:px-5 py-3 border-t border-border-subtle">
                   <a
                     href={`/ask?q=${encodeURIComponent(`Tell me about the document "${detail.filename}"`)}`}
                     className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-border text-xs text-fg-muted hover:text-fg-secondary hover:border-fg-faint transition-all"
@@ -542,7 +526,7 @@ export function DocumentsView() {
             )}
 
             {!detail && !loading && documents.length > 0 && (
-              <div className="w-[480px] shrink-0 border-l border-border flex items-center justify-center">
+              <div className="hidden lg:flex w-[480px] shrink-0 border-l border-border items-center justify-center">
                 <Empty title="Select a document" description="Choose a document to view its contents" />
               </div>
             )}
@@ -558,7 +542,7 @@ export function DocumentsView() {
             <div className="flex items-center justify-center h-64">
               <Empty
                 title="No signals detected"
-                description="Signals appear when the entailment engine detects situations in your portfolio data"
+                description="Signals appear when REMI detects notable situations in your portfolio data"
               />
             </div>
           )}

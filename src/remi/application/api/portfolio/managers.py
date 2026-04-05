@@ -4,33 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from remi.agent.signals import SignalStore
-from remi.application.services.queries import ManagerReviewService
 from remi.application.api.schemas import (
     AssignPropertiesRequest,
     AssignPropertiesResponse,
     CreateManagerRequest,
     CreateManagerResponse,
-    ManagerListItem,
     ManagerListResponse,
     ManagerRankingsResponse,
-    ManagerReviewResponse,
     MergeManagersRequest,
     MergeManagersResponse,
     UpdateManagerRequest,
 )
-from remi.application.core.models import Portfolio, PropertyManager
-from remi.application.core.protocols import PropertyStore
-from remi.application.core.events import EventStore
-from remi.application.api.dependencies import (
-    get_event_store,
-    get_manager_review,
-    get_property_store,
-    get_signal_store,
-)
 from remi.application.api.shared_schemas import DeletedResponse
+from remi.application.core.models import Portfolio, PropertyManager
+from remi.application.portfolio import ManagerSummary
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import ConflictError, DomainError, NotFoundError
 from remi.types.text import slugify as _slugify
 
@@ -38,47 +28,19 @@ router = APIRouter(prefix="/managers", tags=["managers"])
 
 
 @router.get("", response_model=ManagerListResponse)
-async def list_managers(
-    review: ManagerReviewService = Depends(get_manager_review),
-) -> ManagerListResponse:
-    summaries = await review.list_manager_summaries()
-    return ManagerListResponse(
-        managers=[
-            ManagerListItem(
-                id=s.manager_id,
-                name=s.name,
-                email=s.email,
-                company=s.company,
-                portfolio_count=s.portfolio_count,
-                property_count=s.property_count,
-                total_units=s.total_units,
-                occupied=s.occupied,
-                vacant=s.vacant,
-                occupancy_rate=s.occupancy_rate,
-                total_actual_rent=s.total_actual_rent,
-                total_loss_to_lease=s.total_loss_to_lease,
-                total_vacancy_loss=s.total_vacancy_loss,
-                open_maintenance=s.open_maintenance,
-                emergency_maintenance=s.emergency_maintenance,
-                expiring_leases_90d=s.expiring_leases_90d,
-                expired_leases=s.expired_leases,
-                below_market_units=s.below_market_units,
-                delinquent_count=s.delinquent_count,
-                total_delinquent_balance=s.total_delinquent_balance,
-            )
-            for s in summaries
-        ]
-    )
+async def list_managers(c: Ctr) -> ManagerListResponse:
+    summaries = await c.manager_review.list_manager_summaries()
+    return ManagerListResponse(managers=summaries)
 
 
 @router.get("/rankings", response_model=ManagerRankingsResponse)
 async def manager_rankings(
+    c: Ctr,
     sort_by: str = Query(default="delinquency_rate", description="Field to sort by"),
     ascending: bool = Query(default=False, description="Sort ascending"),
     limit: int | None = Query(default=None, ge=1, description="Max results"),
-    review: ManagerReviewService = Depends(get_manager_review),
 ) -> ManagerRankingsResponse:
-    rows = await review.rank_managers(
+    rows = await c.manager_review.rank_managers(
         sort_by=sort_by,
         ascending=ascending,
         limit=limit,
@@ -86,30 +48,30 @@ async def manager_rankings(
     return ManagerRankingsResponse(rankings=rows, total=len(rows), sort_by=sort_by)
 
 
-@router.get("/{manager_id}/review", response_model=ManagerReviewResponse)
+@router.get("/{manager_id}/review", response_model=ManagerSummary)
 async def manager_review(
     manager_id: str,
-    review: ManagerReviewService = Depends(get_manager_review),
-) -> ManagerReviewResponse:
-    result = await review.aggregate_manager(manager_id)
+    c: Ctr,
+) -> ManagerSummary:
+    result = await c.manager_review.aggregate_manager(manager_id)
     if not result:
         raise NotFoundError("Manager", manager_id)
-    return ManagerReviewResponse(**result.model_dump())
+    return result
 
 
 @router.post("", response_model=CreateManagerResponse, status_code=201)
 async def create_manager(
     body: CreateManagerRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> CreateManagerResponse:
     manager_id = _slugify(f"manager:{body.name}")
     portfolio_id = _slugify(f"portfolio:{body.name}")
 
-    existing = await ps.get_manager(manager_id)
+    existing = await c.property_store.get_manager(manager_id)
     if existing:
         raise ConflictError(f"Manager '{body.name}' already exists (id={manager_id})")
 
-    await ps.upsert_manager(
+    await c.property_store.upsert_manager(
         PropertyManager(
             id=manager_id,
             name=body.name,
@@ -118,7 +80,7 @@ async def create_manager(
             phone=body.phone,
         )
     )
-    await ps.upsert_portfolio(
+    await c.property_store.upsert_portfolio(
         Portfolio(
             id=portfolio_id,
             manager_id=manager_id,
@@ -137,9 +99,9 @@ async def create_manager(
 async def update_manager(
     manager_id: str,
     body: UpdateManagerRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> CreateManagerResponse:
-    mgr = await ps.get_manager(manager_id)
+    mgr = await c.property_store.get_manager(manager_id)
     if not mgr:
         raise NotFoundError("Manager", manager_id)
 
@@ -154,9 +116,9 @@ async def update_manager(
         updates["phone"] = body.phone
 
     updated = mgr.model_copy(update=updates)
-    await ps.upsert_manager(updated)
+    await c.property_store.upsert_manager(updated)
 
-    portfolios = await ps.list_portfolios(manager_id=manager_id)
+    portfolios = await c.property_store.list_portfolios(manager_id=manager_id)
     portfolio_id = portfolios[0].id if portfolios else ""
 
     return CreateManagerResponse(
@@ -169,9 +131,9 @@ async def update_manager(
 @router.delete("/{manager_id}", status_code=200)
 async def delete_manager(
     manager_id: str,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> DeletedResponse:
-    deleted = await ps.delete_manager(manager_id)
+    deleted = await c.property_store.delete_manager(manager_id)
     if not deleted:
         raise NotFoundError("Manager", manager_id)
     return DeletedResponse()
@@ -180,9 +142,10 @@ async def delete_manager(
 @router.post("/merge", response_model=MergeManagersResponse)
 async def merge_managers(
     body: MergeManagersRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> MergeManagersResponse:
     """Move all properties from source manager to target, then delete source."""
+    ps = c.property_store
     source = await ps.get_manager(body.source_manager_id)
     target = await ps.get_manager(body.target_manager_id)
     if not source:
@@ -216,20 +179,16 @@ async def merge_managers(
 @router.get("/{manager_id}/context")
 async def manager_context(
     manager_id: str,
-    review: ManagerReviewService = Depends(get_manager_review),
-    signals: SignalStore = Depends(get_signal_store),
-    events: EventStore = Depends(get_event_store),
+    c: Ctr,
 ) -> dict[str, Any]:
-    """Composite context for a manager — one call for the frontend manager page.
-
-    Returns the full manager review (portfolio roll-up, property summaries,
-    top issues), all active signals scoped to this manager, and recent events.
-    """
+    """Composite context for a manager — one call for the frontend manager page."""
     import asyncio
 
-    summary_task = review.aggregate_manager(manager_id)
-    sig_task = signals.list_signals(scope={"manager_id": manager_id})
-    ev_task = events.list_recent(limit=20)
+    from remi.application.api.intelligence.signal_schemas import SignalSummary
+
+    summary_task = c.manager_review.aggregate_manager(manager_id)
+    sig_task = c.signal_store.list_signals(scope={"manager_id": manager_id})
+    ev_task = c.event_store.list_recent(limit=20)
 
     summary, sigs, changesets = await asyncio.gather(
         summary_task, sig_task, ev_task,
@@ -237,8 +196,6 @@ async def manager_context(
 
     if summary is None:
         raise NotFoundError("Manager", manager_id)
-
-    from remi.application.api.intelligence.signal_schemas import SignalSummary
 
     return {
         "manager": summary.model_dump(mode="json"),
@@ -266,8 +223,9 @@ async def manager_context(
 async def assign_properties(
     manager_id: str,
     body: AssignPropertiesRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> AssignPropertiesResponse:
+    ps = c.property_store
     mgr = await ps.get_manager(manager_id)
     if not mgr:
         raise NotFoundError("Manager", manager_id)

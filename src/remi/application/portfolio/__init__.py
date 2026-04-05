@@ -1,14 +1,18 @@
-"""Portfolio query services — canonical import surface.
+"""Portfolio — entity resolvers for the property management domain.
 
-Usage::
+Each module owns the read-side logic for one entity type:
 
-    from remi.application.services.queries import (
-        PortfolioQueryService,
-        DashboardQueryService,
-        ManagerReviewService,
-        RentRollService,
-        AutoAssignService,
-    )
+    managers.py       Manager aggregation and ranking
+    properties.py     Property list and detail
+    units.py          Cross-property unit queries
+    leases.py         Lease list and expiring-lease queries
+    maintenance.py    Maintenance list and summary
+    portfolios.py     Portfolio list and summary
+    dashboard.py      Composite dashboard views
+    rent_roll.py      Detailed rent-roll assembly
+    auto_assign.py    KB-tag-based property-to-manager assignment
+
+Read-model types live in ``_models.py`` and are re-exported here.
 """
 
 from ._models import (
@@ -19,6 +23,7 @@ from ._models import (
     ExpiringLeaseItem,
     ExpiringLeasesResult,
     LeaseCalendar,
+    LeaseInfo,
     LeaseInRentRoll,
     LeaseListItem,
     LeaseListResult,
@@ -29,6 +34,7 @@ from ._models import (
     ManagerOverview,
     ManagerRanking,
     ManagerSummary,
+    NeedsManagerResult,
     PortfolioListItem,
     PortfolioOverview,
     PortfolioSummaryResult,
@@ -41,7 +47,9 @@ from ._models import (
     RentRollRow,
     RentRollUnit,
     RentRollView,
+    TenantDetail,
     TenantInRentRoll,
+    UnassignedProperty,
     UnitIssue,
     UnitListItem,
     UnitListResult,
@@ -50,20 +58,42 @@ from ._models import (
 )
 from .auto_assign import AutoAssignService
 from .dashboard import DashboardQueryService
+from .documents import DocumentResolver
+from .leases import LeaseResolver
+from .maintenance import MaintenanceResolver
 from .managers import ManagerReviewService
-from .portfolio import PortfolioQueryService
+from .portfolios import PortfolioResolver
+from .properties import PropertyResolver
 from .rent_roll import RentRollService
+from .signals import SignalDigest, SignalResolver
+from .tenants import TenantResolver
+from .units import UnitResolver
 
 __all__ = [
-    "AutoAssignResult",
+    # Resolvers
+    "LeaseResolver",
+    "MaintenanceResolver",
+    "ManagerReviewService",
+    "PortfolioResolver",
+    "PropertyResolver",
+    "RentRollService",
+    "SignalDigest",
+    "SignalResolver",
+    "TenantResolver",
+    "UnitResolver",
+    # Composite
     "AutoAssignService",
     "DashboardQueryService",
+    "DocumentResolver",
+    # Read-models
+    "AutoAssignResult",
     "DelinquencyBoard",
     "DelinquentTenant",
     "ExpiringLease",
     "ExpiringLeaseItem",
     "ExpiringLeasesResult",
     "LeaseCalendar",
+    "LeaseInfo",
     "LeaseInRentRoll",
     "LeaseListItem",
     "LeaseListResult",
@@ -73,11 +103,10 @@ __all__ = [
     "MaintenanceSummaryResult",
     "ManagerOverview",
     "ManagerRanking",
-    "ManagerReviewService",
     "ManagerSummary",
+    "NeedsManagerResult",
     "PortfolioListItem",
     "PortfolioOverview",
-    "PortfolioQueryService",
     "PortfolioSummaryResult",
     "PropertyDetail",
     "PropertyDetailUnit",
@@ -86,10 +115,11 @@ __all__ = [
     "PropertySummary",
     "RentRollResult",
     "RentRollRow",
-    "RentRollService",
     "RentRollUnit",
     "RentRollView",
+    "TenantDetail",
     "TenantInRentRoll",
+    "UnassignedProperty",
     "UnitIssue",
     "UnitListItem",
     "UnitListResult",

@@ -4,7 +4,7 @@ New code should depend on the narrowest protocol it actually needs.
 ``PropertyStore`` is a composite that inherits every protocol for
 backward compatibility.
 
-Infrastructure ports (KnowledgeWriter, DocumentParser, etc.) decouple
+Infrastructure ports (KnowledgeWriter, etc.) decouple
 ``application/services/`` from ``agent/`` primitives.  Implementations
 live in ``application/infra/``.
 """
@@ -18,6 +18,8 @@ from typing import Any
 from remi.application.core.models import (
     ActionItem,
     ActionItemStatus,
+    Document,
+    DocumentType,
     Lease,
     LeaseStatus,
     MaintenanceRequest,
@@ -236,6 +238,28 @@ class NoteRepository(abc.ABC):
     async def delete_note(self, note_id: str) -> bool: ...
 
 
+class DocumentRepository(abc.ABC):
+    @abc.abstractmethod
+    async def get_document(self, doc_id: str) -> Document | None: ...
+
+    @abc.abstractmethod
+    async def list_documents(
+        self,
+        *,
+        unit_id: str | None = None,
+        property_id: str | None = None,
+        manager_id: str | None = None,
+        lease_id: str | None = None,
+        document_type: DocumentType | None = None,
+    ) -> list[Document]: ...
+
+    @abc.abstractmethod
+    async def upsert_document(self, doc: Document) -> WriteResult[Document]: ...
+
+    @abc.abstractmethod
+    async def delete_document(self, doc_id: str) -> bool: ...
+
+
 class PropertyStore(
     OwnerRepository,
     ManagerRepository,
@@ -248,6 +272,7 @@ class PropertyStore(
     VendorRepository,
     ActionItemRepository,
     NoteRepository,
+    DocumentRepository,
 ):
     """Full property store — prefer narrow per-entity protocols in new code."""
 
@@ -315,81 +340,6 @@ class KnowledgeReader(abc.ABC):
 
     @abc.abstractmethod
     async def list_namespaces(self) -> list[str]: ...
-
-
-@dataclass
-class ParsedTextChunk:
-    """Application-level text chunk — mirrors agent TextChunk."""
-
-    index: int
-    text: str
-    page: int | None = None
-
-
-@dataclass
-class ParsedDocument:
-    """Application-level parsed document — decouples from agent.documents.Document."""
-
-    id: str
-    filename: str
-    content_type: str
-    kind: str = "tabular"
-
-    # Tabular
-    column_names: list[str] = field(default_factory=list)
-    rows: list[dict[str, Any]] = field(default_factory=list)
-    row_count: int = 0
-
-    # Text
-    chunks: list[ParsedTextChunk] = field(default_factory=list)
-    raw_text: str = ""
-    page_count: int = 0
-
-    # Shared
-    tags: list[str] = field(default_factory=list)
-    size_bytes: int = 0
-    effective_date: Any = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-
-class DocumentParser(abc.ABC):
-    """Port for parsing raw uploads into structured documents."""
-
-    @abc.abstractmethod
-    def parse(
-        self,
-        filename: str,
-        content: bytes,
-        content_type: str,
-        *,
-        extra_skip_patterns: tuple[str, ...] = (),
-    ) -> ParsedDocument: ...
-
-
-class DocumentRepository(abc.ABC):
-    """Port for persisting and listing parsed documents."""
-
-    @abc.abstractmethod
-    async def save(self, doc: ParsedDocument) -> None: ...
-
-    @abc.abstractmethod
-    async def get(self, doc_id: str) -> ParsedDocument | None: ...
-
-    @abc.abstractmethod
-    async def list_documents(self) -> list[ParsedDocument]: ...
-
-    @abc.abstractmethod
-    async def search_documents(
-        self,
-        *,
-        query: str | None = None,
-        kind: str | None = None,
-        tags: list[str] | None = None,
-        limit: int = 50,
-    ) -> list[ParsedDocument]: ...
-
-    @abc.abstractmethod
-    async def update_tags(self, doc_id: str, tags: list[str]) -> bool: ...
 
 
 @dataclass

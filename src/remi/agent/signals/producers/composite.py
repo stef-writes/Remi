@@ -20,8 +20,8 @@ from dataclasses import dataclass, field
 import structlog
 
 from remi.agent.observe.types import SpanKind, Tracer
-from remi.agent.signals.signal import ProducerResult, Signal, SignalProducer
 from remi.agent.signals.persistence.stores import SignalStore
+from remi.agent.signals.signal import ProducerResult, Signal, SignalProducer
 
 _log = structlog.get_logger(__name__)
 
@@ -107,7 +107,7 @@ class CompositeProducer:
                 )
 
         _log.info(
-            "composite_entailment_complete",
+            "composite_production_complete",
             total_produced=result.produced,
             sources=len(self._producers),
         )
@@ -116,8 +116,8 @@ class CompositeProducer:
     async def _run_all_traced(self) -> CompositeResult:
         assert self._tracer is not None
         async with self._tracer.start_trace(
-            "entailment.composite",
-            kind=SpanKind.ENTAILMENT,
+            "signals.composite",
+            kind=SpanKind.SIGNAL_PRODUCTION,
             producer_count=len(self._producers),
             producer_names=[p.name for p in self._producers],
         ) as trace_ctx:
@@ -128,7 +128,7 @@ class CompositeProducer:
 
             for producer in self._producers:
                 async with trace_ctx.span(
-                    SpanKind.ENTAILMENT,
+                    SpanKind.SIGNAL_PRODUCTION,
                     f"producer:{producer.name}",
                     producer_name=producer.name,
                 ) as prod_ctx:

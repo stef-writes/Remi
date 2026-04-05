@@ -6,10 +6,9 @@ Maps 1:1 to the CLI ``remi onto`` subcommands.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from remi.agent.graph import BridgedKnowledgeGraph, ObjectTypeDef, PropertyDef
-from remi.application.api.dependencies import get_knowledge_graph
+from remi.agent.graph import ObjectTypeDef, PropertyDef
 from remi.application.api.intelligence.ontology_schemas import (
     AggregateRequest,
     AggregateResponse,
@@ -25,6 +24,7 @@ from remi.application.api.intelligence.ontology_schemas import (
     SearchResponse,
     TimelineResponse,
 )
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import NotFoundError
 
 router = APIRouter(prefix="/ontology", tags=["ontology"])
@@ -36,15 +36,15 @@ router = APIRouter(prefix="/ontology", tags=["ontology"])
 @router.get("/search/{type_name}", response_model=SearchResponse)
 async def search_objects(
     type_name: str,
+    c: Ctr,
     order_by: str | None = Query(None, description="Sort field (prefix with - for desc)"),
     limit: int = Query(50, ge=1, le=1000),
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> SearchResponse:
     """Search objects of any type with optional field filters.
 
     Filters are passed as arbitrary query params beyond the declared ones.
     """
-    results = await store.search_objects(
+    results = await c.knowledge_graph.search_objects(
         type_name,
         order_by=order_by,
         limit=limit,
@@ -56,10 +56,10 @@ async def search_objects(
 async def search_objects_post(
     type_name: str,
     body: SearchRequest,
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
+    c: Ctr,
 ) -> SearchResponse:
     """Search with filters in the request body (for complex filter objects)."""
-    results = await store.search_objects(
+    results = await c.knowledge_graph.search_objects(
         type_name,
         filters=body.filters,
         order_by=body.order_by,
@@ -75,10 +75,10 @@ async def search_objects_post(
 async def get_object(
     type_name: str,
     object_id: str,
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
+    c: Ctr,
 ) -> ObjectResponse:
     """Get a single object by type and ID."""
-    obj = await store.get_object(type_name, object_id)
+    obj = await c.knowledge_graph.get_object(type_name, object_id)
     if obj is None:
         raise NotFoundError(type_name, object_id)
     return ObjectResponse(object=obj)
@@ -93,15 +93,15 @@ async def get_object(
 )
 async def get_related(
     object_id: str,
+    c: Ctr,
     link_type: str | None = Query(None, description="Filter by link type"),
     direction: str = Query("both", description="both|outgoing|incoming"),
     max_depth: int = Query(1, ge=1, le=10, description="Traversal depth"),
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> RelatedResponse:
     """Find related objects via link traversal."""
     if max_depth > 1:
         link_types = [link_type] if link_type else None
-        nodes = await store.traverse(
+        nodes = await c.knowledge_graph.traverse(
             object_id,
             link_types=link_types,
             max_depth=max_depth,
@@ -113,7 +113,7 @@ async def get_related(
             depth=max_depth,
         )
 
-    links = await store.get_links(
+    links = await c.knowledge_graph.get_links(
         object_id,
         link_type=link_type,
         direction=direction,
@@ -132,10 +132,10 @@ async def get_related(
 async def aggregate(
     type_name: str,
     body: AggregateRequest,
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
+    c: Ctr,
 ) -> AggregateResponse:
     """Compute aggregate metrics (count, sum, avg, min, max) across objects."""
-    result = await store.aggregate(
+    result = await c.knowledge_graph.aggregate(
         type_name,
         body.metric,
         body.field,
@@ -160,11 +160,11 @@ async def aggregate(
 async def get_timeline(
     type_name: str,
     object_id: str,
+    c: Ctr,
     limit: int = Query(50, ge=1, le=1000),
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
 ) -> TimelineResponse:
     """Show event history for an object."""
-    events = await store.get_timeline(
+    events = await c.knowledge_graph.get_timeline(
         type_name,
         object_id,
         limit=limit,
@@ -181,12 +181,10 @@ async def get_timeline(
 
 
 @router.get("/schema", response_model=SchemaListResponse)
-async def list_schema(
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
-) -> SchemaListResponse:
+async def list_schema(c: Ctr) -> SchemaListResponse:
     """List all defined object types and link types."""
-    types = await store.list_object_types()
-    links = await store.list_link_types()
+    types = await c.knowledge_graph.list_object_types()
+    links = await c.knowledge_graph.list_link_types()
     return SchemaListResponse(
         types=[t.model_dump(mode="json") for t in types],
         link_types=[lt.model_dump(mode="json") for lt in links],
@@ -196,13 +194,13 @@ async def list_schema(
 @router.get("/schema/{type_name}", response_model=SchemaTypeResponse)
 async def get_schema_type(
     type_name: str,
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
+    c: Ctr,
 ) -> SchemaTypeResponse:
     """Describe a specific object type and its related link types."""
-    ot = await store.get_object_type(type_name)
+    ot = await c.knowledge_graph.get_object_type(type_name)
     if ot is None:
         raise NotFoundError("Type", type_name)
-    links = await store.list_link_types()
+    links = await c.knowledge_graph.list_link_types()
     related = [
         lt.model_dump(mode="json")
         for lt in links
@@ -217,10 +215,10 @@ async def get_schema_type(
 @router.post("/codify", response_model=CodifyResponse)
 async def codify(
     body: CodifyRequest,
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
+    c: Ctr,
 ) -> CodifyResponse:
     """Codify operational knowledge into the ontology."""
-    entity_id = await store.codify(
+    entity_id = await c.knowledge_graph.codify(
         body.knowledge_type,
         body.data,
         provenance=body.provenance,
@@ -228,7 +226,7 @@ async def codify(
 
     if body.source_id and body.target_id:
         link_type = "CAUSES" if body.knowledge_type == "causal_link" else "RELATED_TO"
-        await store.put_link(
+        await c.knowledge_graph.put_link(
             body.source_id,
             link_type,
             body.target_id,
@@ -244,7 +242,7 @@ async def codify(
 @router.post("/define", response_model=DefineTypeResponse)
 async def define_type(
     body: DefineTypeRequest,
-    store: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
+    c: Ctr,
 ) -> DefineTypeResponse:
     """Define a new object type in the ontology."""
     props = tuple(
@@ -262,5 +260,5 @@ async def define_type(
         properties=props,
         provenance=body.provenance,
     )
-    await store.define_object_type(type_def)
+    await c.knowledge_graph.define_object_type(type_def)
     return DefineTypeResponse(type=type_def.model_dump(mode="json"))

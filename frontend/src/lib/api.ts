@@ -2,6 +2,7 @@ import type {
   ActionItemResponse,
   AgentMeta,
   ChangeSetSummary,
+  CorrectRowResponse,
   EntityNoteResponse,
   ModelsConfig,
   ManagerListItem,
@@ -10,15 +11,19 @@ import type {
   PortfolioOverview,
   DelinquencyBoard,
   LeaseCalendar,
+  LeaseListResponse,
   VacancyTracker,
   NeedsManagerResponse,
   PropertyDetail,
   RentRollResponse,
+  MaintenanceListResponse,
+  MaintenanceSummary,
   DocumentMeta,
   SearchResponse,
   SignalDigest,
   SignalExplain,
   SignalSummary,
+  UploadResult,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -81,6 +86,19 @@ export const api = {
   getRentRoll: (propertyId: string) =>
     get<RentRollResponse>(`/api/v1/properties/${propertyId}/rent-roll`),
 
+  // --- Leases ---
+
+  listLeases: (params?: { property_id?: string; status?: string }) =>
+    get<LeaseListResponse>(`/api/v1/leases${qs(params || {})}`),
+
+  // --- Maintenance ---
+
+  listMaintenance: (params?: { property_id?: string; status?: string }) =>
+    get<MaintenanceListResponse>(`/api/v1/maintenance${qs(params || {})}`),
+
+  maintenanceSummary: (propertyId?: string) =>
+    get<MaintenanceSummary>(`/api/v1/maintenance/summary${qs({ property_id: propertyId })}`),
+
   // --- Documents / Knowledge Base ---
 
   listDocuments: (params?: { q?: string; kind?: string; tags?: string; sort?: string; limit?: number }) =>
@@ -126,31 +144,37 @@ export const api = {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.detail || res.statusText);
     }
-    return res.json() as Promise<{
-      id: string;
-      filename: string;
-      kind: string;
-      row_count: number;
-      report_type: string;
-      columns: string[];
-      chunk_count: number;
-      page_count: number;
-      tags: string[];
-      size_bytes: number;
-      knowledge: {
-        entities_extracted: number;
-        relationships_extracted: number;
-        ambiguous_rows: number;
-        rows_accepted: number;
-        rows_rejected: number;
-        rows_skipped: number;
-        validation_warnings: string[];
-      };
-    }>;
+    return res.json() as Promise<UploadResult>;
   },
 
   deleteDocument: (id: string) =>
     fetch(`${BASE}/api/v1/documents/${id}`, { method: "DELETE" }).then((r) => r.json()),
+
+  correctRow: async (documentId: string, rowData: Record<string, unknown>, reportType?: string) => {
+    const res = await fetch(`${BASE}/api/v1/documents/${documentId}/correct-row`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ row_data: rowData, report_type: reportType }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || res.statusText);
+    }
+    return res.json() as Promise<CorrectRowResponse>;
+  },
+
+  correctEntity: async (entityType: string, entityId: string, corrections: Record<string, unknown>) => {
+    const res = await fetch(`${BASE}/api/v1/knowledge/correct`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entity_type: entityType, entity_id: entityId, corrections }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || res.statusText);
+    }
+    return res.json() as Promise<Record<string, unknown>>;
+  },
 
   // --- Agents ---
 

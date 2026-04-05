@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from remi.application.services.queries import PortfolioQueryService, PortfolioSummaryResult
 from remi.application.api.schemas import (
     CreatePortfolioRequest,
     CreatePortfolioResponse,
@@ -13,8 +12,8 @@ from remi.application.api.schemas import (
     UpdatePortfolioRequest,
 )
 from remi.application.core.models import Portfolio
-from remi.application.core.protocols import PropertyStore
-from remi.application.api.dependencies import get_portfolio_query, get_property_store
+from remi.application.portfolio import PortfolioSummaryResult
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import ConflictError, NotFoundError
 from remi.types.text import slugify as _slugify
 
@@ -23,18 +22,19 @@ router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 
 @router.get("", response_model=PortfolioListResponse)
 async def list_portfolios(
+    c: Ctr,
     manager_id: str | None = None,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
 ) -> PortfolioListResponse:
-    items = await svc.list_portfolios(manager_id=manager_id)
+    items = await c.portfolio_resolver.list_portfolios(manager_id=manager_id)
     return PortfolioListResponse(portfolios=items)
 
 
 @router.post("", response_model=CreatePortfolioResponse, status_code=201)
 async def create_portfolio(
     body: CreatePortfolioRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> CreatePortfolioResponse:
+    ps = c.property_store
     manager = await ps.get_manager(body.manager_id)
     if not manager:
         raise NotFoundError("Manager", body.manager_id)
@@ -68,9 +68,9 @@ async def create_portfolio(
 @router.get("/{portfolio_id}", response_model=PortfolioDetail)
 async def get_portfolio(
     portfolio_id: str,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> PortfolioDetail:
-    portfolio = await ps.get_portfolio(portfolio_id)
+    portfolio = await c.property_store.get_portfolio(portfolio_id)
     if not portfolio:
         raise NotFoundError("Portfolio", portfolio_id)
     return PortfolioDetail(
@@ -91,9 +91,9 @@ async def get_portfolio(
 async def update_portfolio(
     portfolio_id: str,
     body: UpdatePortfolioRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> PortfolioDetail:
-    portfolio = await ps.get_portfolio(portfolio_id)
+    portfolio = await c.property_store.get_portfolio(portfolio_id)
     if not portfolio:
         raise NotFoundError("Portfolio", portfolio_id)
 
@@ -112,7 +112,7 @@ async def update_portfolio(
         updates["market"] = body.market
 
     updated = portfolio.model_copy(update=updates)
-    await ps.upsert_portfolio(updated)
+    await c.property_store.upsert_portfolio(updated)
 
     return PortfolioDetail(
         id=updated.id,
@@ -131,9 +131,9 @@ async def update_portfolio(
 @router.get("/{portfolio_id}/summary", response_model=PortfolioSummaryResult)
 async def portfolio_summary(
     portfolio_id: str,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
+    c: Ctr,
 ) -> PortfolioSummaryResult:
-    result = await svc.portfolio_summary(portfolio_id)
+    result = await c.portfolio_resolver.portfolio_summary(portfolio_id)
     if not result:
         raise NotFoundError("Portfolio", portfolio_id)
     return result

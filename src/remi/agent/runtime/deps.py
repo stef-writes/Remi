@@ -6,12 +6,12 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from remi.agent.context.builder import ContextBuilder
-from remi.agent.types import ToolRegistry
 from remi.agent.graph.stores import MemoryStore
 from remi.agent.llm.factory import LLMProviderFactory
 from remi.agent.observe.types import Tracer
 from remi.agent.observe.usage import LLMUsageLedger
 from remi.agent.signals import DomainTBox, SignalStore
+from remi.agent.types import ToolRegistry
 
 
 class OnEventCallback(Protocol):

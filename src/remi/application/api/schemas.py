@@ -1,16 +1,20 @@
 """HTTP boundary types for all portfolio entity routes.
 
-Read-model types are owned by ``portfolio.queries`` and re-exported here.
-Only request types, detail views, and envelope wrappers are defined here.
+Read-model types are owned by ``application.portfolio`` and re-exported here
+where routers need them. Only request types and envelope wrappers are
+defined in this file.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel
 
-from remi.application.services.queries import (
+from remi.application.core.models.enums import AssetClass
+from remi.application.portfolio import (
     ExpiringLeaseItem,
     ExpiringLeasesResult,
+    LeaseListItem,
+    LeaseListResult,
     MaintenanceItem,
     MaintenanceListResult,
     MaintenanceSummaryResult,
@@ -25,8 +29,9 @@ from remi.application.services.queries import (
     RentRollResult,
     RentRollRow,
     UnitIssue,
+    UnitListItem,
+    UnitListResult,
 )
-from remi.application.core.models.enums import AssetClass
 
 __all__ = [
     "AssetClass",
@@ -37,18 +42,15 @@ __all__ = [
     "CreatePortfolioRequest",
     "CreatePortfolioResponse",
     "ExpiringLeaseItem",
-    "ExpiringLeasesResponse",
     "ExpiringLeasesResult",
     "LeaseListItem",
-    "LeaseListResponse",
+    "LeaseListResult",
     "MaintenanceItem",
     "MaintenanceListResult",
     "MaintenanceSummaryResult",
-    "ManagerListItem",
     "ManagerListResponse",
     "ManagerRanking",
     "ManagerRankingsResponse",
-    "ManagerReviewResponse",
     "ManagerSummary",
     "MergeManagersRequest",
     "MergeManagersResponse",
@@ -64,8 +66,9 @@ __all__ = [
     "RentRollResult",
     "RentRollRow",
     "UnitIssue",
-    "UnitItem",
+    "UnitListItem",
     "UnitListResponse",
+    "UnitListResult",
     "UpdateManagerRequest",
     "UpdatePortfolioRequest",
     "UpdatePropertyRequest",
@@ -75,31 +78,8 @@ __all__ = [
 # -- Manager schemas --------------------------------------------------------
 
 
-class ManagerListItem(BaseModel):
-    id: str
-    name: str
-    email: str
-    company: str | None
-    portfolio_count: int
-    property_count: int
-    total_units: int
-    occupied: int
-    vacant: int
-    occupancy_rate: float
-    total_actual_rent: float
-    total_loss_to_lease: float
-    total_vacancy_loss: float
-    open_maintenance: int
-    emergency_maintenance: int
-    expiring_leases_90d: int
-    expired_leases: int
-    below_market_units: int
-    delinquent_count: int
-    total_delinquent_balance: float
-
-
 class ManagerListResponse(BaseModel):
-    managers: list[ManagerListItem]
+    managers: list[ManagerSummary]
 
 
 class ManagerRankingsResponse(BaseModel):
@@ -148,32 +128,6 @@ class AssignPropertiesResponse(BaseModel):
     assigned: int
     already_assigned: int
     not_found: list[str]
-
-
-class ManagerReviewResponse(BaseModel):
-    manager_id: str
-    name: str
-    email: str
-    company: str | None
-    portfolio_count: int
-    property_count: int
-    total_units: int
-    occupied: int
-    vacant: int
-    occupancy_rate: float
-    total_market_rent: float
-    total_actual_rent: float
-    total_loss_to_lease: float
-    total_vacancy_loss: float
-    open_maintenance: int
-    emergency_maintenance: int
-    expiring_leases_90d: int
-    expired_leases: int
-    below_market_units: int
-    delinquent_count: int
-    total_delinquent_balance: float
-    properties: list[PropertySummary]
-    top_issues: list[UnitIssue]
 
 
 # -- Portfolio schemas -------------------------------------------------------
@@ -241,48 +195,3 @@ class UpdatePropertyRequest(BaseModel):
     state: str | None = None
     zip_code: str | None = None
     portfolio_id: str | None = None
-
-
-# -- Lease schemas -----------------------------------------------------------
-
-
-class LeaseListItem(BaseModel):
-    id: str
-    tenant: str
-    unit_id: str
-    property_id: str
-    start: str
-    end: str
-    rent: float
-    status: str
-
-
-class LeaseListResponse(BaseModel):
-    count: int
-    leases: list[LeaseListItem]
-
-
-class ExpiringLeasesResponse(BaseModel):
-    days_window: int
-    count: int
-    leases: list[ExpiringLeaseItem]
-
-
-# -- Unit schemas ------------------------------------------------------------
-
-
-class UnitItem(BaseModel, frozen=True):
-    id: str
-    unit_number: str
-    property: str
-    property_id: str
-    status: str
-    bedrooms: int | None = None
-    sqft: int | None = None
-    market_rent: float
-    current_rent: float
-
-
-class UnitCrossPropertyResponse(BaseModel, frozen=True):
-    count: int
-    units: list[UnitItem]

@@ -38,8 +38,8 @@ tbox:
       - name: LegalEscalationRisk
         description: >
           A tenant situation is approaching or already in a legal track —
-          demand letter, filing, court hearing, judgment — requiring director
-          awareness. Not for her to manage, but to know about.
+          demand letter, filing, court hearing, judgment — requiring leadership
+          awareness.
         severity: high
         entity: Tenant
         horizon: current
@@ -311,7 +311,7 @@ tbox:
 
       - name: CommunicationGap
         description: >
-          Situations visible in the data that the director hasn't been told
+          Situations visible in the data that leadership hasn't been told
           about. Tenants with long delinquency note histories, legal situations,
           problem properties not raised in reviews.
         severity: high
@@ -375,7 +375,7 @@ tbox:
     - name: OperationalBreakdown
       description: >
         A manager has policy breaches AND a communication gap — required
-        actions are being missed AND the director isn't being told.
+        actions are being missed AND leadership isn't being told.
         Strongest indicator of a manager needing immediate intervention.
       constituents: [PolicyBreach, CommunicationGap]
       scope: PropertyManager

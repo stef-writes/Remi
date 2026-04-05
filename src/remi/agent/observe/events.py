@@ -63,10 +63,8 @@ class Event:
     PROPERTY_DIRECTORY_EMPTY = "property_directory_empty"
     SNAPSHOT_CAPTURE_FAILED = "snapshot_capture_failed"
 
-    SEED_REPORT_MISSING = "seed_report_missing"
-    SEED_REPORT_FAILED = "seed_report_failed"
-    SEED_AUTO_ASSIGN_FAILED = "seed_auto_assign_failed"
-    SEED_SIGNALS_FAILED = "seed_signals_failed"
+    LOAD_REPORT_MISSING = "load_report_missing"
+    LOAD_REPORT_FAILED = "load_report_failed"
 
     # -- Embeddings ---------------------------------------------------------
     EMBEDDING_PIPELINE_EMPTY = "embedding_pipeline_empty"

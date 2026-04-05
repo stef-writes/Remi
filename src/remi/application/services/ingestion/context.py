@@ -8,7 +8,13 @@ import structlog
 
 from remi.application.core.models import Property
 from remi.application.core.protocols import KBEntity, KBRelationship, KnowledgeWriter, PropertyStore
-from remi.application.services.ingestion.base import IngestionResult
+from remi.application.services.ingestion.base import (
+    IngestionResult,
+    ReviewItem,
+    ReviewKind,
+    ReviewOption,
+    ReviewSeverity,
+)
 from remi.application.services.ingestion.managers import ManagerResolver
 from remi.application.services.ingestion.resolver import parse_address, property_name
 from remi.types.text import slugify
@@ -112,11 +118,18 @@ async def link(
 async def ensure_property(
     row: dict[str, Any],
     ctx: IngestionCtx,
-    *,
-    replace_units: bool = False,
-    replace_leases: bool = False,
 ) -> str:
-    """Ensure the property exists. Returns property_id."""
+    """Ensure the property exists. Returns property_id.
+
+    Replace semantics are derived from ``ctx.report_type`` so that each report
+    type owns only the data it is authoritative over:
+
+    - ``rent_roll``         → replaces units (authoritative unit inventory)
+    - ``delinquency``       → replaces leases only (authoritative balance state;
+                              does *not* touch unit inventory)
+    - ``lease_expiration``  → no replacement (merge-only; does not own inventory)
+    - ``property_directory`` → no replacement (additive; establishes registry)
+    """
     raw_addr = str(row.get("property_address", "")).strip()
     name = property_name(raw_addr) or raw_addr
     prop_id = slugify(f"property:{name}")
@@ -124,6 +137,9 @@ async def ensure_property(
     if prop_id in ctx.seen_properties:
         return prop_id
     ctx.seen_properties.add(prop_id)
+
+    replace_units = ctx.report_type == "rent_roll"
+    replace_leases = ctx.report_type == "delinquency"
 
     if replace_units:
         n = await ctx.ps.delete_units_by_property(prop_id)
@@ -146,9 +162,48 @@ async def ensure_property(
     tag = ctx.prop_manager_tags.get(prop_id)
 
     if tag and tag in ctx.real_manager_tags:
-        resolved_portfolio_id = await ctx.manager_resolver.ensure_manager(tag)
-        ctx.property_portfolio[prop_id] = resolved_portfolio_id
-        pid = resolved_portfolio_id
+        resolution = await ctx.manager_resolver.ensure_manager(tag)
+        ctx.property_portfolio[prop_id] = resolution.portfolio_id
+        pid = resolution.portfolio_id
+
+        if resolution.created_new:
+            ctx.result.review_items.append(
+                ReviewItem(
+                    kind=ReviewKind.MANAGER_INFERRED,
+                    severity=ReviewSeverity.INFO,
+                    message=(
+                        f"Created new manager '{resolution.manager_name}' "
+                        f"from tag '{tag}'"
+                    ),
+                    entity_type="PropertyManager",
+                    entity_id=resolution.manager_id,
+                )
+            )
+        elif resolution.alias_matched:
+            ctx.result.review_items.append(
+                ReviewItem(
+                    kind=ReviewKind.ENTITY_MATCH,
+                    severity=ReviewSeverity.WARNING,
+                    message=(
+                        f"Matched tag '{resolution.alias_from}' to existing "
+                        f"manager '{resolution.alias_to}'"
+                    ),
+                    entity_type="PropertyManager",
+                    entity_id=resolution.manager_id,
+                    raw_value=resolution.alias_from,
+                    suggestion=resolution.alias_to,
+                    options=[
+                        ReviewOption(
+                            id=resolution.manager_id,
+                            label=str(resolution.alias_to),
+                        ),
+                        ReviewOption(
+                            id="new",
+                            label=f"Create '{resolution.alias_from}' as new manager",
+                        ),
+                    ],
+                )
+            )
     elif tag:
         ctx.result.manager_tags_skipped.append(tag)
 

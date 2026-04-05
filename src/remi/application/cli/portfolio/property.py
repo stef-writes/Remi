@@ -30,7 +30,7 @@ async def _list_properties(portfolio_id: str | None, fmt_json: bool) -> None:
         items = data.get("properties", [])
     else:
         container = get_container()
-        result = await container.property_query.list_properties(portfolio_id=portfolio_id)
+        result = await container.property_resolver.list_properties(portfolio_id=portfolio_id)
         items = [item.model_dump() for item in result]
 
     if fmt_json:
@@ -75,7 +75,7 @@ async def _inspect(property_id: str, fmt_json: bool) -> None:
         return
 
     container = get_container()
-    detail = await container.property_query.get_property_detail(property_id)
+    detail = await container.property_resolver.get_property_detail(property_id)
     if not detail:
         json_out({"ok": False, "error": f"Property '{property_id}' not found"})
         raise typer.Exit(1)

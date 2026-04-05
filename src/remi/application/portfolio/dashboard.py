@@ -23,9 +23,11 @@ from ._models import (
     ExpiringLease,
     LeaseCalendar,
     ManagerOverview,
+    NeedsManagerResult,
     PortfolioOverview,
     RentRollUnit,
     RentRollView,
+    UnassignedProperty,
     VacancyTracker,
     VacantUnit,
 )
@@ -190,7 +192,9 @@ class DashboardQueryService:
                     tenant_id=t.id,
                     tenant_name=t.name,
                     status=t.status.value,
+                    property_id=lease_by_tenant.get(t.id, (None, None))[0],
                     property_name=tenant_context.get(t.id, ("", ""))[0],
+                    unit_id=lease_by_tenant.get(t.id, (None, None))[1],
                     unit_number=tenant_context.get(t.id, ("", ""))[1],
                     balance_owed=float(t.balance_owed),
                     balance_0_30=float(t.balance_0_30),
@@ -265,7 +269,9 @@ class DashboardQueryService:
                 ExpiringLease(
                     lease_id=le.id,
                     tenant_name=tenant.name if tenant else le.tenant_id,
+                    property_id=le.property_id,
                     property_name=prop.name if prop else le.property_id,
+                    unit_id=le.unit_id,
                     unit_number=unit.unit_number if unit else le.unit_id,
                     monthly_rent=float(le.monthly_rent),
                     market_rent=float(le.market_rent),
@@ -422,6 +428,16 @@ class DashboardQueryService:
             avg_days_vacant=round(sum(days_list) / len(days_list), 1) if days_list else None,
             units=vacant_units,
         )
+
+    async def needs_manager(self) -> NeedsManagerResult:
+        """Properties not assigned to any portfolio (and thus any manager)."""
+        all_props = await self._ps.list_properties()
+        items = [
+            UnassignedProperty(id=p.id, name=p.name, address=p.address.one_line())
+            for p in all_props
+            if not p.portfolio_id
+        ]
+        return NeedsManagerResult(total=len(items), properties=items)
 
     async def _property_ids_for_manager(self, manager_id: str) -> set[str]:
         portfolios = await self._ps.list_portfolios(manager_id=manager_id)

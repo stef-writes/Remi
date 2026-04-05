@@ -18,8 +18,6 @@ import structlog
 
 from remi.agent.config import AgentConfig
 from remi.agent.context.builder import _find_tail_inject_point
-from remi.agent.workspace import inject_workspace, load_workspace
-from remi.agent.workspace.flush import flush_before_trim
 from remi.agent.context.frame import WorldState
 from remi.agent.context.intent import classify_intent
 from remi.agent.context.rendering import (
@@ -27,19 +25,21 @@ from remi.agent.context.rendering import (
     render_active_signals,
     render_domain_context,
 )
+from remi.agent.llm.types import LLMProvider, estimate_cost
+from remi.agent.observe.types import SpanKind, Tracer, get_current_trace_id
+from remi.agent.runtime.base import BaseModule, Message, ModuleOutput
 from remi.agent.runtime.conversation.thread import (
     build_initial_thread,
     format_output,
     last_assistant_content,
     trim_thread,
 )
-from remi.agent.llm.types import LLMProvider, estimate_cost
-from remi.agent.observe.types import SpanKind, Tracer, get_current_trace_id
-from remi.agent.runtime.base import BaseModule, Message, ModuleOutput
 from remi.agent.runtime.deps import OnEventCallback, RuntimeContext, ScopeContext
 from remi.agent.runtime.llm_bridge import OnEventCallback as _OnEvent  # noqa: F811,F401
 from remi.agent.runtime.loop import run_agent_loop
 from remi.agent.runtime.tool_executor import ToolExecutor, build_tool_set
+from remi.agent.workspace import inject_workspace, load_workspace
+from remi.agent.workspace.flush import flush_before_trim
 
 logger = structlog.get_logger("remi.agent")
 

@@ -11,7 +11,7 @@ metadata:
     to shell, HTTP, and the full data platform.
   tags: [orchestrator, copilot, analyst]
   domain: real-estate
-  audience: director
+  audience: user
   chat: true
   primary: true
 
@@ -32,7 +32,7 @@ modules:
       max_iterations: 16
 
       system_prompt: |
-        You are REMI, the AI copilot for a real estate portfolio director.
+        You are REMI, the AI copilot for real estate portfolio management.
         You orchestrate an AI workforce to answer questions, run analysis,
         and take action on the portfolio.
 

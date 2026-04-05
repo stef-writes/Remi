@@ -16,7 +16,13 @@ from typing import Any
 
 import structlog
 
-from remi.application.services.ingestion.base import IngestionResult, RowWarning
+from remi.application.services.ingestion.base import (
+    IngestionResult,
+    ReviewItem,
+    ReviewKind,
+    ReviewSeverity,
+    RowWarning,
+)
 from remi.application.services.ingestion.resolver import PERSISTABLE_TYPES, resolve_row_type
 
 _log = structlog.get_logger(__name__)
@@ -34,7 +40,8 @@ def validate_rows(
     """Validate extracted rows.  Returns accepted rows only.
 
     Populates ``result.validation_warnings``, ``result.ambiguous_rows``,
-    ``result.rows_accepted``, and ``result.rows_rejected``.
+    ``result.rows_accepted``, ``result.rows_rejected``, and
+    ``result.review_items`` (structured items for the human review surface).
     """
     accepted: list[dict[str, Any]] = []
 
@@ -48,6 +55,17 @@ def validate_rows(
         if resolved_type not in PERSISTABLE_TYPES:
             result.ambiguous_rows.append(row)
             result.rows_rejected += 1
+            result.review_items.append(
+                ReviewItem(
+                    kind=ReviewKind.AMBIGUOUS_ROW,
+                    severity=ReviewSeverity.ACTION_NEEDED,
+                    message=f"Row {idx}: unknown entity type '{raw_type}'",
+                    row_index=idx,
+                    entity_type=raw_type,
+                    raw_value=str(row.get("property_address", ""))[:120],
+                    row_data=_safe_row_snapshot(row),
+                )
+            )
             _log.info("row_rejected_unknown_type", row_index=idx, raw_type=raw_type)
             continue
 
@@ -74,15 +92,41 @@ def validate_rows(
             result.ambiguous_rows.append(row)
             result.rows_rejected += 1
             result.validation_warnings.extend(warnings)
+            issues = [w.issue for w in warnings]
+            result.review_items.append(
+                ReviewItem(
+                    kind=ReviewKind.AMBIGUOUS_ROW,
+                    severity=ReviewSeverity.ACTION_NEEDED,
+                    message=f"Row {idx} ({resolved_type}): {', '.join(issues)}",
+                    row_index=idx,
+                    entity_type=resolved_type,
+                    field_name=warnings[0].field if warnings else None,
+                    raw_value=warnings[0].raw_value if warnings else None,
+                    suggestion=_suggestion_for_issues(issues),
+                    row_data=_safe_row_snapshot(row),
+                )
+            )
             _log.info(
                 "row_rejected",
                 row_index=idx,
                 row_type=resolved_type,
-                issues=[w.issue for w in warnings],
+                issues=issues,
             )
         else:
             if warnings:
                 result.validation_warnings.extend(warnings)
+                for w in warnings:
+                    result.review_items.append(
+                        ReviewItem(
+                            kind=ReviewKind.VALIDATION_WARNING,
+                            severity=ReviewSeverity.WARNING,
+                            message=f"Row {w.row_index} ({w.row_type}).{w.field}: {w.issue}",
+                            row_index=w.row_index,
+                            entity_type=w.row_type,
+                            field_name=w.field,
+                            raw_value=w.raw_value,
+                        )
+                    )
             result.rows_accepted += 1
             accepted.append(row)
 
@@ -95,6 +139,32 @@ def validate_rows(
         )
 
     return accepted
+
+
+_MAX_ROW_SNAPSHOT_FIELDS = 20
+
+
+def _safe_row_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+    """Serialize a row dict for inclusion in a review item payload.
+
+    Limits field count and value length to keep responses manageable.
+    """
+    out: dict[str, Any] = {}
+    for i, (k, v) in enumerate(row.items()):
+        if i >= _MAX_ROW_SNAPSHOT_FIELDS:
+            break
+        out[k] = str(v)[:200] if v is not None else None
+    return out
+
+
+def _suggestion_for_issues(issues: list[str]) -> str | None:
+    if "missing_required" in issues:
+        return "Fill in the missing required field(s) and re-submit"
+    if "parse_failed" in issues:
+        return "Check the field format — expected a number or date"
+    if "out_of_range" in issues:
+        return "Value seems unusually large — verify it is correct"
+    return None
 
 
 # ---------------------------------------------------------------------------

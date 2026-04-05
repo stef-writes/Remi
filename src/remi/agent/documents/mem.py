@@ -1,23 +1,23 @@
-"""In-memory implementation of DocumentStore."""
+"""In-memory implementation of ContentStore."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from remi.agent.documents.types import Document, DocumentKind, DocumentStore
+from remi.agent.documents.types import ContentStore, DocumentContent, DocumentKind
 
 
-class InMemoryDocumentStore(DocumentStore):
+class InMemoryContentStore(ContentStore):
     def __init__(self) -> None:
-        self._docs: dict[str, Document] = {}
+        self._docs: dict[str, DocumentContent] = {}
 
-    async def save(self, document: Document) -> None:
+    async def save(self, document: DocumentContent) -> None:
         self._docs[document.id] = document
 
-    async def get(self, document_id: str) -> Document | None:
+    async def get(self, document_id: str) -> DocumentContent | None:
         return self._docs.get(document_id)
 
-    async def list_documents(self) -> list[Document]:
+    async def list_documents(self) -> list[DocumentContent]:
         return sorted(self._docs.values(), key=lambda d: d.uploaded_at, reverse=True)
 
     async def delete(self, document_id: str) -> bool:
@@ -51,7 +51,7 @@ class InMemoryDocumentStore(DocumentStore):
         kind: DocumentKind | None = None,
         tags: list[str] | None = None,
         limit: int = 50,
-    ) -> list[Document]:
+    ) -> list[DocumentContent]:
         results = list(self._docs.values())
 
         if kind is not None:

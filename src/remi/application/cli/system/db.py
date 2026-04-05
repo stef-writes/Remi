@@ -22,14 +22,11 @@ async def _init() -> None:
     typer.echo("Tables created (or verified) against Postgres.")
 
 
-async def _reset(seed_dir: str | None) -> None:
+async def _reset(report_dir: str | None) -> None:
     from pathlib import Path
-
-    import structlog
 
     from remi.application.cli.shared import get_container
 
-    log = structlog.get_logger("remi.db.reset")
     container = get_container()
     engine = container._db_engine
 
@@ -49,21 +46,21 @@ async def _reset(seed_dir: str | None) -> None:
     from remi.application.infra.ontology.seed import seed_knowledge_graph
 
     await seed_knowledge_graph(container.knowledge_graph)
-    typer.echo("Knowledge graph re-seeded.")
+    typer.echo("Knowledge graph bootstrapped.")
 
-    if seed_dir:
-        typer.echo(f"Seeding from {seed_dir}...")
-        result = await container.seed_service.seed_from_reports(Path(seed_dir))
+    if report_dir:
+        typer.echo(f"Loading reports from {report_dir}...")
+        result = await container.portfolio_loader.load_reports(Path(report_dir))
         if result.errors:
             for err in result.errors:
                 typer.echo(f"  WARNING: {err}", err=True)
         typer.echo(
-            f"Seeded: {result.managers_created} managers, "
-            f"{result.properties_created} properties, "
-            f"{len(result.reports_ingested)} reports."
+            f"Loaded: {result.files_processed} files, "
+            f"{result.total_entities} entities, "
+            f"{result.total_relationships} relationships."
         )
     else:
-        typer.echo("Skipping seed (pass --seed <dir> to seed after reset).")
+        typer.echo("Skipping report load (pass --load <dir> to load after reset).")
 
 
 async def _status() -> None:
@@ -83,14 +80,14 @@ async def _status() -> None:
 
     managers = await container.property_store.list_managers()
     properties = await container.property_store.list_properties()
-    docs = await container.document_store.list_documents()
+    docs = await container.content_store.list_documents()
 
     typer.echo(f"Managers:   {len(managers)}")
     typer.echo(f"Properties: {len(properties)}")
     typer.echo(f"Documents:  {len(docs)}")
 
-    seeded = len(managers) > 0 or len(properties) > 0
-    typer.echo(f"Seeded:     {'yes' if seeded else 'no'}")
+    has_data = len(managers) > 0 or len(properties) > 0
+    typer.echo(f"Data:       {'loaded' if has_data else 'empty'}")
 
 
 @cmd.command()
@@ -101,14 +98,14 @@ def init() -> None:
 
 @cmd.command()
 def reset(
-    seed_dir: str = typer.Option(
+    report_dir: str = typer.Option(
         "",
-        "--seed",
-        help="After reset, seed from this report directory.",
+        "--load",
+        help="After reset, load reports from this directory.",
     ),
 ) -> None:
-    """Drop all tables, recreate, and optionally re-seed."""
-    asyncio.run(_reset(seed_dir or None))
+    """Drop all tables, recreate, and optionally load reports."""
+    asyncio.run(_reset(report_dir or None))
 
 
 @cmd.command()

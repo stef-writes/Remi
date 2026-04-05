@@ -22,7 +22,7 @@ from remi.application.cli.system.bench import cmd as bench_cmd
 from remi.application.cli.system.db import cmd as db_cmd
 from remi.application.cli.system.demo import cmd as demo_cmd
 from remi.application.cli.system.documents import cmd as documents_cmd
-from remi.application.cli.system.seed import cmd as seed_cmd
+from remi.application.cli.system.seed import cmd as load_cmd
 from remi.application.cli.system.vectors import cmd as vectors_cmd
 
 cli = typer.Typer(
@@ -44,7 +44,7 @@ cli.add_typer(report_cmd)
 cli.add_typer(documents_cmd)
 cli.add_typer(onto_cmd)
 cli.add_typer(search_cmd)
-cli.add_typer(seed_cmd)
+cli.add_typer(load_cmd)
 cli.add_typer(db_cmd)
 cli.add_typer(demo_cmd)
 cli.add_typer(graph_cmd)
@@ -72,15 +72,10 @@ def serve(
     host: str = typer.Option("127.0.0.1", help="Host to bind to"),
     port: int = typer.Option(8000, help="Port to listen on"),
     reload: bool = typer.Option(False, help="Enable auto-reload"),
-    seed: str = typer.Option(
+    load: str = typer.Option(
         "",
-        "--seed",
-        help="Seed from this report directory at startup.",
-    ),
-    force_seed: bool = typer.Option(
-        False,
-        "--force-seed",
-        help="Re-run LLM pipeline even if a seed cache exists.",
+        "--load",
+        help="Load reports from this directory at startup.",
     ),
 ) -> None:
     """Start the API server."""
@@ -90,12 +85,10 @@ def serve(
 
     from remi.application.cli.banner import print_banner
 
-    if seed:
-        os.environ["REMI_SEED_DIR"] = seed
-    if force_seed:
-        os.environ["REMI_FORCE_SEED"] = "1"
+    if load:
+        os.environ["REMI_LOAD_DIR"] = load
 
-    print_banner(host=host, port=port, reload=reload, seed=bool(seed))
+    print_banner(host=host, port=port, reload=reload, loading=bool(load))
 
     uvicorn.run(
         "remi.shell.api.main:app",

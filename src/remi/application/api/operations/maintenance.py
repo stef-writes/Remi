@@ -2,30 +2,29 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from remi.application.services.queries import (
+from remi.application.portfolio import (
     MaintenanceListResult,
     MaintenanceSummaryResult,
-    PortfolioQueryService,
 )
-from remi.application.api.dependencies import get_portfolio_query
+from remi.shell.api.dependencies import Ctr
 
 router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 
 
 @router.get("", response_model=MaintenanceListResult)
 async def list_requests(
+    c: Ctr,
     property_id: str | None = None,
     status: str | None = None,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
 ) -> MaintenanceListResult:
-    return await svc.list_maintenance(property_id=property_id, status=status)
+    return await c.maintenance_resolver.list_maintenance(property_id=property_id, status=status)
 
 
 @router.get("/summary", response_model=MaintenanceSummaryResult)
 async def maintenance_summary(
+    c: Ctr,
     property_id: str | None = None,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
 ) -> MaintenanceSummaryResult:
-    return await svc.maintenance_summary(property_id=property_id)
+    return await c.maintenance_resolver.maintenance_summary(property_id=property_id)

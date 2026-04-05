@@ -37,6 +37,7 @@ def build_knowledge_graph(
         "Owner": (ps.get_owner, ps.list_owners),
         "Vendor": (ps.get_vendor, ps.list_vendors),
         "Note": (ps.get_note, ps.list_notes),
+        "Document": (ps.get_document, ps.list_documents),
     }
     kg = BridgedKnowledgeGraph(knowledge_store, core_types=core_types)
     projector = GraphProjector(kg, FK_PROJECTION_MAP)

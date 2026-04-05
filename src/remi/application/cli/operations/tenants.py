@@ -29,36 +29,11 @@ async def _lookup(tenant_id: str, fmt_json: bool) -> None:
             raise typer.Exit(1)
     else:
         container = get_container()
-        tenant = await container.property_store.get_tenant(tenant_id)
-        if not tenant:
+        detail = await container.tenant_resolver.get_tenant_detail(tenant_id)
+        if not detail:
             json_out({"ok": False, "error": f"Tenant '{tenant_id}' not found"})
             raise typer.Exit(1)
-
-        leases = await container.property_store.list_leases(tenant_id=tenant_id)
-        lease_info = []
-        for le in leases:
-            unit = await container.property_store.get_unit(le.unit_id)
-            lease_info.append(
-                {
-                    "lease_id": le.id,
-                    "unit": unit.unit_number if unit else le.unit_id,
-                    "property_id": le.property_id,
-                    "start": le.start_date.isoformat(),
-                    "end": le.end_date.isoformat(),
-                    "monthly_rent": float(le.monthly_rent),
-                    "status": le.status.value,
-                }
-            )
-
-        data = ser(
-            {
-                "tenant_id": tenant_id,
-                "name": tenant.name,
-                "email": tenant.email,
-                "phone": tenant.phone,
-                "leases": lease_info,
-            }
-        )
+        data = ser(detail.model_dump())
 
     if fmt_json:
         json_out(data)

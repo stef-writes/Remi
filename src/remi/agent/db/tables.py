@@ -50,7 +50,9 @@ class KGEntityRow(SQLModel, table=True):
     namespace: str = Field(primary_key=True)
     entity_type: str
     properties: dict[str, Any] = Field(default_factory=dict, sa_type=sa.JSON)
-    metadata_: dict[str, Any] = Field(default_factory=dict, sa_type=sa.JSON, sa_column_kwargs={"key": "metadata"})
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict, sa_type=sa.JSON, sa_column_kwargs={"key": "metadata"},
+    )
     provenance: dict[str, Any] | None = Field(default=None, sa_type=sa.JSON)
     created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
@@ -147,6 +149,8 @@ class VectorEmbeddingRow(SQLModel, table=True):
     source_entity_id: str
     source_entity_type: str
     source_field: str = ""
-    metadata_: dict[str, Any] = Field(default_factory=dict, sa_type=sa.JSON, sa_column_kwargs={"key": "metadata"})
+    metadata_: dict[str, Any] = Field(
+        default_factory=dict, sa_type=sa.JSON, sa_column_kwargs={"key": "metadata"},
+    )
     created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
     vector: list[float] = Field(default_factory=list, sa_type=sa.JSON)

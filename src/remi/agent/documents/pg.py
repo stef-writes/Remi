@@ -1,4 +1,4 @@
-"""Postgres-backed DocumentStore using SQLModel + asyncpg."""
+"""Postgres-backed ContentStore using SQLModel + asyncpg."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from sqlmodel import select
 
 from remi.agent.db.tables import DocumentRow
 from remi.agent.documents.types import (
-    Document,
+    ContentStore,
+    DocumentContent,
     DocumentKind,
-    DocumentStore,
     TextChunk,
 )
 
@@ -39,9 +39,9 @@ def _chunks_from_json(data: list[dict[str, Any]]) -> list[TextChunk]:
     return [TextChunk(**c) for c in data]
 
 
-def _doc_from_row(row: DocumentRow) -> Document:
+def _doc_from_row(row: DocumentRow) -> DocumentContent:
     meta = row.doc_metadata or {}
-    return Document(
+    return DocumentContent(
         id=row.id,
         filename=row.filename,
         content_type=row.content_type,
@@ -61,7 +61,7 @@ def _doc_from_row(row: DocumentRow) -> Document:
     )
 
 
-def _doc_to_row(doc: Document) -> DocumentRow:
+def _doc_to_row(doc: DocumentContent) -> DocumentRow:
     meta = dict(doc.metadata)
     meta.update({
         "kind": doc.kind.value,
@@ -83,13 +83,13 @@ def _doc_to_row(doc: Document) -> DocumentRow:
     )
 
 
-class PostgresDocumentStore(DocumentStore):
-    """DocumentStore backed by Postgres via SQLModel async sessions."""
+class PostgresContentStore(ContentStore):
+    """ContentStore backed by Postgres via SQLModel async sessions."""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
-    async def save(self, document: Document) -> None:
+    async def save(self, document: DocumentContent) -> None:
         row = _doc_to_row(document)
         async with self._session_factory() as session:
             existing = await session.get(DocumentRow, document.id)
@@ -106,12 +106,12 @@ class PostgresDocumentStore(DocumentStore):
                 session.add(row)
             await session.commit()
 
-    async def get(self, document_id: str) -> Document | None:
+    async def get(self, document_id: str) -> DocumentContent | None:
         async with self._session_factory() as session:
             row = await session.get(DocumentRow, document_id)
             return _doc_from_row(row) if row else None
 
-    async def list_documents(self) -> list[Document]:
+    async def list_documents(self) -> list[DocumentContent]:
         async with self._session_factory() as session:
             result = await session.execute(
                 select(DocumentRow).order_by(DocumentRow.uploaded_at.desc())  # type: ignore[arg-type]
@@ -155,7 +155,7 @@ class PostgresDocumentStore(DocumentStore):
         kind: DocumentKind | None = None,
         tags: list[str] | None = None,
         limit: int = 50,
-    ) -> list[Document]:
+    ) -> list[DocumentContent]:
         docs = await self.list_documents()
 
         if kind is not None:

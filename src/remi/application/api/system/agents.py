@@ -9,21 +9,13 @@ from typing import Any
 
 import structlog
 import yaml
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from remi.agent.llm import LLMProviderFactory
 from remi.agent.observe import Event
-from remi.agent.runtime import ChatAgentService
-from remi.agent.types import ChatSessionStore, Message
-from remi.application.api.dependencies import (
-    get_chat_agent,
-    get_chat_session_store,
-    get_provider_factory,
-    get_settings,
-)
-from remi.shell.config.settings import RemiSettings
+from remi.agent.types import Message
+from remi.shell.api.dependencies import Ctr
 from remi.types.paths import AGENTS_DIR
 
 logger = structlog.get_logger("remi.api.agents")
@@ -32,12 +24,9 @@ router = APIRouter(prefix="/agents", tags=["ai"])
 
 
 @router.get("/models")
-async def list_models(
-    settings: RemiSettings = Depends(get_settings),
-    factory: LLMProviderFactory = Depends(get_provider_factory),
-) -> dict[str, Any]:
+async def list_models(c: Ctr) -> dict[str, Any]:
     """Return available LLM providers/models and current defaults."""
-    available = factory.available()
+    available = c.provider_factory.available()
 
     provider_models: dict[str, list[str]] = {
         "openai": [
@@ -64,8 +53,8 @@ async def list_models(
     }
 
     return {
-        "default_provider": settings.llm.default_provider,
-        "default_model": settings.llm.default_model,
+        "default_provider": c.settings.llm.default_provider,
+        "default_model": c.settings.llm.default_model,
         "providers": [
             {
                 "name": name,
@@ -130,8 +119,7 @@ class AskRequest(BaseModel):
 async def ask_agent(
     agent_name: str,
     body: AskRequest,
-    agent: ChatAgentService = Depends(get_chat_agent),
-    sessions: ChatSessionStore = Depends(get_chat_session_store),
+    c: Ctr,
 ) -> StreamingResponse:
     """Stream an agent response as newline-delimited JSON events.
 
@@ -148,7 +136,7 @@ async def ask_agent(
     async def _run() -> None:
         try:
             if body.session_id:
-                session = await sessions.get(body.session_id)
+                session = await c.chat_session_store.get(body.session_id)
                 if session is None:
                     await queue.put(
                         json.dumps({"event": "error", "data": {"message": "session not found"}})
@@ -156,11 +144,11 @@ async def ask_agent(
                     return
 
                 user_msg = Message(role="user", content=body.question)
-                await sessions.append_message(body.session_id, user_msg)
-                refreshed = await sessions.get(body.session_id)
+                await c.chat_session_store.append_message(body.session_id, user_msg)
+                refreshed = await c.chat_session_store.get(body.session_id)
                 thread = list(refreshed.thread) if refreshed else [user_msg]
 
-                answer = await agent.run_chat_agent(
+                answer = await c.chat_agent.run_chat_agent(
                     session.agent,
                     thread,
                     on_event=_on_event,
@@ -168,9 +156,9 @@ async def ask_agent(
                     mode=body.mode,  # type: ignore[arg-type]
                 )
                 assistant_msg = Message(role="assistant", content=answer)
-                await sessions.append_message(body.session_id, assistant_msg)
+                await c.chat_session_store.append_message(body.session_id, assistant_msg)
             else:
-                await agent.ask(
+                await c.chat_agent.ask(
                     agent_name,
                     body.question,
                     mode=body.mode,  # type: ignore[arg-type]
@@ -213,9 +201,9 @@ class CreateSessionRequest(BaseModel):
 @router.post("/sessions")
 async def create_session(
     body: CreateSessionRequest,
-    sessions: ChatSessionStore = Depends(get_chat_session_store),
+    c: Ctr,
 ) -> dict[str, Any]:
-    session = await sessions.create(
+    session = await c.chat_session_store.create(
         body.agent,
         provider=body.provider,
         model=body.model,
@@ -224,10 +212,8 @@ async def create_session(
 
 
 @router.get("/sessions")
-async def list_sessions(
-    sessions: ChatSessionStore = Depends(get_chat_session_store),
-) -> dict[str, Any]:
-    all_sessions = await sessions.list_sessions()
+async def list_sessions(c: Ctr) -> dict[str, Any]:
+    all_sessions = await c.chat_session_store.list_sessions()
     return {
         "count": len(all_sessions),
         "sessions": [_session_summary(s) for s in all_sessions],
@@ -237,11 +223,11 @@ async def list_sessions(
 @router.get("/sessions/{session_id}")
 async def get_session(
     session_id: str,
-    sessions: ChatSessionStore = Depends(get_chat_session_store),
+    c: Ctr,
 ) -> dict[str, Any]:
     from remi.types.errors import NotFoundError
 
-    session = await sessions.get(session_id)
+    session = await c.chat_session_store.get(session_id)
     if session is None:
         raise NotFoundError("Session", session_id)
     return _session_dict(session)
@@ -250,9 +236,9 @@ async def get_session(
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: str,
-    sessions: ChatSessionStore = Depends(get_chat_session_store),
+    c: Ctr,
 ) -> dict[str, Any]:
-    deleted = await sessions.delete(session_id)
+    deleted = await c.chat_session_store.delete(session_id)
     return {"deleted": deleted, "session_id": session_id}
 
 

@@ -32,7 +32,7 @@ async def _list_portfolios(manager_id: str | None, fmt_json: bool) -> None:
         return
 
     container = get_container()
-    result = await container.portfolio_query.list_portfolios(manager_id=manager_id)
+    result = await container.portfolio_resolver.list_portfolios(manager_id=manager_id)
     items = [item.model_dump() for item in result]
 
     if fmt_json:
@@ -76,7 +76,7 @@ async def _summary(portfolio_id: str, fmt_json: bool) -> None:
         return
 
     container = get_container()
-    result = await container.portfolio_query.portfolio_summary(portfolio_id)
+    result = await container.portfolio_resolver.portfolio_summary(portfolio_id)
     if not result:
         json_out({"ok": False, "error": f"Portfolio '{portfolio_id}' not found"})
         raise typer.Exit(1)

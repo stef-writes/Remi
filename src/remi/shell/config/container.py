@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import cast
 
 from remi.agent.context import build_context_builder
-from remi.agent.documents import DocumentStore
+from remi.agent.documents import ContentStore
 from remi.agent.graph import (
     BridgedKnowledgeGraph,
     GraphProjector,
@@ -21,9 +21,9 @@ from remi.agent.graph import (
     build_knowledge_store,
     build_memory_store,
 )
-from remi.agent.pipeline import IngestionPipelineRunner
 from remi.agent.llm import LLMProviderFactory, build_provider_factory
 from remi.agent.observe import LLMUsageLedger, Tracer, TraceStore, build_trace_store
+from remi.agent.pipeline import IngestionPipelineRunner
 from remi.agent.profile import DomainProfile
 from remi.agent.runtime import ChatAgentService, RetryPolicy
 from remi.agent.sandbox import Sandbox, build_sandbox
@@ -55,8 +55,6 @@ from remi.application.infra.ontology import (
     seed_knowledge_graph,
 )
 from remi.application.infra.ports import (
-    AgentDocumentParser,
-    AgentDocumentRepository,
     AgentTextIndexer,
     AgentVectorSearch,
     KnowledgeStoreReader,
@@ -68,19 +66,26 @@ from remi.application.infra.stores import (
     StoreSuite,
     build_store_suite,
 )
+from remi.application.portfolio import (
+    AutoAssignService,
+    DashboardQueryService,
+    DocumentResolver,
+    LeaseResolver,
+    MaintenanceResolver,
+    ManagerReviewService,
+    PortfolioResolver,
+    PropertyResolver,
+    RentRollService,
+    SignalResolver,
+    TenantResolver,
+    UnitResolver,
+)
 from remi.application.profile import build_re_profile
 from remi.application.services.embedding.pipeline import EmbeddingPipeline
 from remi.application.services.ingestion.pipeline import DocumentIngestService
 from remi.application.services.ingestion.service import IngestionService
-from remi.application.services.queries import (
-    AutoAssignService,
-    DashboardQueryService,
-    ManagerReviewService,
-    PortfolioQueryService,
-    RentRollService,
-)
 from remi.application.services.search import SearchService
-from remi.application.services.seeding.service import SeedService
+from remi.application.services.seeding import PortfolioLoader
 from remi.application.tools import (
     ActionToolProvider,
     AssertionToolProvider,
@@ -95,9 +100,6 @@ from remi.shell.config.settings import RemiSettings
 
 def _build_scope_filter_args(profile: DomainProfile) -> list[ToolArg]:
     args: list[ToolArg] = []
-    if profile.scope_entity_type:
-        scope_key = profile.scope_entity_type[0].lower() + profile.scope_entity_type[1:]
-        scope_key = scope_key.replace("Manager", "_manager").replace("Property", "_property")
     for key in ("manager_id", "property_id"):
         hint_key = f"semantic_search:{key}"
         desc = profile.tool_hints.get(hint_key, f"Filter results by {key}")
@@ -126,7 +128,7 @@ class Container:
         self.chat_session_store: ChatSessionStore = build_chat_session_store(self.settings)
         self._store_suite: StoreSuite = build_store_suite(self.settings)
         self.property_store: PropertyStore = self._store_suite.property_store
-        self.document_store: DocumentStore = self._store_suite.document_store
+        self.content_store: ContentStore = self._store_suite.content_store
 
         # -- Knowledge graph ---------------------------------------------------
         self.knowledge_graph: BridgedKnowledgeGraph
@@ -166,8 +168,6 @@ class Container:
         # -- Application-layer ports (bridge agent → application) ---------------
         self.knowledge_writer = KnowledgeStoreWriter(self.knowledge_store)
         self.knowledge_reader = KnowledgeStoreReader(self.knowledge_store)
-        self.document_parser = AgentDocumentParser()
-        self.document_repo = AgentDocumentRepository(self.document_store)
 
         # -- Event store -------------------------------------------------------
         self.event_store: EventStore = InMemoryEventStore()
@@ -184,13 +184,20 @@ class Container:
             property_store=self.property_store,
             pipeline_runner=pipeline_runner,
         )
+        self.property_resolver = PropertyResolver(property_store=self.property_store)
+        self.portfolio_resolver = PortfolioResolver(property_store=self.property_store)
+        self.lease_resolver = LeaseResolver(property_store=self.property_store)
+        self.maintenance_resolver = MaintenanceResolver(property_store=self.property_store)
+        self.unit_resolver = UnitResolver(property_store=self.property_store)
+        self.tenant_resolver = TenantResolver(property_store=self.property_store)
+        self.signal_resolver = SignalResolver(signal_store=self.signal_store)
+        self.document_resolver = DocumentResolver(property_store=self.property_store)
+        self.manager_review = ManagerReviewService(property_store=self.property_store)
+        self.rent_roll_service = RentRollService(property_store=self.property_store)
         self.dashboard_service = DashboardQueryService(
             property_store=self.property_store,
             knowledge_reader=self.knowledge_reader,
         )
-        self.portfolio_query = PortfolioQueryService(property_store=self.property_store)
-        self.manager_review = ManagerReviewService(property_store=self.property_store)
-        self.rent_roll_service = RentRollService(property_store=self.property_store)
         self.auto_assign_service = AutoAssignService(
             property_store=self.property_store,
             knowledge_reader=self.knowledge_reader,
@@ -201,7 +208,7 @@ class Container:
         self.embedding_pipeline = EmbeddingPipeline(
             property_store=self.property_store,
             text_indexer=text_indexer,
-            document_repo=self.document_repo,
+            content_store=self.content_store,
             signal_store=self.signal_store,
         )
 
@@ -211,8 +218,7 @@ class Container:
 
         # -- Document ingestion ------------------------------------------------
         self.document_ingest = DocumentIngestService(
-            document_repo=self.document_repo,
-            document_parser=self.document_parser,
+            content_store=self.content_store,
             ingestion_service=ingestion_service,
             embedding_pipeline=self.embedding_pipeline,
             metadata_skip_patterns=self.profile.metadata_skip_patterns,
@@ -237,7 +243,8 @@ class Container:
             TraceToolProvider(self.trace_store),
             KnowledgeGraphToolProvider(self.knowledge_graph, signal_store=self.signal_store),
             DocumentToolProvider(
-                self.document_store,
+                self.content_store,
+                self.property_store,
                 document_ingest=self.document_ingest,
                 vector_search=vector_search,
             ),
@@ -247,13 +254,11 @@ class Container:
         for provider in phase1_providers:
             provider.register(self.tool_registry)
 
-        # -- Seed service ------------------------------------------------------
-        self.seed_service = SeedService(
+        # -- Portfolio loader --------------------------------------------------
+        self.portfolio_loader = PortfolioLoader(
             document_ingest=self.document_ingest,
-            auto_assign=self.auto_assign_service,
             embedding_pipeline=self.embedding_pipeline,
-            property_store=self.property_store,
-            document_parser=self.document_parser,
+            auto_assign=self.auto_assign_service,
             metadata_skip_patterns=self.profile.metadata_skip_patterns,
         )
 

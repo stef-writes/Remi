@@ -2,7 +2,6 @@
 
 Supported providers:
   openai   — text-embedding-3-small / text-embedding-3-large (default)
-  voyage   — voyage-3 / voyage-3-lite / voyage-finance-2 etc.
 
 NoopEmbedder: deterministic hash-based fallback for tests and offline dev.
               Logs a warning at construction time in non-test environments.
@@ -19,8 +18,8 @@ from typing import Any
 
 import structlog
 
-from remi.types.config import EmbeddingsSettings, SecretsSettings
 from remi.agent.vectors.types import Embedder
+from remi.types.config import EmbeddingsSettings, SecretsSettings
 
 _log = structlog.get_logger(__name__)
 
@@ -80,73 +79,6 @@ class OpenAIEmbedder(Embedder):
     @property
     def dimension(self) -> int:
         return self._dimensions
-
-
-# ---------------------------------------------------------------------------
-# Voyage AI
-# ---------------------------------------------------------------------------
-
-
-class VoyageEmbedder(Embedder):
-    """Embeds text using Voyage AI's embedding API.
-
-    Requires the ``voyageai`` package and a valid VOYAGE_API_KEY.
-    Voyage models are retrieval-optimised and support input_type hints.
-
-    Recommended models:
-      voyage-3           — 1024-dim, general purpose (default)
-      voyage-3-lite      — 512-dim, lower cost / latency
-      voyage-finance-2   — 1024-dim, finance domain
-    """
-
-    _DIMENSIONS: dict[str, int] = {
-        "voyage-3": 1024,
-        "voyage-3-lite": 512,
-        "voyage-finance-2": 1024,
-        "voyage-large-2": 1536,
-        "voyage-2": 1024,
-    }
-
-    def __init__(
-        self,
-        model: str = "voyage-3",
-        api_key: str | None = None,
-        input_type: str = "document",
-    ) -> None:
-        self._model = model
-        self._api_key = api_key or os.environ.get("VOYAGE_API_KEY", "")
-        self._input_type = input_type
-        self._client: Any = None
-        self._dimension = self._DIMENSIONS.get(model, 1024)
-
-    def _get_client(self) -> Any:
-        if self._client is None:
-            try:
-                import voyageai
-            except ImportError as exc:
-                raise RuntimeError(
-                    "VoyageEmbedder requires the 'voyageai' package. "
-                    "Install with: pip install voyageai"
-                ) from exc
-            self._client = voyageai.AsyncClient(api_key=self._api_key)
-        return self._client
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        client = self._get_client()
-        _log.debug("embedding_batch", count=len(texts), model=self._model)
-        result = await client.embed(texts, model=self._model, input_type=self._input_type)
-        embeddings: list[list[float]] = result.embeddings
-        return embeddings
-
-    async def embed_one(self, text: str) -> list[float]:
-        results = await self.embed([text])
-        return results[0]
-
-    @property
-    def dimension(self) -> int:
-        return self._dimension
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +145,5 @@ def build_embedder(cfg: EmbeddingsSettings, secrets: SecretsSettings) -> Embedde
             api_key=secrets.openai_api_key,
             dimensions=cfg.dimensions,
         )
-
-    if provider == "voyage" and secrets.voyage_api_key:
-        return VoyageEmbedder(model=cfg.model, api_key=secrets.voyage_api_key)
 
     return NoopEmbedder()

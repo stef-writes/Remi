@@ -8,12 +8,13 @@
     leasing.py      — who's in them, on what terms (Tenant, Lease)
     operations.py   — the work (Vendor, MaintenanceRequest)
     tracking.py     — director follow-up (ActionItem, Note)
+    documents.py    — uploaded files scoped to domain entities (Document)
 
 Every public name is re-exported here so existing imports continue to
 work: ``from remi.application.core.models import Lease`` resolves
 identically whether the caller knows about the submodules or not.
 
-Repository protocols live in ``domain.protocols``.
+Repository protocols live in ``application.core.protocols``.
 """
 
 from remi.application.core.models.assets import (
@@ -21,10 +22,12 @@ from remi.application.core.models.assets import (
     Property,
     Unit,
 )
+from remi.application.core.models.documents import Document
 from remi.application.core.models.enums import (
     ActionItemPriority,
     ActionItemStatus,
     AssetClass,
+    DocumentType,
     EntityType,
     LeaseStatus,
     LeaseType,
@@ -64,6 +67,7 @@ __all__ = [
     "ActionItemPriority",
     "ActionItemStatus",
     "AssetClass",
+    "DocumentType",
     "EntityType",
     "LeaseStatus",
     "LeaseType",
@@ -92,6 +96,8 @@ __all__ = [
     # Operations
     "MaintenanceRequest",
     "Vendor",
+    # Documents
+    "Document",
     # Tracking
     "ActionItem",
     "Note",

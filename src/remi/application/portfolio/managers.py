@@ -6,8 +6,7 @@ import asyncio
 from datetime import date
 from decimal import Decimal
 
-from remi.application.core.models import Lease, MaintenanceRequest, Unit
-from remi.application.core.models import LeaseStatus, UnitStatus
+from remi.application.core.models import Lease, LeaseStatus, MaintenanceRequest, Unit
 from remi.application.core.protocols import PropertyStore
 from remi.application.core.rules import (
     is_below_market,

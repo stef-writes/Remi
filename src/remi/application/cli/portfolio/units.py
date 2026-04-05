@@ -35,34 +35,20 @@ async def _list_units(property_id: str | None, status_str: str | None, fmt_json:
         data = _http.get(f"/units{qs}")
         items = data.get("units", [])
     else:
-        from remi.application.core.models import UnitStatus
-
         container = get_container()
-        status = UnitStatus(status_str) if status_str else None
-        units = await container.property_store.list_units(property_id=property_id, status=status)
-        items = []
-        for u in units:
-            prop = await container.property_store.get_property(u.property_id)
-            items.append(
-                {
-                    "id": u.id,
-                    "unit_number": u.unit_number,
-                    "property": prop.name if prop else u.property_id,
-                    "status": u.status.value,
-                    "bedrooms": u.bedrooms,
-                    "sqft": u.sqft,
-                    "market_rent": float(u.market_rent),
-                    "current_rent": float(u.current_rent),
-                }
-            )
+        result = await container.unit_resolver.list_units(
+            property_id=property_id, status=status_str,
+        )
+        items = [item.model_dump() for item in result.units]
 
     if fmt_json:
         json_out({"count": len(items), "units": items})
     else:
         typer.echo(f"\n{len(items)} units found:\n")
         for u in items:
-            bed_str = f"{u['bedrooms']}BR" if u["bedrooms"] else "N/A"
+            bed_str = f"{u['bedrooms']}BR" if u.get("bedrooms") else "N/A"
+            prop_name = u.get("property_name", u.get("property", ""))
             typer.echo(
-                f"  {u['id']:12s}  {u['property']:30s}  {u['unit_number']:10s}  "
+                f"  {u['id']:12s}  {prop_name:30s}  {u['unit_number']:10s}  "
                 f"{u['status']:12s}  {bed_str:5s}  ${u['market_rent']:>8,.0f}"
             )

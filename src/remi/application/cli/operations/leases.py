@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
 
 import typer
 
@@ -29,32 +28,9 @@ async def _expiring(days: int, fmt_json: bool) -> None:
         data = _http.get(f"/leases/expiring?days={days}")
         items = data.get("leases", [])
     else:
-        from remi.application.core.models import LeaseStatus
-
         container = get_container()
-        today = date.today()
-        deadline = today + timedelta(days=days)
-
-        leases = await container.property_store.list_leases(status=LeaseStatus.ACTIVE)
-        expiring = [le for le in leases if le.end_date <= deadline]
-        expiring.sort(key=lambda le: le.end_date)
-
-        items = []
-        for le in expiring:
-            tenant = await container.property_store.get_tenant(le.tenant_id)
-            unit = await container.property_store.get_unit(le.unit_id)
-            prop = await container.property_store.get_property(le.property_id)
-            items.append(
-                {
-                    "lease_id": le.id,
-                    "tenant": tenant.name if tenant else le.tenant_id,
-                    "unit": unit.unit_number if unit else le.unit_id,
-                    "property": prop.name if prop else le.property_id,
-                    "monthly_rent": float(le.monthly_rent),
-                    "end_date": le.end_date.isoformat(),
-                    "days_left": (le.end_date - today).days,
-                }
-            )
+        result = await container.lease_resolver.expiring_leases(days=days)
+        items = [item.model_dump() for item in result.leases]
 
     if fmt_json:
         json_out({"days_window": days, "expiring_count": len(items), "leases": items})
@@ -94,26 +70,11 @@ async def _list_leases(property_id: str | None, status_str: str | None, fmt_json
         data = _http.get(f"/leases{qs}")
         items = data.get("leases", [])
     else:
-        from remi.application.core.models import LeaseStatus
-
         container = get_container()
-        status = LeaseStatus(status_str) if status_str else None
-        leases = await container.property_store.list_leases(property_id=property_id, status=status)
-        items = []
-        for le in leases:
-            tenant = await container.property_store.get_tenant(le.tenant_id)
-            items.append(
-                {
-                    "id": le.id,
-                    "tenant": tenant.name if tenant else le.tenant_id,
-                    "unit_id": le.unit_id,
-                    "property_id": le.property_id,
-                    "start": le.start_date.isoformat(),
-                    "end": le.end_date.isoformat(),
-                    "rent": float(le.monthly_rent),
-                    "status": le.status.value,
-                }
-            )
+        result = await container.lease_resolver.list_leases(
+            property_id=property_id, status=status_str,
+        )
+        items = [item.model_dump() for item in result.leases]
 
     if fmt_json:
         json_out({"count": len(items), "leases": items})

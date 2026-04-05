@@ -6,6 +6,23 @@ import contextlib
 from collections.abc import Callable
 from typing import Any
 
+from remi.application.core.models import (
+    Lease,
+    LeaseStatus,
+    MaintenanceCategory,
+    MaintenanceRequest,
+    MaintenanceStatus,
+    OccupancyStatus,
+    Owner,
+    Priority,
+    PropertyManager,
+    Tenant,
+    TenantStatus,
+    Unit,
+    UnitStatus,
+    Vendor,
+    VendorCategory,
+)
 from remi.application.services.ingestion.context import (
     IngestionCtx,
     ensure_property,
@@ -25,28 +42,11 @@ from remi.application.services.ingestion.resolver import (
     to_decimal,
     to_int,
 )
-from remi.application.core.models import (
-    Lease,
-    LeaseStatus,
-    MaintenanceCategory,
-    MaintenanceRequest,
-    MaintenanceStatus,
-    OccupancyStatus,
-    Owner,
-    Priority,
-    PropertyManager,
-    Tenant,
-    TenantStatus,
-    Unit,
-    UnitStatus,
-    Vendor,
-    VendorCategory,
-)
 from remi.types.text import slugify
 
 
 async def persist_unit(row: dict[str, Any], ctx: IngestionCtx) -> None:
-    prop_id = await ensure_property(row, ctx, replace_units=True)
+    prop_id = await ensure_property(row, ctx)
     unum = str(row.get("unit_number") or "main").strip()
     uid = slugify(f"unit:{prop_id}:{unum}")
 
@@ -99,7 +99,7 @@ async def persist_unit(row: dict[str, Any], ctx: IngestionCtx) -> None:
 
 async def persist_tenant(row: dict[str, Any], ctx: IngestionCtx) -> None:
     """Delinquency rows: each row implies Unit + Tenant + Lease."""
-    prop_id = await ensure_property(row, ctx, replace_units=True, replace_leases=True)
+    prop_id = await ensure_property(row, ctx)
     unum = str(row.get("unit_number") or "main").strip()
     uid = slugify(f"unit:{prop_id}:{unum}")
     tname = str(row.get("tenant_name") or row.get("name") or "").strip()

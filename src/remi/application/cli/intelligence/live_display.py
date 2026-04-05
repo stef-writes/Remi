@@ -72,7 +72,7 @@ class LiveAgentDisplay:
 
     def show_sandbox_ready(self, session_id: str, files: list[str]) -> None:
         """Display sandbox initialization banner."""
-        self._console.print(f"  [cyan]◆[/cyan] Sandbox ready — {len(files)} data files seeded")
+        self._console.print(f"  [cyan]◆[/cyan] Sandbox ready — {len(files)} data files loaded")
 
     def show_start(self, agent_name: str, model: str, provider: str) -> None:
         self._console.print(

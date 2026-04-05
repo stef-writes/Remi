@@ -1,14 +1,14 @@
 """Text-based document parsers for the knowledge base.
 
-Converts raw file bytes into a ``Document`` with ``kind=text``.
+Converts raw file bytes into a ``DocumentContent`` with ``kind=text``.
 Supports PDF, DOCX, and plain text.  Images produce ``kind=image``
 metadata-only documents.
 
 Public surface:
-    parse_pdf(filename, content) -> Document
-    parse_docx(filename, content) -> Document
-    parse_text(filename, content, content_type) -> Document
-    parse_image(filename, content, content_type) -> Document
+    parse_pdf(filename, content) -> DocumentContent
+    parse_docx(filename, content) -> DocumentContent
+    parse_text(filename, content, content_type) -> DocumentContent
+    parse_image(filename, content, content_type) -> DocumentContent
     chunk_text(raw_text, max_tokens, overlap) -> list[TextChunk]
 """
 
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 
-from remi.agent.documents.types import Document, DocumentKind, TextChunk
+from remi.agent.documents.types import DocumentContent, DocumentKind, TextChunk
 
 _APPROX_CHARS_PER_TOKEN = 4
 _DEFAULT_MAX_TOKENS = 500
@@ -99,7 +99,7 @@ def chunk_text(
 # ---------------------------------------------------------------------------
 
 
-def parse_pdf(filename: str, content: bytes) -> Document:
+def parse_pdf(filename: str, content: bytes) -> DocumentContent:
     """Extract text from a PDF using pymupdf."""
     try:
         import pymupdf  # noqa: WPS433
@@ -124,7 +124,7 @@ def parse_pdf(filename: str, content: bytes) -> Document:
 
     chunks = chunk_text(raw_text, page_breaks=page_breaks)
 
-    return Document(
+    return DocumentContent(
         id=f"doc-{uuid.uuid4().hex[:12]}",
         filename=filename,
         content_type="application/pdf",
@@ -141,7 +141,7 @@ def parse_pdf(filename: str, content: bytes) -> Document:
 # ---------------------------------------------------------------------------
 
 
-def parse_docx(filename: str, content: bytes) -> Document:
+def parse_docx(filename: str, content: bytes) -> DocumentContent:
     """Extract text from a Word document using python-docx."""
     try:
         import docx  # noqa: WPS433
@@ -157,7 +157,7 @@ def parse_docx(filename: str, content: bytes) -> Document:
     raw_text = "\n\n".join(paragraphs)
     chunks = chunk_text(raw_text)
 
-    return Document(
+    return DocumentContent(
         id=f"doc-{uuid.uuid4().hex[:12]}",
         filename=filename,
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -174,12 +174,12 @@ def parse_docx(filename: str, content: bytes) -> Document:
 # ---------------------------------------------------------------------------
 
 
-def parse_text(filename: str, content: bytes, content_type: str) -> Document:
+def parse_text(filename: str, content: bytes, content_type: str) -> DocumentContent:
     """Parse a plain text or markdown file."""
     text = content.decode("utf-8-sig", errors="replace")
     chunks = chunk_text(text)
 
-    return Document(
+    return DocumentContent(
         id=f"doc-{uuid.uuid4().hex[:12]}",
         filename=filename,
         content_type=content_type,
@@ -195,9 +195,9 @@ def parse_text(filename: str, content: bytes, content_type: str) -> Document:
 # ---------------------------------------------------------------------------
 
 
-def parse_image(filename: str, content: bytes, content_type: str) -> Document:
-    """Create a metadata-only Document for an image file."""
-    return Document(
+def parse_image(filename: str, content: bytes, content_type: str) -> DocumentContent:
+    """Create a metadata-only DocumentContent for an image file."""
+    return DocumentContent(
         id=f"doc-{uuid.uuid4().hex[:12]}",
         filename=filename,
         content_type=content_type,

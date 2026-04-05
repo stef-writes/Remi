@@ -5,15 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from remi.agent.signals import FeedbackStore, Signal, SignalStore
-from remi.application.api.dependencies import (
-    get_feedback_store,
-    get_signal_store,
-)
-
-_log = structlog.get_logger(__name__)
+from remi.agent.signals import Signal
 from remi.application.api.intelligence.signal_schemas import (
     FeedbackListResponse,
     FeedbackRequest,
@@ -23,7 +17,11 @@ from remi.application.api.intelligence.signal_schemas import (
     SignalListResponse,
     SignalSummary,
 )
+from remi.application.portfolio import SignalDigest
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import NotFoundError
+
+_log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -43,11 +41,11 @@ def _signal_summary(s: Signal) -> SignalSummary:
 
 @router.get("")
 async def list_signals(
+    c: Ctr,
     manager_id: str | None = None,
     property_id: str | None = None,
     severity: str | None = None,
     signal_type: str | None = None,
-    ss: SignalStore = Depends(get_signal_store),
 ) -> SignalListResponse:
     scope: dict[str, str] | None = None
     if manager_id or property_id:
@@ -56,7 +54,7 @@ async def list_signals(
             scope["manager_id"] = manager_id
         if property_id:
             scope["property_id"] = property_id
-    signals = await ss.list_signals(
+    signals = await c.signal_store.list_signals(
         scope=scope,
         severity=severity,
         signal_type=signal_type,
@@ -67,64 +65,17 @@ async def list_signals(
     )
 
 
-@router.get("/digest")
-async def signal_digest(
-    ss: SignalStore = Depends(get_signal_store),
-) -> dict[str, Any]:
-    """Grouped signal briefing for the frontend home screen.
-
-    Groups all active signals by entity, sorted by severity, with
-    counts per severity level. Designed for the "situation feed" UI.
-    """
-    from collections import defaultdict
-
-    all_signals = await ss.list_signals()
-
-    severity_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-
-    by_entity: dict[str, list[Signal]] = defaultdict(list)
-    for s in all_signals:
-        by_entity[s.entity_id].append(s)
-
-    groups: list[dict[str, Any]] = []
-    for entity_id, sigs in by_entity.items():
-        sigs.sort(key=lambda s: severity_rank.get(s.severity.value, 99))
-        worst = sigs[0]
-
-        severity_counts: dict[str, int] = defaultdict(int)
-        for s in sigs:
-            severity_counts[s.severity.value] += 1
-
-        groups.append({
-            "entity_id": entity_id,
-            "entity_type": worst.entity_type,
-            "entity_name": worst.entity_name,
-            "worst_severity": worst.severity.value,
-            "signal_count": len(sigs),
-            "severity_counts": dict(severity_counts),
-            "signals": [_signal_summary(s).model_dump(mode="json") for s in sigs],
-        })
-
-    groups.sort(key=lambda g: severity_rank.get(g["worst_severity"], 99))
-
-    total_by_severity: dict[str, int] = defaultdict(int)
-    for s in all_signals:
-        total_by_severity[s.severity.value] += 1
-
-    return {
-        "total_signals": len(all_signals),
-        "total_entities": len(groups),
-        "severity_counts": dict(total_by_severity),
-        "entities": groups,
-    }
+@router.get("/digest", response_model=SignalDigest)
+async def signal_digest(c: Ctr) -> SignalDigest:
+    return await c.signal_resolver.digest()
 
 
 @router.get("/{signal_id}")
 async def get_signal(
     signal_id: str,
-    ss: SignalStore = Depends(get_signal_store),
+    c: Ctr,
 ) -> SignalDetailResponse:
-    signal = await ss.get_signal(signal_id)
+    signal = await c.signal_store.get_signal(signal_id)
     if signal is None:
         raise NotFoundError("Signal", signal_id)
     return SignalDetailResponse(
@@ -135,9 +86,9 @@ async def get_signal(
 @router.get("/{signal_id}/explain")
 async def explain_signal(
     signal_id: str,
-    ss: SignalStore = Depends(get_signal_store),
+    c: Ctr,
 ) -> SignalExplainResponse:
-    signal = await ss.get_signal(signal_id)
+    signal = await c.signal_store.get_signal(signal_id)
     if signal is None:
         raise NotFoundError("Signal", signal_id)
     return SignalExplainResponse(
@@ -151,15 +102,14 @@ async def explain_signal(
 async def record_feedback(
     signal_id: str,
     body: FeedbackRequest,
-    ss: SignalStore = Depends(get_signal_store),
-    fs: FeedbackStore = Depends(get_feedback_store),
+    c: Ctr,
 ) -> FeedbackResponse:
     """Record feedback on a signal."""
     import uuid
 
     from remi.agent.signals import SignalFeedback, SignalOutcome
 
-    signal = await ss.get_signal(signal_id)
+    signal = await c.signal_store.get_signal(signal_id)
     if signal is None:
         raise NotFoundError("Signal", signal_id)
 
@@ -173,7 +123,7 @@ async def record_feedback(
         notes=body.notes,
         context=body.context,
     )
-    await fs.record_feedback(feedback)
+    await c.feedback_store.record_feedback(feedback)
     return FeedbackResponse(
         feedback_id=feedback.feedback_id,
         signal_id=signal_id,
@@ -184,10 +134,10 @@ async def record_feedback(
 @router.get("/{signal_id}/feedback")
 async def list_signal_feedback(
     signal_id: str,
-    fs: FeedbackStore = Depends(get_feedback_store),
+    c: Ctr,
 ) -> FeedbackListResponse:
     """List feedback events for a specific signal."""
-    entries = await fs.list_feedback(
+    entries = await c.feedback_store.list_feedback(
         signal_id=signal_id,
     )
     return FeedbackListResponse(
@@ -200,8 +150,8 @@ async def list_signal_feedback(
 @router.get("/feedback/summary/{signal_type}")
 async def feedback_summary(
     signal_type: str,
-    fs: FeedbackStore = Depends(get_feedback_store),
+    c: Ctr,
 ) -> dict[str, Any]:
     """Aggregated feedback stats for a signal type."""
-    summary = await fs.summarize(signal_type)
+    summary = await c.feedback_store.summarize(signal_type)
     return summary.model_dump(mode="json")

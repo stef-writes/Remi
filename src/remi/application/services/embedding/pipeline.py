@@ -11,13 +11,12 @@ from dataclasses import dataclass, field
 
 import structlog
 
+from remi.agent.documents import ContentStore
 from remi.application.core.protocols import (
-    DocumentRepository,
     EmbedRequest,
     PropertyStore,
     TextIndexer,
 )
-from remi.application.services.embedding.sources import SignalStoreProtocol
 from remi.application.services.embedding.extraction import (
     extract_maintenance,
     extract_properties,
@@ -25,6 +24,7 @@ from remi.application.services.embedding.extraction import (
     extract_units,
 )
 from remi.application.services.embedding.sources import (
+    SignalStoreProtocol,
     extract_document_chunks,
     extract_document_rows,
     extract_managers,
@@ -48,12 +48,12 @@ class EmbeddingPipeline:
         self,
         property_store: PropertyStore,
         text_indexer: TextIndexer,
-        document_repo: DocumentRepository | None = None,
-        signal_store: "SignalStoreProtocol | None" = None,
+        content_store: ContentStore | None = None,
+        signal_store: SignalStoreProtocol | None = None,
     ) -> None:
         self._ps = property_store
         self._indexer = text_indexer
-        self._doc_repo = document_repo
+        self._content_store = content_store
         self._ss = signal_store
 
     async def run_full(self) -> PipelineResult:
@@ -61,9 +61,29 @@ class EmbeddingPipeline:
 
         Upserts by stable IDs; does not clear orphans.
         """
-        result = PipelineResult()
-        requests = await self._extract_all()
+        return await self._index(await self._extract_all())
 
+    async def run_for_document(self, document_id: str) -> PipelineResult:
+        """Embed only the rows/chunks belonging to a specific document.
+
+        Much cheaper than ``run_full`` — call this after a single document
+        upload instead of re-embedding the entire corpus.
+        """
+        if self._content_store is None:
+            return PipelineResult()
+        requests: list[EmbedRequest] = []
+        requests.extend(
+            r for r in await extract_document_rows(self._content_store, self._ps)
+            if r.source_entity_id == document_id
+        )
+        requests.extend(
+            r for r in await extract_document_chunks(self._content_store, self._ps)
+            if r.source_entity_id == document_id
+        )
+        return await self._index(requests)
+
+    async def _index(self, requests: list[EmbedRequest]) -> PipelineResult:
+        result = PipelineResult()
         if not requests:
             _log.info("embedding_pipeline_empty")
             return result
@@ -94,7 +114,7 @@ class EmbeddingPipeline:
         requests.extend(await extract_units(self._ps))
         requests.extend(await extract_maintenance(self._ps))
         requests.extend(await extract_properties(self._ps))
-        if self._doc_repo is not None:
-            requests.extend(await extract_document_rows(self._doc_repo))
-            requests.extend(await extract_document_chunks(self._doc_repo))
+        if self._content_store is not None:
+            requests.extend(await extract_document_rows(self._content_store, self._ps))
+            requests.extend(await extract_document_chunks(self._content_store, self._ps))
         return requests

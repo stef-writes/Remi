@@ -16,9 +16,9 @@ from typing import Any
 import structlog
 
 from remi.agent.graph.types import KnowledgeProvenance
-from remi.agent.signals.signal import signal_id as _signal_id
-from remi.agent.signals.signal import ProducerResult, Signal, SignalProducer
 from remi.agent.signals.persistence.stores import SignalStore
+from remi.agent.signals.signal import ProducerResult, Signal, SignalProducer
+from remi.agent.signals.signal import signal_id as _signal_id
 from remi.agent.signals.tbox import CompositionRule, DomainTBox, MutableTBox
 
 _log = structlog.get_logger(__name__)

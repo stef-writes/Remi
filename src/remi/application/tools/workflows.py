@@ -21,8 +21,8 @@ from remi.application.core.models import (
     ActionItemStatus,
 )
 from remi.application.core.protocols import PropertyStore
-from remi.application.services.queries.dashboard import DashboardQueryService
-from remi.application.services.queries.managers import ManagerReviewService
+from remi.application.portfolio.dashboard import DashboardQueryService
+from remi.application.portfolio.managers import ManagerReviewService
 
 
 class SubAgentInvoker(Protocol):

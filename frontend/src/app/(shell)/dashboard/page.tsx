@@ -1,7 +1,5 @@
-"use client";
-
-import { DashboardBrief } from "@/components/dashboard/DashboardBrief";
+import { redirect } from "next/navigation";
 
 export default function DashboardPage() {
-  return <DashboardBrief />;
+  redirect("/");
 }

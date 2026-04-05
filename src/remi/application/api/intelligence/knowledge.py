@@ -10,13 +10,11 @@ as adapter imports, keeping DB and ontology in sync.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from remi.agent.graph import BridgedKnowledgeGraph
-from remi.application.api.dependencies import get_event_store, get_knowledge_graph
-from remi.application.core.events import EventStore
 from remi.application.tools.assertions import _add_context, _assert_fact, _correct_entity
+from remi.shell.api.dependencies import Ctr
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
@@ -44,13 +42,12 @@ class AddContextRequest(BaseModel):
 @router.post("/assert")
 async def assert_fact(
     body: AssertFactRequest,
-    kg: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
-    event_store: EventStore = Depends(get_event_store),
+    c: Ctr,
 ) -> dict[str, str]:
     """Assert a new fact into the knowledge graph with user provenance."""
     return await _assert_fact(
-        kg,
-        event_store,
+        c.knowledge_graph,
+        c.event_store,
         entity_type=body.entity_type,
         entity_id=body.entity_id,
         properties=body.properties,
@@ -62,13 +59,12 @@ async def assert_fact(
 @router.post("/correct")
 async def correct_entity(
     body: CorrectEntityRequest,
-    kg: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
-    event_store: EventStore = Depends(get_event_store),
+    c: Ctr,
 ) -> dict[str, str]:
     """Correct field values on an existing entity."""
     return await _correct_entity(
-        kg,
-        event_store,
+        c.knowledge_graph,
+        c.event_store,
         entity_type=body.entity_type,
         entity_id=body.entity_id,
         corrections=body.corrections,
@@ -78,11 +74,11 @@ async def correct_entity(
 @router.post("/context")
 async def add_context(
     body: AddContextRequest,
-    kg: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
+    c: Ctr,
 ) -> dict[str, str]:
     """Attach user context/annotation to an entity."""
     return await _add_context(
-        kg,
+        c.knowledge_graph,
         entity_type=body.entity_type,
         entity_id=body.entity_id,
         context=body.context,

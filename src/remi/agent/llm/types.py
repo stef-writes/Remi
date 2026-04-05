@@ -17,7 +17,6 @@ from typing import Any, Literal
 from pydantic import BaseModel
 from pydantic import Field as PydanticField
 
-
 # ---------------------------------------------------------------------------
 # LLM wire types — the conversation vocabulary
 # ---------------------------------------------------------------------------

@@ -4,33 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter
 
-from remi.agent.signals import SignalStore
-from remi.application.services.queries import (
-    DashboardQueryService,
-    PortfolioQueryService,
-    RentRollResult,
-    RentRollService,
-)
 from remi.application.api.schemas import (
     PropertyDetail,
     PropertyListResponse,
     UnitListResponse,
     UpdatePropertyRequest,
 )
-from remi.application.core.models import Address, UnitStatus
-from remi.application.core.protocols import PropertyStore
-from remi.application.core.events import EventStore
-from remi.application.api.dependencies import (
-    get_dashboard_service,
-    get_event_store,
-    get_portfolio_query,
-    get_property_store,
-    get_rent_roll_service,
-    get_signal_store,
-)
 from remi.application.api.shared_schemas import DeletedResponse, UpdatedResponse
+from remi.application.core.models import Address, UnitStatus
+from remi.application.portfolio import (
+    RentRollResult,
+)
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import NotFoundError
 
 router = APIRouter(prefix="/properties", tags=["properties"])
@@ -38,19 +25,19 @@ router = APIRouter(prefix="/properties", tags=["properties"])
 
 @router.get("", response_model=PropertyListResponse)
 async def list_properties(
+    c: Ctr,
     portfolio_id: str | None = None,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
 ) -> PropertyListResponse:
-    items = await svc.list_properties(portfolio_id=portfolio_id)
+    items = await c.property_resolver.list_properties(portfolio_id=portfolio_id)
     return PropertyListResponse(properties=items)
 
 
 @router.get("/{property_id}", response_model=PropertyDetail)
 async def get_property(
     property_id: str,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
+    c: Ctr,
 ) -> PropertyDetail:
-    detail = await svc.get_property_detail(property_id)
+    detail = await c.property_resolver.get_property_detail(property_id)
     if not detail:
         raise NotFoundError("Property", property_id)
     return detail
@@ -59,10 +46,10 @@ async def get_property(
 @router.get("/{property_id}/units", response_model=UnitListResponse)
 async def list_units(
     property_id: str,
+    c: Ctr,
     status: str | None = None,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
 ) -> UnitListResponse:
-    detail = await svc.get_property_detail(property_id)
+    detail = await c.property_resolver.get_property_detail(property_id)
     if not detail:
         raise NotFoundError("Property", property_id)
     units = detail.units
@@ -79,9 +66,9 @@ async def list_units(
 @router.get("/{property_id}/rent-roll", response_model=RentRollResult)
 async def rent_roll(
     property_id: str,
-    svc: RentRollService = Depends(get_rent_roll_service),
+    c: Ctr,
 ) -> RentRollResult:
-    result = await svc.build_rent_roll(property_id)
+    result = await c.rent_roll_service.build_rent_roll(property_id)
     if result is None:
         raise NotFoundError("Property", property_id)
     return result
@@ -91,9 +78,9 @@ async def rent_roll(
 async def update_property(
     property_id: str,
     body: UpdatePropertyRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> UpdatedResponse:
-    prop = await ps.get_property(property_id)
+    prop = await c.property_store.get_property(property_id)
     if not prop:
         raise NotFoundError("Property", property_id)
 
@@ -111,34 +98,26 @@ async def update_property(
         )
 
     updated = prop.model_copy(update=updates)
-    await ps.upsert_property(updated)
+    await c.property_store.upsert_property(updated)
     return UpdatedResponse(id=property_id, name=updated.name)
 
 
 @router.get("/{property_id}/context")
 async def property_context(
     property_id: str,
-    svc: PortfolioQueryService = Depends(get_portfolio_query),
-    rent_roll: RentRollService = Depends(get_rent_roll_service),
-    dash: DashboardQueryService = Depends(get_dashboard_service),
-    signals: SignalStore = Depends(get_signal_store),
-    events: EventStore = Depends(get_event_store),
+    c: Ctr,
 ) -> dict[str, Any]:
-    """Composite context for a property — one call for the frontend detail page.
-
-    Returns rent roll, active signals, recent changes, vacancies,
-    maintenance summary, and expiring leases in a single response.
-    """
+    """Composite context for a property — one call for the frontend detail page."""
     import asyncio
 
-    detail = await svc.get_property_detail(property_id)
+    detail = await c.property_resolver.get_property_detail(property_id)
     if not detail:
         raise NotFoundError("Property", property_id)
 
-    rr_task = rent_roll.build_rent_roll(property_id)
-    sig_task = signals.list_signals(scope={"property_id": property_id})
-    ev_task = events.list_by_entity(property_id, limit=20)
-    maint_task = svc.maintenance_summary(property_id=property_id)
+    rr_task = c.rent_roll_service.build_rent_roll(property_id)
+    sig_task = c.signal_store.list_signals(scope={"property_id": property_id})
+    ev_task = c.event_store.list_by_entity(property_id, limit=20)
+    maint_task = c.maintenance_resolver.maintenance_summary(property_id=property_id)
 
     rr, sigs, changesets, maint = await asyncio.gather(
         rr_task, sig_task, ev_task, maint_task,
@@ -170,9 +149,9 @@ async def property_context(
 @router.delete("/{property_id}", status_code=200)
 async def delete_property(
     property_id: str,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> DeletedResponse:
-    deleted = await ps.delete_property(property_id)
+    deleted = await c.property_store.delete_property(property_id)
     if not deleted:
         raise NotFoundError("Property", property_id)
     return DeletedResponse()

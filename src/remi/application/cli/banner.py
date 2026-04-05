@@ -11,8 +11,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from remi.types.paths import AGENTS_DIR
 from remi.shell.config.settings import load_settings
+from remi.types.paths import AGENTS_DIR
 
 
 def _key_status(env_var: str) -> Text:
@@ -58,7 +58,7 @@ def print_banner(
     host: str = "127.0.0.1",
     port: int = 8000,
     reload: bool = False,
-    seed: bool = False,
+    loading: bool = False,
 ) -> None:
     """Print the startup banner to stderr via Rich."""
     console = Console(stderr=True)
@@ -91,7 +91,7 @@ def print_banner(
                 None,
                 [
                     "reload" if reload else None,
-                    "seed" if seed else None,
+                    "loading" if loading else None,
                 ],
             )
         )

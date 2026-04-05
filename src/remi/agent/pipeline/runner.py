@@ -209,25 +209,37 @@ class IngestionPipelineRunner:
         pipeline_input: str,
         *,
         context: dict[str, str] | None = None,
+        skip_steps: set[str] | None = None,
     ) -> PipelineResult:
         """Execute the named pipeline and return the accumulated result.
 
         *context*: optional string-valued dict resolved as ``{context.<key>}``
         in both system prompts and input templates — lets callers inject
         domain-specific content without the runner knowing what it is.
+
+        *skip_steps*: optional set of step IDs to skip (no LLM call, empty
+        output). Use when a step's precondition is not met (e.g. no
+        unknown_rows for the enrich step).
         """
         steps = self._load_steps(pipeline_name)
         step_outputs: dict[str, str | list | dict] = {}
         result = PipelineResult()
+        skip = skip_steps or set()
 
         _log.info(
             "pipeline_start",
             pipeline=pipeline_name,
             step_count=len(steps),
+            skipped=list(skip) if skip else [],
             input_length=len(pipeline_input),
         )
 
         for step in steps:
+            if step.id in skip:
+                step_outputs[step.id] = {}
+                _log.info("pipeline_step_skipped", pipeline=pipeline_name, step=step.id)
+                continue
+
             step_result = await self._run_step(step, pipeline_input, step_outputs, context)
             step_outputs[step.id] = step_result.value
             result.steps.append(step_result)

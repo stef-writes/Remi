@@ -163,3 +163,13 @@ class NoteProvenance(StrEnum):
     USER_STATED = "user_stated"
     DATA_DERIVED = "data_derived"
     INFERRED = "inferred"
+
+
+class DocumentType(StrEnum):
+    LEASE = "lease"
+    AMENDMENT = "amendment"
+    NOTICE = "notice"
+    REPORT = "report"
+    INSPECTION = "inspection"
+    CORRESPONDENCE = "correspondence"
+    OTHER = "other"

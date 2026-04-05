@@ -2,11 +2,13 @@
 
 ## What This System Is
 
-REMI is an **agent operating system** for directors of property management. A director oversees multiple property managers, each running portfolios of 15-40 properties. Her job is not to manage properties — it is to manage managers. Her core question, every day, is:
+REMI is an **AI-powered property management platform**. It gives property managers an operational command center backed by an autonomous AI assistant — grounded in real portfolio data and a typed real estate ontology.
 
-> **Which of my managers needs my attention, and why?**
+A single PM uses REMI to manage their own portfolio: tracking delinquency, vacancies, lease expirations, and maintenance across all properties. As the book of business grows and additional managers come on, the same platform scales into portfolio oversight — comparing managers, rolling up metrics, and surfacing which portfolios need attention.
 
-REMI answers that question. To the director it feels like a PM dashboard with a very capable autonomous assistant. Under the hood it is a layered agent OS — domain ontology, knowledge graph, event system, and LLM runtime — all wired so the agent can reason over real portfolio data.
+> **What needs my attention today, and why?**
+
+Under the hood REMI is a layered agent OS — domain ontology, knowledge graph, event system, and LLM runtime — all wired so the agent can reason over real portfolio data.
 
 ---
 
@@ -18,7 +20,7 @@ REMI answers that question. To the director it feels like a PM dashboard with a 
 │                                                                  │
 │  PropertyStore: properties, units, leases, tenants, maintenance  │
 │  KnowledgeStore: relationships, graph entities, observations     │
-│  DocumentStore: uploaded reports (raw rows, parsed documents)    │
+│  ContentStore: raw document content (rows, chunks, text)         │
 │  SignalStore, VectorStore, TraceStore, MemoryStore, ChatStore    │
 │  EventStore: domain change events (ChangeSet)                    │
 │                                                                  │
@@ -45,13 +47,13 @@ REMI answers that question. To the director it feels like a PM dashboard with a 
 │  LAYER 3 — SERVICES                                              │
 │                                                                  │
 │  Domain Services                                                 │
-│    DashboardQueryService — computes director dashboard state     │
-│    ManagerReviewService — manager performance review             │
+│    DashboardQueryService — computes portfolio operational state  │
+│    ManagerReviewService — manager performance analysis           │
 │    DocumentIngestService — report ingestion pipeline             │
 │    Portfolio, RentRoll, AutoAssign query services                │
 │    EmbeddingPipeline — vector search over entities + documents   │
 │    SearchService — semantic search across the knowledge base     │
-│    SeedService — bulk ingest from report directories             │
+│    PortfolioLoader — bulk ingest from report directories         │
 │                                                                  │
 │  The agent reasons over data via tools that call these services. │
 │  No precomputed signal engine — the agent queries on demand.     │
@@ -67,7 +69,7 @@ REMI answers that question. To the director it feels like a PM dashboard with a 
 │    operations/   — leases, maintenance, tenants, actions, notes  │
 │    intelligence/ — signals, dashboard, search, ontology,         │
 │                    knowledge, events                              │
-│    system/       — agents, documents, seed, usage, realtime      │
+│    system/       — agents, documents, reports, usage, realtime    │
 │                                                                  │
 │  4B — Agent Chat (REST Streaming)                                │
 │    POST /api/v1/agents/{name}/ask — NDJSON streaming             │
@@ -82,10 +84,10 @@ REMI answers that question. To the director it feels like a PM dashboard with a 
 │    operations/   — leases, maintenance, tenants                  │
 │    intelligence/ — dashboard, search, onto, graph, trace,        │
 │                    research                                       │
-│    system/       — ai, documents, seed, demo, vectors, bench, db │
+│    system/       — ai, documents, load, demo, vectors, bench, db │
 │                                                                  │
 │  4E — Frontend (Next.js 16 + React 19)                           │
-│    Dashboard, Ask (chat), Delinquency, Vacancies, Leases,        │
+│    Command center, Ask (chat), Delinquency, Vacancies, Leases,   │
 │    Documents, Property detail, Manager detail                    │
 │                                                                  │
 │  4F — LLM Agents                                                 │
@@ -134,8 +136,8 @@ The LLM contributes:
 2. **Connecting patterns** — a maintenance backlog and vacancy duration on the same portfolio are probably related
 3. **Recommending action** — not just "there is a problem" but specific next steps
 4. **Data science** — statistical analysis via sandbox code execution (researcher agent)
-5. **Translating to human language** — the director reads prose, not JSON
-6. **On-demand analysis** — "show me managers with delinquency above 8%" is a tool call, not a precomputed label
+5. **Translating to human language** — users read prose, not JSON
+6. **On-demand analysis** — "show me properties with delinquency above 8%" is a tool call, not a precomputed label
 
 ---
 
@@ -145,7 +147,7 @@ The researcher agent has access to an isolated Python sandbox for data analysis.
 
 - Each session gets its own temp directory
 - Python runs in a subprocess (no host filesystem access)
-- Pre-seeded with portfolio data as CSVs (managers, portfolios, properties, units, leases, tenants, maintenance)
+- Pre-loaded with portfolio data as CSVs (managers, portfolios, properties, units, leases, tenants, maintenance)
 - Analytics dependencies available: pandas, numpy, scipy, scikit-learn, statsmodels
 
 ---
@@ -200,7 +202,7 @@ Every fact and observation carries a provenance tag:
 | `CORE` | Defined by the system at build time | Highest |
 | `SEEDED` | Loaded at bootstrap from domain.yaml | High |
 | `DATA_DERIVED` | Computed from knowledge graph facts | High |
-| `USER_STATED` | Asserted by the director or a manager | High (overridable) |
+| `USER_STATED` | Asserted by the user | High (overridable) |
 | `INFERRED` | Produced by the LLM via reasoning | Medium (verify) |
 
 ---
@@ -217,7 +219,7 @@ Every fact and observation carries a provenance tag:
 | `src/remi/agent/runtime/` | AgentNode — config-driven think-act-observe loop |
 | `src/remi/agent/context/` | Assembles agent context from knowledge graph + signals |
 | `src/remi/agent/graph/` | Knowledge graph types, bridge, retriever |
-| `src/remi/application/services/queries/dashboard.py` | Computes director dashboard state |
+| `src/remi/application/services/queries/dashboard.py` | Computes portfolio operational state |
 | `src/remi/application/services/ingestion/rules.py` | Rule-based report extraction — deterministic, zero-LLM |
 | `src/remi/application/services/ingestion/pipeline.py` | Document ingestion orchestrator (rules first, LLM fallback) |
 | `src/remi/application/tools/__init__.py` | Tool registration — wires all tool groups |

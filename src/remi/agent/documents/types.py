@@ -1,10 +1,17 @@
-"""Document models and store port."""
+"""Document content models and store port.
+
+``DocumentContent`` holds the parsed payload (chunks, rows, raw text).
+``ContentStore`` persists and queries that content.
+
+The domain-level identity and relationships for a document live in
+``application.core.models.documents.Document``.
+"""
 
 from __future__ import annotations
 
 import abc
 from datetime import UTC, date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -14,7 +21,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class DocumentKind(str, Enum):
+class DocumentKind(StrEnum):
     """Discriminator for how a document's content is structured."""
 
     tabular = "tabular"
@@ -30,8 +37,8 @@ class TextChunk(BaseModel):
     page: int | None = None
 
 
-class Document(BaseModel):
-    """A parsed document — tabular (CSV/Excel), text (PDF/DOCX/TXT), or image."""
+class DocumentContent(BaseModel):
+    """Parsed document content — tabular (CSV/Excel), text (PDF/DOCX/TXT), or image."""
 
     id: str
     filename: str
@@ -41,31 +48,30 @@ class Document(BaseModel):
 
     kind: DocumentKind = DocumentKind.tabular
 
-    # Tabular content (CSV/Excel)
     row_count: int = 0
     column_names: list[str] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
-    # Text content (PDF/DOCX/TXT)
     chunks: list[TextChunk] = Field(default_factory=list)
     raw_text: str = ""
     page_count: int = 0
 
-    # Shared
     tags: list[str] = Field(default_factory=list)
     size_bytes: int = 0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class DocumentStore(abc.ABC):
-    @abc.abstractmethod
-    async def save(self, document: Document) -> None: ...
+class ContentStore(abc.ABC):
+    """Persists and queries parsed document content (chunks, rows, raw text)."""
 
     @abc.abstractmethod
-    async def get(self, document_id: str) -> Document | None: ...
+    async def save(self, document: DocumentContent) -> None: ...
 
     @abc.abstractmethod
-    async def list_documents(self) -> list[Document]: ...
+    async def get(self, document_id: str) -> DocumentContent | None: ...
+
+    @abc.abstractmethod
+    async def list_documents(self) -> list[DocumentContent]: ...
 
     @abc.abstractmethod
     async def delete(self, document_id: str) -> bool: ...
@@ -86,7 +92,7 @@ class DocumentStore(abc.ABC):
         kind: DocumentKind | None = None,
         tags: list[str] | None = None,
         limit: int = 50,
-    ) -> list[Document]: ...
+    ) -> list[DocumentContent]: ...
 
     @abc.abstractmethod
     async def update_tags(self, document_id: str, tags: list[str]) -> bool: ...

@@ -1,6 +1,6 @@
-"""Seed endpoints — ingest AppFolio report exports.
+"""Report load endpoints — bulk-ingest AppFolio exports from a directory.
 
-POST /api/v1/seed/reports — ingest from an explicit directory
+POST /api/v1/reports/load — process all reports in a directory
 """
 
 from __future__ import annotations
@@ -8,52 +8,58 @@ from __future__ import annotations
 from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from remi.application.services.seeding.service import IngestedReport, SeedResult, SeedService
-from remi.application.api.dependencies import get_seed_service
+from remi.application.services.seeding import LoadResult
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import IngestionError
 
-router = APIRouter(prefix="/seed", tags=["seed"])
-logger = structlog.get_logger("remi.seed")
+router = APIRouter(prefix="/reports", tags=["reports"])
+logger = structlog.get_logger("remi.reports")
 
 
-class SeedRequest(BaseModel):
+class LoadRequest(BaseModel):
     report_dir: str
+    manager: str | None = None
 
 
-class SeedResponse(BaseModel):
+class LoadResponse(BaseModel):
     ok: bool
-    reports_ingested: list[IngestedReport]
-    managers_created: int
-    properties_created: int
-    auto_assigned: int
+    files_processed: int
+    total_entities: int
+    total_relationships: int
+    total_embedded: int
     errors: list[str]
 
 
-def _to_response(result: SeedResult) -> SeedResponse:
-    return SeedResponse(
-        ok=result.ok,
-        reports_ingested=result.reports_ingested,
-        managers_created=result.managers_created,
-        properties_created=result.properties_created,
-        auto_assigned=result.auto_assigned,
+def _to_response(result: LoadResult) -> LoadResponse:
+    return LoadResponse(
+        ok=len(result.errors) == 0,
+        files_processed=result.files_processed,
+        total_entities=result.total_entities,
+        total_relationships=result.total_relationships,
+        total_embedded=result.total_embedded,
         errors=result.errors,
     )
 
 
-@router.post("/reports", response_model=SeedResponse)
-async def seed_reports(
-    body: SeedRequest,
-    seed_service: SeedService = Depends(get_seed_service),
-) -> SeedResponse:
-    """Ingest AppFolio exports from a directory.
+@router.post("/load", response_model=LoadResponse)
+async def load_reports(
+    body: LoadRequest,
+    c: Ctr,
+) -> LoadResponse:
+    """Load AppFolio exports from a directory.
 
-    Report type is detected by the LLM pipeline — filenames don't matter.
-    Property directory reports are ingested first. Safe to call multiple times.
+    Report type is detected from column headers — filenames don't matter.
+    Property Directory files are always processed first so that manager and
+    portfolio associations resolve correctly for all subsequent reports.
+    Safe to call multiple times; existing data is merged idempotently.
     """
-    result = await seed_service.seed_from_reports(Path(body.report_dir))
-    if not result.ok and not result.reports_ingested:
-        raise IngestionError(result.errors[0] if result.errors else "Seed failed")
+    result = await c.portfolio_loader.load_reports(
+        Path(body.report_dir),
+        manager=body.manager,
+    )
+    if result.errors and result.files_processed == 0:
+        raise IngestionError(result.errors[0] if result.errors else "Report load failed")
     return _to_response(result)

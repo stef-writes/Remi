@@ -10,13 +10,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from remi.application.core.models import Note, NoteProvenance
-from remi.application.core.protocols import NoteRepository
-from remi.application.api.dependencies import get_property_store
 from remi.application.api.shared_schemas import DeletedResponse
+from remi.application.core.models import Note, NoteProvenance
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import NotFoundError
 
 router = APIRouter(prefix="/notes", tags=["notes"])
@@ -79,8 +78,9 @@ def _note_resp(note: Note) -> NoteResponse:
 async def list_notes(
     entity_type: str,
     entity_id: str,
-    store: NoteRepository = Depends(get_property_store),
+    c: Ctr,
 ) -> NoteListResponse:
+    store = c.property_store
     notes = await store.list_notes(entity_type=entity_type, entity_id=entity_id)
     notes.sort(key=lambda n: n.created_at, reverse=True)
     return NoteListResponse(notes=[_note_resp(n) for n in notes], total=len(notes))
@@ -89,9 +89,10 @@ async def list_notes(
 @router.post("/batch", response_model=BatchNoteResponse)
 async def batch_notes(
     body: BatchNoteRequest,
-    store: NoteRepository = Depends(get_property_store),
+    c: Ctr,
 ) -> BatchNoteResponse:
     """Fetch notes for multiple entities in a single round trip."""
+    store = c.property_store
     by_entity: dict[str, list[NoteResponse]] = {eid: [] for eid in body.entity_ids}
     for entity_id in body.entity_ids:
         notes = await store.list_notes(entity_type=body.entity_type, entity_id=entity_id)
@@ -103,7 +104,7 @@ async def batch_notes(
 @router.post("", response_model=NoteResponse, status_code=201)
 async def create_note(
     body: NoteCreateRequest,
-    store: NoteRepository = Depends(get_property_store),
+    c: Ctr,
 ) -> NoteResponse:
     now = datetime.now(UTC)
     note = Note(
@@ -117,7 +118,7 @@ async def create_note(
         created_at=now,
         updated_at=now,
     )
-    result = await store.upsert_note(note)
+    result = await c.property_store.upsert_note(note)
     return _note_resp(result.entity)
 
 
@@ -125,8 +126,9 @@ async def create_note(
 async def update_note(
     note_id: str,
     body: NoteUpdateRequest,
-    store: NoteRepository = Depends(get_property_store),
+    c: Ctr,
 ) -> NoteResponse:
+    store = c.property_store
     existing = await store.get_note(note_id)
     if not existing:
         raise NotFoundError("Note", note_id)
@@ -138,8 +140,9 @@ async def update_note(
 @router.delete("/{note_id}", status_code=200)
 async def delete_note(
     note_id: str,
-    store: NoteRepository = Depends(get_property_store),
+    c: Ctr,
 ) -> DeletedResponse:
+    store = c.property_store
     existing = await store.get_note(note_id)
     if not existing:
         raise NotFoundError("Note", note_id)

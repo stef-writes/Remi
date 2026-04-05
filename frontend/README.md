@@ -17,22 +17,20 @@ npm install
 npm run dev    # http://localhost:3000
 ```
 
-Requires the API server running (`uv run remi serve --seed` from the project root).
+Requires the API server running (`uv run remi serve` from the project root).
 
 ## Pages
 
 | Route | Description |
 |-------|-------------|
-| `/` | Home |
-| `/dashboard` | Director dashboard — signals overview, portfolio health |
-| `/ask` | Chat interface — director and researcher agents |
-| `/delinquency` | Delinquency analysis and tracking |
-| `/vacancies` | Vacancy monitoring |
-| `/leases` | Lease expiration analysis |
-| `/documents` | Document upload and management |
-| `/performance` | Manager performance comparison |
+| `/` | Command center — search, attention signals, portfolio pulse, managers |
+| `/delinquency` | Delinquency — collections pipeline, days overdue, balances |
+| `/vacancies` | Vacancies — listing status, stuck units, days vacant |
+| `/leases` | Leases — expiration urgency, below-market gaps, MTM tracking |
+| `/documents` | Documents — report upload and management |
+| `/ask` | Ask REMI — chat with the AI assistant or researcher agent |
 | `/properties/[id]` | Property detail — units, rent roll, metrics |
-| `/managers/[id]` | Manager detail — portfolio, signals, review |
+| `/managers/[id]` | Manager detail — portfolio, review |
 
 ## Structure
 
@@ -42,13 +40,13 @@ src/
     (shell)/           Shell layout with sidebar navigation
       layout.tsx       Shell layout
       page.tsx         Home
-      dashboard/       Director dashboard
+      dashboard/       Redirects to /
       ask/             Chat interface
       delinquency/     Delinquency view
       vacancies/       Vacancy view
       leases/          Lease view
       documents/       Document management
-      performance/     Performance comparison
+      performance/     Performance comparison (unused)
       properties/[id]/ Property detail
       managers/[id]/   Manager detail
     layout.tsx         Root layout

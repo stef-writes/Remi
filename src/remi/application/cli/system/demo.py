@@ -1,4 +1,4 @@
-"""``remi demo`` — one-command demo: check prereqs, seed, start server."""
+"""``remi demo`` — one-command demo: check prereqs, load reports, start server."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from remi.application.services.seeding.service import discover_reports
+from remi.application.services.seeding import discover_reports
 
 console = Console(stderr=True)
 
-cmd = typer.Typer(name="demo", help="Launch a full demo — seed + serve in one command.")
+cmd = typer.Typer(name="demo", help="Launch a full demo — load reports + serve in one command.")
 
 
 def _check_key(name: str, env_var: str) -> bool:
@@ -68,24 +68,25 @@ def _preflight(report_dir: Path) -> bool:
     return ok
 
 
-async def _seed_and_report(report_dir: Path) -> bool:
+async def _load_and_report(report_dir: Path) -> bool:
     from remi.application.cli.shared import get_container_async
 
     container = await get_container_async()
-    console.print("[bold]Seeding...[/bold]")
-    result = await container.seed_service.seed_from_reports(report_dir)
+    console.print("[bold]Loading reports...[/bold]")
+    result = await container.portfolio_loader.load_reports(report_dir)
 
     if result.errors:
         for err in result.errors:
             console.print(f"  [yellow]WARNING[/yellow] {err}")
 
     console.print(
-        f"  [green]OK[/green]  {result.managers_created} managers, "
-        f"{result.properties_created} properties, "
-        f"{len(result.reports_ingested)} reports"
+        f"  [green]OK[/green]  {result.files_processed} files, "
+        f"{result.total_entities} entities, "
+        f"{result.total_relationships} relationships, "
+        f"{result.total_embedded} embedded"
     )
     console.print()
-    return result.ok or len(result.reports_ingested) > 0
+    return result.files_processed > 0
 
 
 def _start_server(host: str, port: int) -> None:
@@ -93,7 +94,7 @@ def _start_server(host: str, port: int) -> None:
 
     from remi.application.cli.banner import print_banner
 
-    print_banner(host=host, port=port, reload=False, seed=False)
+    print_banner(host=host, port=port, reload=False, loading=False)
     uvicorn.run("remi.shell.api.main:app", host=host, port=port)
 
 
@@ -109,7 +110,7 @@ def demo(
     port: int = typer.Option(8000, help="API port"),
     skip_checks: bool = typer.Option(False, "--skip-checks", help="Skip pre-flight checks"),
 ) -> None:
-    """One-command demo: check prerequisites, seed data, start the server."""
+    """One-command demo: check prerequisites, load reports, start the server."""
     from remi.agent.observe import configure_logging
     from remi.shell.config.settings import load_settings
 
@@ -124,21 +125,20 @@ def demo(
         raise typer.Exit(1)
 
     path = Path(report_dir)
-    if not skip_checks:
-        if not _preflight(path):
-            console.print(
-                "[red]Pre-flight checks failed. "
-                "Fix the issues above or pass --skip-checks.[/red]"
-            )
-            raise typer.Exit(1)
-    seeded = asyncio.run(_seed_and_report(path))
+    if not skip_checks and not _preflight(path):
+        console.print(
+            "[red]Pre-flight checks failed. "
+            "Fix the issues above or pass --skip-checks.[/red]"
+        )
+        raise typer.Exit(1)
+    loaded = asyncio.run(_load_and_report(path))
 
-    if not seeded:
-        console.print("[red]Seeding failed — no data loaded.[/red]")
+    if not loaded:
+        console.print("[red]Report loading failed — no data loaded.[/red]")
         raise typer.Exit(1)
 
     console.print("[bold]Starting API server...[/bold]")
-    console.print(f"  Open [cyan]http://localhost:3000[/cyan] (frontend)")
+    console.print("  Open [cyan]http://localhost:3000[/cyan] (frontend)")
     console.print(f"  API at [cyan]http://{host}:{port}[/cyan]")
     console.print()
 

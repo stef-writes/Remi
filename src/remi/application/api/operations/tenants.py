@@ -2,33 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from remi.application.core.protocols import PropertyStore
-from remi.application.api.dependencies import get_property_store
 from remi.application.api.shared_schemas import DeletedResponse, UpdatedResponse
+from remi.application.portfolio import TenantDetail
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import NotFoundError
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
-
-
-class LeaseInfo(BaseModel, frozen=True):
-    lease_id: str
-    unit: str
-    property_id: str
-    start: str
-    end: str
-    monthly_rent: float
-    status: str
-
-
-class TenantDetailResponse(BaseModel, frozen=True):
-    tenant_id: str
-    name: str
-    email: str | None = None
-    phone: str | None = None
-    leases: list[LeaseInfo]
 
 
 class UpdateTenantRequest(BaseModel):
@@ -36,45 +18,24 @@ class UpdateTenantRequest(BaseModel):
     phone: str | None = None
 
 
-@router.get("/{tenant_id}", response_model=TenantDetailResponse)
+@router.get("/{tenant_id}", response_model=TenantDetail)
 async def get_tenant(
     tenant_id: str,
-    ps: PropertyStore = Depends(get_property_store),
-) -> TenantDetailResponse:
-    tenant = await ps.get_tenant(tenant_id)
-    if not tenant:
+    c: Ctr,
+) -> TenantDetail:
+    detail = await c.tenant_resolver.get_tenant_detail(tenant_id)
+    if not detail:
         raise NotFoundError("Tenant", tenant_id)
-    leases = await ps.list_leases(tenant_id=tenant_id)
-    lease_info: list[LeaseInfo] = []
-    for le in leases:
-        unit = await ps.get_unit(le.unit_id)
-        lease_info.append(
-            LeaseInfo(
-                lease_id=le.id,
-                unit=unit.unit_number if unit else le.unit_id,
-                property_id=le.property_id,
-                start=le.start_date.isoformat(),
-                end=le.end_date.isoformat(),
-                monthly_rent=float(le.monthly_rent),
-                status=le.status.value,
-            )
-        )
-    return TenantDetailResponse(
-        tenant_id=tenant_id,
-        name=tenant.name,
-        email=tenant.email,
-        phone=tenant.phone,
-        leases=lease_info,
-    )
+    return detail
 
 
 @router.patch("/{tenant_id}")
 async def update_tenant(
     tenant_id: str,
     body: UpdateTenantRequest,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> UpdatedResponse:
-    tenant = await ps.get_tenant(tenant_id)
+    tenant = await c.property_store.get_tenant(tenant_id)
     if not tenant:
         raise NotFoundError("Tenant", tenant_id)
 
@@ -85,16 +46,16 @@ async def update_tenant(
         updates["phone"] = body.phone
 
     updated = tenant.model_copy(update=updates)
-    await ps.upsert_tenant(updated)
+    await c.property_store.upsert_tenant(updated)
     return UpdatedResponse(id=tenant_id, name=updated.name)
 
 
 @router.delete("/{tenant_id}", status_code=200)
 async def delete_tenant(
     tenant_id: str,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> DeletedResponse:
-    deleted = await ps.delete_tenant(tenant_id)
+    deleted = await c.property_store.delete_tenant(tenant_id)
     if not deleted:
         raise NotFoundError("Tenant", tenant_id)
     return DeletedResponse()

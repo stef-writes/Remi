@@ -10,7 +10,7 @@ KG-only types that have no Pydantic model (e.g. ``Annotation``) are declared
 as supplemental ``ObjectTypeDef`` instances here.  ``Note`` and ``ActionItem``
 are first-class domain models and live in the core registry above.
 
-Seeding the knowledge graph is in ``application.infra.ontology.seed``.
+Bootstrapping the knowledge graph is in ``application.infra.ontology.seed``.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from remi.agent.graph import (
 from remi.agent.graph.retrieval import pydantic_to_type_defs, schemas_for_prompt
 from remi.application.core.models import (
     ActionItem,
+    Document,
     Lease,
     MaintenanceRequest,
     Note,
@@ -74,6 +75,12 @@ _MODEL_REGISTRY: list[tuple[type, str] | tuple[type, str, str]] = [
         Note,
         "A note attached to any domain entity — user-entered, report-derived, or AI-inferred",
         "Notes",
+    ),
+    # Documents
+    (
+        Document,
+        "An uploaded document scoped to a unit, property, lease, or manager",
+        "Documents",
     ),
 ]
 
@@ -198,10 +205,32 @@ _STRUCTURAL_LINKS: list[LinkTypeDef] = [
         description="Entity has an attached annotation (note, comment, conflict, user context)",
     ),
     LinkTypeDef(
-        name="MENTIONS",
-        source_type="document",
-        target_type="*",
-        description="Document references or mentions a domain entity",
+        name="EVIDENCES",
+        source_type="Document",
+        target_type="Lease",
+        cardinality="many_to_one",
+        description="Document evidences or defines a lease agreement",
+    ),
+    LinkTypeDef(
+        name="SCOPED_TO",
+        source_type="Document",
+        target_type="Unit",
+        cardinality="many_to_one",
+        description="Document is scoped to a specific unit",
+    ),
+    LinkTypeDef(
+        name="FILED_UNDER",
+        source_type="Document",
+        target_type="Property",
+        cardinality="many_to_one",
+        description="Document is filed under a property",
+    ),
+    LinkTypeDef(
+        name="AMENDS",
+        source_type="Document",
+        target_type="Document",
+        cardinality="many_to_one",
+        description="Document amends a prior document",
     ),
 ]
 
@@ -307,6 +336,13 @@ FK_PROJECTION_MAP: ProjectionMapping = {
         FKProjection("manager_id", "TRACKS", "PropertyManager"),
         FKProjection("property_id", "TRACKS", "Property"),
         FKProjection("tenant_id", "TRACKS", "Tenant"),
+    ],
+    "Document": [
+        FKProjection("unit_id", "SCOPED_TO", "Unit"),
+        FKProjection("property_id", "FILED_UNDER", "Property"),
+        FKProjection("lease_id", "EVIDENCES", "Lease"),
+        FKProjection("manager_id", "MANAGED_BY", "PropertyManager"),
+        FKProjection("source_document_id", "AMENDS", "Document"),
     ],
 }
 

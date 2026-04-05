@@ -9,12 +9,19 @@ from typing import Any
 import structlog
 
 from remi.agent.config import AgentConfig
-from remi.agent.runtime.deps import OnEventCallback as OnEventCallback  # noqa: F401
-from remi.agent.types import Message, ToolDefinition
-from remi.agent.llm.types import LLMProvider, LLMRequest, LLMResponse, TokenUsage, ToolCallRequest, estimate_cost
+from remi.agent.llm.types import (
+    LLMProvider,
+    LLMRequest,
+    LLMResponse,
+    TokenUsage,
+    ToolCallRequest,
+    estimate_cost,
+)
 from remi.agent.observe.events import Event
 from remi.agent.observe.types import SpanKind, Tracer, get_current_trace_id
 from remi.agent.observe.usage import LLMUsageLedger, UsageRecord, UsageSource
+from remi.agent.runtime.deps import OnEventCallback as OnEventCallback  # noqa: F401
+from remi.agent.types import Message, ToolDefinition
 
 logger = structlog.get_logger("remi.agent.llm")
 
@@ -166,7 +173,7 @@ async def stream_llm_response(
     content = "".join(content_parts) or None
     return LLMResponse(
         content=content,
-        model=cfg.model or "",
+        model=request.model or cfg.model or "",
         usage=usage,
         tool_calls=assembled_tool_calls,
     )

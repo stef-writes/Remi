@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from decimal import Decimal
 
 import typer
 
@@ -36,36 +35,18 @@ async def _list_requests(property_id: str | None, status_str: str | None, fmt_js
         data = _http.get(f"/maintenance{qs}")
         items = data.get("requests", [])
     else:
-        from remi.application.core.models import MaintenanceStatus
-
         container = get_container()
-        status = MaintenanceStatus(status_str) if status_str else None
-        requests = await container.property_store.list_maintenance_requests(
-            property_id=property_id, status=status
+        result = await container.maintenance_resolver.list_maintenance(
+            property_id=property_id, status=status_str,
         )
-        requests.sort(key=lambda r: r.created_at, reverse=True)
-        items = []
-        for r in requests:
-            items.append(
-                {
-                    "id": r.id,
-                    "property_id": r.property_id,
-                    "unit_id": r.unit_id,
-                    "title": r.title,
-                    "category": r.category.value,
-                    "priority": r.priority.value,
-                    "status": r.status.value,
-                    "cost": float(r.cost) if r.cost else None,
-                    "created": r.created_at.isoformat(),
-                }
-            )
+        items = [item.model_dump() for item in result.requests]
 
     if fmt_json:
         json_out({"count": len(items), "requests": items})
     else:
         typer.echo(f"\n{len(items)} maintenance requests:\n")
         for r in items:
-            cost_str = f"${r['cost']:>8,.0f}" if r["cost"] else "      N/A"
+            cost_str = f"${r['cost']:>8,.0f}" if r.get("cost") else "      N/A"
             typer.echo(
                 f"  {r['id']:10s}  {r['priority']:10s}  {r['status']:12s}  "
                 f"{r['category']:12s}  {cost_str}  {r['title']}"
@@ -95,33 +76,17 @@ async def _summary(property_id: str | None, fmt_json: bool) -> None:
         return
 
     container = get_container()
-    requests = await container.property_store.list_maintenance_requests(property_id=property_id)
-
-    by_status: dict[str, int] = {}
-    by_category: dict[str, int] = {}
-    total_cost = Decimal("0")
-
-    for r in requests:
-        by_status[r.status.value] = by_status.get(r.status.value, 0) + 1
-        by_category[r.category.value] = by_category.get(r.category.value, 0) + 1
-        if r.cost:
-            total_cost += r.cost
-
-    data = {
-        "total": len(requests),
-        "by_status": by_status,
-        "by_category": by_category,
-        "total_cost": float(total_cost),
-    }
+    result = await container.maintenance_resolver.maintenance_summary(property_id=property_id)
+    data = result.model_dump()
 
     if fmt_json:
         json_out(data)
     else:
-        typer.echo(f"\nMaintenance Summary ({len(requests)} total requests)")
-        typer.echo(f"Total Cost: ${float(total_cost):,.0f}")
+        typer.echo(f"\nMaintenance Summary ({data['total']} total requests)")
+        typer.echo(f"Total Cost: ${data['total_cost']:,.0f}")
         typer.echo("\nBy Status:")
-        for s, c in sorted(by_status.items()):
+        for s, c in sorted(data["by_status"].items()):
             typer.echo(f"  {s:15s}  {c}")
         typer.echo("\nBy Category:")
-        for cat, c in sorted(by_category.items()):
+        for cat, c in sorted(data["by_category"].items()):
             typer.echo(f"  {cat:15s}  {c}")

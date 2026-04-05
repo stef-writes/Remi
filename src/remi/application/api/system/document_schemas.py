@@ -7,6 +7,25 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class ReviewOptionSchema(BaseModel):
+    id: str
+    label: str
+
+
+class ReviewItemSchema(BaseModel):
+    kind: str
+    severity: str
+    message: str
+    row_index: int | None = None
+    entity_type: str | None = None
+    entity_id: str | None = None
+    field_name: str | None = None
+    raw_value: str | None = None
+    suggestion: str | None = None
+    options: list[ReviewOptionSchema] = []
+    row_data: dict[str, Any] | None = None
+
+
 class KnowledgeInfo(BaseModel):
     entities_extracted: int
     relationships_extracted: int
@@ -15,6 +34,7 @@ class KnowledgeInfo(BaseModel):
     rows_rejected: int = 0
     rows_skipped: int = 0
     validation_warnings: list[str] = []
+    review_items: list[ReviewItemSchema] = []
 
 
 class UploadResponse(BaseModel):
@@ -91,6 +111,21 @@ class TagsResponse(BaseModel):
 
 class TagUpdateRequest(BaseModel):
     tags: list[str]
+
+
+class CorrectRowRequest(BaseModel):
+    """A corrected row resubmitted by the human for re-ingestion."""
+
+    row_data: dict[str, Any]
+    report_type: str | None = None
+
+
+class CorrectRowResponse(BaseModel):
+    accepted: bool
+    entities_created: int = 0
+    relationships_created: int = 0
+    review_items: list[ReviewItemSchema] = []
+    validation_warnings: list[str] = []
 
 
 class DeleteResponse(BaseModel):

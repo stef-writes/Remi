@@ -1,5 +1,14 @@
-"""Seeding category — initial data load from sample reports.
+"""Portfolio loading — batch report ingestion from report exports.
 
-``SeedService`` ingests a set of reports, runs auto-assign, signals, and
-embedding pipelines, with optional history backfill.
+``PortfolioLoader`` ingests a directory of AppFolio reports in two passes
+(property_directory first, everything else second), then runs a single
+embedding pass and returns a ``LoadResult`` summary.
 """
+
+from remi.application.services.seeding.service import (
+    LoadResult,
+    PortfolioLoader,
+    discover_reports,
+)
+
+__all__ = ["LoadResult", "PortfolioLoader", "discover_reports"]

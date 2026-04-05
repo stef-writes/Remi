@@ -115,7 +115,9 @@ export interface DelinquentTenant {
   tenant_id: string;
   tenant_name: string;
   status: string;
+  property_id: string | null;
   property_name: string;
+  unit_id: string | null;
   unit_number: string;
   balance_owed: number;
   balance_0_30: number;
@@ -136,7 +138,9 @@ export interface DelinquencyBoard {
 export interface ExpiringLease {
   lease_id: string;
   tenant_name: string;
+  property_id: string;
   property_name: string;
+  unit_id: string;
   unit_number: string;
   monthly_rent: number;
   market_rent: number;
@@ -224,6 +228,10 @@ export interface PropertyDetail {
   address: Record<string, string>;
   property_type: string;
   year_built: number;
+  portfolio_id: string | null;
+  portfolio_name: string | null;
+  manager_id: string | null;
+  manager_name: string | null;
   total_units: number;
   units: Unit[];
   occupancy_rate: number;
@@ -312,6 +320,24 @@ export interface RentRollResponse {
   rows: RentRollRow[];
 }
 
+// --- Leases (list) ---
+
+export interface LeaseListItem {
+  id: string;
+  tenant: string;
+  unit_id: string;
+  property_id: string;
+  start: string;
+  end: string;
+  rent: number;
+  status: string;
+}
+
+export interface LeaseListResponse {
+  count: number;
+  leases: LeaseListItem[];
+}
+
 // --- Maintenance ---
 
 export interface MaintenanceRequest {
@@ -325,6 +351,11 @@ export interface MaintenanceRequest {
   cost: number | null;
   created: string;
   resolved: string | null;
+}
+
+export interface MaintenanceListResponse {
+  count: number;
+  requests: MaintenanceRequest[];
 }
 
 export interface MaintenanceSummary {
@@ -357,6 +388,67 @@ export interface DocumentMeta {
   tags: string[];
   size_bytes: number;
   uploaded_at: string;
+}
+
+export type ReviewKind =
+  | "ambiguous_row"
+  | "validation_warning"
+  | "entity_match"
+  | "classification_uncertain"
+  | "manager_inferred";
+
+export type ReviewSeverity = "info" | "warning" | "action_needed";
+
+export interface ReviewOption {
+  id: string;
+  label: string;
+}
+
+export interface ReviewItem {
+  kind: ReviewKind;
+  severity: ReviewSeverity;
+  message: string;
+  row_index?: number | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  field_name?: string | null;
+  raw_value?: string | null;
+  suggestion?: string | null;
+  options?: ReviewOption[];
+  row_data?: Record<string, unknown> | null;
+}
+
+export interface UploadKnowledge {
+  entities_extracted: number;
+  relationships_extracted: number;
+  ambiguous_rows: number;
+  rows_accepted: number;
+  rows_rejected: number;
+  rows_skipped: number;
+  validation_warnings: string[];
+  review_items: ReviewItem[];
+}
+
+export interface UploadResult {
+  id: string;
+  filename: string;
+  kind: string;
+  row_count: number;
+  report_type: string;
+  columns: string[];
+  chunk_count: number;
+  page_count: number;
+  tags: string[];
+  size_bytes: number;
+  knowledge: UploadKnowledge;
+}
+
+export interface CorrectRowResponse {
+  accepted: boolean;
+  entities_created: number;
+  relationships_created: number;
+  review_items: ReviewItem[];
+  validation_warnings: string[];
 }
 
 // --- Chat ---

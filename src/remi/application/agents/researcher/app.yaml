@@ -10,7 +10,7 @@ metadata:
     responses. Designed for monthly/quarterly use.
   tags: [researcher, analytics, statistics, sandbox, report]
   domain: real-estate
-  audience: director
+  audience: user
   chat: true
   primary: false
 
@@ -97,9 +97,8 @@ modules:
         - Financial overview: rent distributions, vacancy rates, delinquency
         - Maintenance patterns: cost distributions, category breakdowns
         - Signal landscape: severity distribution, signal types, clustering
-        - **Trends over time**: if mgr_hist/prop_hist have rows, compute
-          week-over-week or snapshot-to-snapshot deltas for occupancy_rate,
-          loss_to_lease, delinquent_balance.
+        - **Cross-entity patterns**: compare metrics across managers and
+          properties — occupancy rate, loss to lease, delinquent balance.
 
         Print summary tables and distribution stats. Use `df.describe()`,
         `value_counts()`, `groupby().agg()`. Identify outliers using IQR
@@ -113,8 +112,8 @@ modules:
         - "Delinquency clusters in specific property types or managers"
         - "Lease expiration timing creates seasonal vacancy risk"
         - "Signal severity correlates with financial metrics"
-        - "Occupancy rate for property Y has been declining over the last N snapshots"
-        - "Loss-to-lease is trending up for manager Z"
+        - "Occupancy rate for property Y is significantly below the portfolio mean"
+        - "Loss-to-lease is disproportionately high for manager Z"
 
         State each hypothesis clearly before testing.
 
@@ -220,7 +219,7 @@ modules:
         - Do not claim statistical significance without a test.
         - If a hypothesis is not supported, say so — negative findings matter.
         - If data is insufficient for a test, explain what data would be needed.
-        - Be direct about problems. The director needs truth, not diplomacy.
+        - Be direct about problems. The user needs truth, not diplomacy.
         - When code fails, read the error, fix it, retry. Do not give up.
 
       input_template: "{input}"

@@ -89,6 +89,156 @@ body {
   background: var(--color-fg-faint);
 }
 
+/* ---- Stagger animations for lists / grids ---- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes expandDown {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 600px; }
+}
+
+.anim-fade-up {
+  animation: fadeInUp 0.35s ease-out both;
+}
+.anim-fade-in {
+  animation: fadeIn 0.3s ease-out both;
+}
+.anim-slide-in {
+  animation: slideInRight 0.3s ease-out both;
+}
+.anim-scale-in {
+  animation: scaleIn 0.25s ease-out both;
+}
+.anim-expand {
+  animation: expandDown 0.3s ease-out both;
+  overflow: hidden;
+}
+
+/* Stagger children — use with .stagger on parent */
+.stagger > * { opacity: 0; animation: fadeInUp 0.35s ease-out forwards; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 50ms; }
+.stagger > *:nth-child(3) { animation-delay: 100ms; }
+.stagger > *:nth-child(4) { animation-delay: 150ms; }
+.stagger > *:nth-child(5) { animation-delay: 200ms; }
+.stagger > *:nth-child(6) { animation-delay: 250ms; }
+.stagger > *:nth-child(7) { animation-delay: 300ms; }
+.stagger > *:nth-child(8) { animation-delay: 350ms; }
+
+/* ---- Slide panel (drawer) ---- */
+@keyframes drawerSlide {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes drawerSlideLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@keyframes drawerFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.drawer-overlay {
+  animation: drawerFade 0.2s ease-out both;
+}
+.drawer-panel {
+  animation: drawerSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---- Elevated card hover ---- */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 24px -4px rgba(26, 22, 20, 0.08);
+}
+
+/* ---- Occupancy ring pulse ---- */
+@keyframes ringPulse {
+  0%, 100% { filter: drop-shadow(0 0 0px transparent); }
+  50% { filter: drop-shadow(0 0 6px rgba(196, 114, 122, 0.3)); }
+}
+.ring-pulse {
+  animation: ringPulse 3s ease-in-out infinite;
+}
+
+/* ---- Glass surface ---- */
+.glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px) saturate(1.5);
+  -webkit-backdrop-filter: blur(12px) saturate(1.5);
+}
+
+/* ---- Command menu (cmdk + Radix Dialog) ---- */
+@keyframes cmdOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cmdDialogIn {
+  from { opacity: 0; transform: translate(-50%, 0) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+.cmd-overlay {
+  animation: cmdOverlayIn 0.15s ease-out both;
+}
+.cmd-dialog {
+  animation: cmdDialogIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.cmd-group [cmdk-group-heading] {
+  padding: 6px 12px 4px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-fg-faint);
+}
+
+.cmd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.1s;
+  scroll-margin: 8px;
+}
+.cmd-item[data-selected="true"] {
+  background: var(--color-surface-sunken);
+}
+.cmd-item:active {
+  background: var(--color-border-subtle);
+}
+
+[cmdk-input] {
+  caret-color: var(--color-accent);
+}
+
+/* ---- Hide scrollbar (for horizontal tab scrolling) ---- */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 .prose-remi {
   font-size: 0.875rem;
   line-height: 1.7;

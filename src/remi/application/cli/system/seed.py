@@ -1,4 +1,4 @@
-"""``remi seed`` — populate the property store from AppFolio report exports."""
+"""``remi load`` — load AppFolio report exports into the property store."""
 
 from __future__ import annotations
 
@@ -7,36 +7,55 @@ from pathlib import Path
 
 import typer
 
-cmd = typer.Typer(name="seed", help="Seed REMI from AppFolio report exports.")
+cmd = typer.Typer(name="load", help="Load AppFolio report exports into REMI.")
 
 
-async def _seed(report_dir: Path | None = None) -> None:
+async def _run(report_dir: Path | None = None, manager: str | None = None) -> None:
     from remi.application.cli.shared import get_container_async
 
     container = await get_container_async()
-    result = await container.seed_service.seed_from_reports(report_dir)
+
+    if report_dir is None:
+        typer.echo("No report directory specified. Use --dir <path>.", err=True)
+        raise typer.Exit(1)
+
+    result = await container.portfolio_loader.load_reports(
+        report_dir,
+        manager=manager,
+    )
 
     if result.errors:
         for err in result.errors:
             typer.echo(f"  WARNING: {err}", err=True)
 
     typer.echo(
-        f"Seeded: {result.managers_created} managers, "
-        f"{result.properties_created} properties, "
-        f"{len(result.reports_ingested)} reports ingested, "
-        f"{result.auto_assigned} auto-assigned."
+        f"Loaded: {result.files_processed} files, "
+        f"{result.total_entities} entities, "
+        f"{result.total_relationships} relationships, "
+        f"{result.total_embedded} embedded."
     )
 
 
 @cmd.callback(invoke_without_command=True)
-def seed(
+def load(
     report_dir: str = typer.Option(
         "",
         "--dir",
         "-d",
-        help="Path to report directory (defaults to data/sample_reports/Alex_Budavich_Reports/)",
+        help="Path to directory containing AppFolio report exports",
+    ),
+    manager: str = typer.Option(
+        "",
+        "--manager",
+        "-m",
+        help="Manager tag to associate with all ingested data",
     ),
 ) -> None:
-    """Ingest AppFolio XLSX exports (property dir, delinquency, lease, rent roll)."""
+    """Load AppFolio exports (property directory, rent roll, delinquency, lease expiration).
+
+    Property Directory files are detected automatically and processed first,
+    ensuring manager and portfolio associations are established before other
+    reports are ingested.
+    """
     path = Path(report_dir) if report_dir else None
-    asyncio.run(_seed(path))
+    asyncio.run(_run(path, manager=manager or None))

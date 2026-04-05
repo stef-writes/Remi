@@ -1,7 +1,7 @@
-"""REST endpoints for action items and manager notes (review prep).
+"""REST endpoints for action items.
 
-Action items: PropertyStore (SQL-backed).
-Manager notes: KnowledgeGraph (graph-backed Note entities with entity_type=PropertyManager).
+Action items are stored via PropertyStore (SQL-backed).
+Manager notes have moved to the dedicated /notes router (NoteRepository).
 """
 
 from __future__ import annotations
@@ -9,26 +9,19 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from remi.agent.graph import BridgedKnowledgeGraph, GraphObject
-from remi.application.api.dependencies import get_knowledge_graph, get_property_store
 from remi.application.api.shared_schemas import DeletedResponse
 from remi.application.core.models import (
     ActionItem,
     ActionItemPriority,
     ActionItemStatus,
 )
-from remi.application.core.protocols import PropertyStore
+from remi.shell.api.dependencies import Ctr
 from remi.types.errors import NotFoundError
 
 router = APIRouter(prefix="/actions", tags=["actions"])
-
-
-# ---------------------------------------------------------------------------
-# Action Items
-# ---------------------------------------------------------------------------
 
 
 class ActionItemCreate(BaseModel):
@@ -86,14 +79,14 @@ def _ai_resp(item: ActionItem) -> ActionItemResponse:
 
 @router.get("/items", response_model=ActionItemListResponse)
 async def list_action_items(
+    c: Ctr,
     manager_id: str | None = None,
     property_id: str | None = None,
     tenant_id: str | None = None,
     status: str | None = None,
-    ps: PropertyStore = Depends(get_property_store),
 ) -> ActionItemListResponse:
     ai_status = ActionItemStatus(status) if status else None
-    items = await ps.list_action_items(
+    items = await c.property_store.list_action_items(
         manager_id=manager_id,
         property_id=property_id,
         tenant_id=tenant_id,
@@ -106,7 +99,7 @@ async def list_action_items(
 @router.post("/items", response_model=ActionItemResponse, status_code=201)
 async def create_action_item(
     body: ActionItemCreate,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> ActionItemResponse:
     item = ActionItem(
         id=f"action:{uuid.uuid4().hex[:12]}",
@@ -118,7 +111,7 @@ async def create_action_item(
         tenant_id=body.tenant_id,
         due_date=body.due_date,
     )
-    await ps.upsert_action_item(item)
+    await c.property_store.upsert_action_item(item)
     return _ai_resp(item)
 
 
@@ -126,9 +119,9 @@ async def create_action_item(
 async def update_action_item(
     item_id: str,
     body: ActionItemUpdate,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> ActionItemResponse:
-    existing = await ps.get_action_item(item_id)
+    existing = await c.property_store.get_action_item(item_id)
     if not existing:
         raise NotFoundError("ActionItem", item_id)
 
@@ -145,119 +138,16 @@ async def update_action_item(
         updates["due_date"] = body.due_date
 
     updated = existing.model_copy(update=updates)
-    await ps.upsert_action_item(updated)
+    await c.property_store.upsert_action_item(updated)
     return _ai_resp(updated)
 
 
 @router.delete("/items/{item_id}", status_code=200)
 async def delete_action_item(
     item_id: str,
-    ps: PropertyStore = Depends(get_property_store),
+    c: Ctr,
 ) -> DeletedResponse:
-    deleted = await ps.delete_action_item(item_id)
+    deleted = await c.property_store.delete_action_item(item_id)
     if not deleted:
         raise NotFoundError("ActionItem", item_id)
-    return DeletedResponse()
-
-
-# ---------------------------------------------------------------------------
-# Manager Notes — backed by KnowledgeGraph Note entities
-# ---------------------------------------------------------------------------
-
-
-class NoteCreate(BaseModel):
-    manager_id: str
-    content: str
-
-
-class NoteUpdate(BaseModel):
-    content: str
-
-
-class NoteResponse(BaseModel):
-    id: str
-    manager_id: str
-    content: str
-    created_at: str
-    updated_at: str
-
-
-class NoteListResponse(BaseModel):
-    notes: list[NoteResponse]
-    total: int
-
-
-def _note_resp_from_graph(obj: GraphObject) -> NoteResponse:
-    return NoteResponse(
-        id=obj.id,
-        manager_id=obj.properties.get("entity_id", ""),
-        content=obj.properties.get("content", ""),
-        created_at=obj.properties.get("created_at", ""),
-        updated_at=obj.properties.get("updated_at", ""),
-    )
-
-
-@router.get("/notes", response_model=NoteListResponse)
-async def list_notes(
-    manager_id: str = Query(...),
-    kg: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
-) -> NoteListResponse:
-    results = await kg.search_objects(
-        "Note",
-        filters={"entity_type": "PropertyManager", "entity_id": manager_id},
-        limit=200,
-    )
-    notes = [_note_resp_from_graph(r) for r in results]
-    notes.sort(key=lambda n: n.created_at, reverse=True)
-    return NoteListResponse(notes=notes, total=len(notes))
-
-
-@router.post("/notes", response_model=NoteResponse, status_code=201)
-async def create_note(
-    body: NoteCreate,
-    kg: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
-) -> NoteResponse:
-    note_id = f"note:{uuid.uuid4().hex[:12]}"
-    now = datetime.now(UTC).isoformat()
-    props = {
-        "content": body.content,
-        "entity_type": "PropertyManager",
-        "entity_id": body.manager_id,
-        "provenance": "user_stated",
-        "created_at": now,
-        "updated_at": now,
-    }
-    await kg.put_object("Note", note_id, props)
-    await kg.put_link(body.manager_id, "HAS_NOTE", note_id)
-    return _note_resp_from_graph(GraphObject(id=note_id, type_name="Note", properties=props))
-
-
-@router.patch("/notes/{note_id}", response_model=NoteResponse)
-async def update_note(
-    note_id: str,
-    body: NoteUpdate,
-    kg: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
-) -> NoteResponse:
-    existing = await kg.get_object("Note", note_id)
-    if not existing:
-        raise NotFoundError("Note", note_id)
-
-    now = datetime.now(UTC).isoformat()
-    updated_props = {**existing.properties, "content": body.content, "updated_at": now}
-    await kg.put_object("Note", note_id, updated_props)
-    obj = GraphObject(id=note_id, type_name="Note", properties=updated_props)
-    return _note_resp_from_graph(obj)
-
-
-@router.delete("/notes/{note_id}", status_code=200)
-async def delete_note(
-    note_id: str,
-    kg: BridgedKnowledgeGraph = Depends(get_knowledge_graph),
-) -> DeletedResponse:
-    existing = await kg.get_object("Note", note_id)
-    if not existing:
-        raise NotFoundError("Note", note_id)
-    deleted = await kg.delete_object("Note", note_id)
-    if not deleted:
-        raise NotFoundError("Note", note_id)
     return DeletedResponse()
