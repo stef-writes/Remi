@@ -40,6 +40,9 @@ class Wire(BaseModel):
     source_port: str
     target_step: str
     target_port: str
+    optional: bool = False
+    """When True, gating or skipping the source step does not cascade-gate
+    this target step. The target receives an absent/null value for this port."""
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +196,7 @@ class InboundBinding:
     target_port: str
     source_step: str
     source_port: str
+    optional: bool = False
 
 
 @dataclass(frozen=True)

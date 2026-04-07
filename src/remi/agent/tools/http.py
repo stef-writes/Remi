@@ -1,13 +1,13 @@
-"""HTTP request tool — gives agents access to the full REMI API surface.
+"""HTTP request tool — read-only access to the REMI API surface.
 
-Constrained to the local REMI API by default. Enables agents to hit
-any endpoint including mutations (POST actions, notes, signal inference),
-not just the read-only subset exposed by remi_data.
+Constrained to GET requests against the local REMI API. Mutations
+(POST, PATCH, DELETE) are blocked — agents perform writes through
+dedicated workflow tools or the sandbox SDK, both of which have
+explicit, auditable contracts.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,11 +36,16 @@ class HttpToolProvider(ToolProvider):
         async def http_request(args: dict[str, Any]) -> Any:
             method = (args.get("method", "GET")).upper()
             path = args.get("path", "")
-            body = args.get("body")
             timeout = min(int(args.get("timeout", 30)), 120)
 
-            if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
-                return {"error": f"Unsupported method: {method}"}
+            if method != "GET":
+                return {
+                    "error": (
+                        f"http_request is read-only (GET). "
+                        f"Use the remi SDK in Python for mutations "
+                        f"(remi.create_action, remi.create_note)."
+                    ),
+                }
 
             if not path:
                 return {"error": "path is required"}
@@ -65,16 +70,8 @@ class HttpToolProvider(ToolProvider):
                         "timeout": aiohttp.ClientTimeout(total=timeout),
                         "headers": {"Accept": "application/json"},
                     }
-                    if body is not None and method in ("POST", "PUT", "PATCH"):
-                        if isinstance(body, str):
-                            try:
-                                body = json.loads(body)
-                            except json.JSONDecodeError:
-                                logger.warning("http_body_not_valid_json", body_preview=body[:200])
-                        kwargs["json"] = body
-                        kwargs["headers"]["Content-Type"] = "application/json"
 
-                    async with session.request(method, url, **kwargs) as resp:
+                    async with session.get(url, **kwargs) as resp:
                         status = resp.status
                         try:
                             response_body = await resp.json()
@@ -99,8 +96,9 @@ class HttpToolProvider(ToolProvider):
                 return {"error": str(exc), "url": url, "method": method}
 
         base_desc = (
-            "Make an HTTP request to the API. Use for any operation "
-            "not covered by other tools.\n\n"
+            "Read data from the REMI API (GET only). Use for endpoints "
+            "not covered by other tools. For mutations, use the remi SDK "
+            "in Python (remi.create_action, remi.create_note).\n\n"
             "Base URL is auto-configured. Pass only the path."
         )
         if self._api_path_examples:
@@ -114,18 +112,9 @@ class HttpToolProvider(ToolProvider):
                 description=base_desc,
                 args=[
                     ToolArg(
-                        name="method",
-                        description="HTTP method: GET, POST, PUT, PATCH, DELETE",
-                        required=True,
-                    ),
-                    ToolArg(
                         name="path",
-                        description="API path (e.g. /api/v1/entities). Base URL is automatic.",
+                        description="API path (e.g. /api/v1/managers). Base URL is automatic.",
                         required=True,
-                    ),
-                    ToolArg(
-                        name="body",
-                        description="Request body as JSON (for POST/PUT/PATCH)",
                     ),
                     ToolArg(
                         name="timeout",

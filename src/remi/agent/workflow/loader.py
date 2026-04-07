@@ -192,5 +192,6 @@ def _parse_wires(raw_wires: list[object]) -> list[Wire]:
             source_port=src_port,
             target_step=tgt_step,
             target_port=tgt_port,
+            optional=bool(raw.get("optional", False)),
         ))
     return wires

@@ -9,6 +9,7 @@ Internal intermediaries are local variables.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import cast
 
 from remi.agent.context import build_context_builder
@@ -31,11 +32,11 @@ from remi.agent.signals import (
 )
 from remi.agent.tools import (
     AgentInvoker,
+    AnalysisToolProvider,
     DelegationToolProvider,
     HttpToolProvider,
     InMemoryToolRegistry,
     MemoryToolProvider,
-    SandboxToolProvider,
     TraceToolProvider,
     VectorToolProvider,
 )
@@ -123,11 +124,12 @@ class Container:
         mutable_tbox = MutableTBox(self.domain_tbox)
 
         # -- Sandbox -----------------------------------------------------------
-        self.sandbox: Sandbox = build_sandbox(self.settings)
+        from remi.application.sdk import __file__ as _sdk_path
 
-        from remi.application.sandbox_bridge import RE_BRIDGE_FILES
-
-        self.sandbox.set_session_files(RE_BRIDGE_FILES)
+        self.sandbox: Sandbox = build_sandbox(
+            self.settings,
+            session_files={"remi.py": Path(_sdk_path).read_text("utf-8")},
+        )
 
         # -- Vectors -----------------------------------------------------------
         self.vector_store: VectorStore = build_vector_store(self.settings)
@@ -181,7 +183,7 @@ class Container:
         scope_args = _build_scope_filter_args(p) if p.scope_entity_type else []
 
         phase1_providers: list[ToolProvider] = [
-            SandboxToolProvider(self.sandbox, data_bridge_hint=p.data_bridge_hint),
+            AnalysisToolProvider(self.sandbox, sdk_hint=p.sdk_hint),
             HttpToolProvider(api_base_url=_api_base, api_path_examples=p.api_path_examples),
             MemoryToolProvider(memory_store),
             VectorToolProvider(

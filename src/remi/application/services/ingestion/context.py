@@ -1,6 +1,19 @@
 """Shared ingestion context — PropertyStore writes + entity tracking.
 
 All entity writes go through PropertyStore only.
+
+Manager assignment priority (lowest to highest):
+  1. Existing property's current manager_id (preserve what's already known)
+  2. upload_manager_id — document-scope fallback set by resolve_manager tool
+  3. ctx.property_manager[prop_id] — explicit per-property assignment from
+     property directory rows (persist_manager writes this)
+  4. Tag-based resolution — site_manager_name / manager_name tags seen on
+     row data (persist_unit writes prop_manager_tags + real_manager_tags)
+
+Higher priority always wins. Per-row data (3, 4) always beats document-scope
+hints (1, 2). The resolve_manager workflow tool sets upload_manager_id after
+the LLM extract step runs, so it reflects the actual report scope rather than
+a user-supplied override.
 """
 
 from __future__ import annotations
@@ -109,12 +122,16 @@ async def ensure_property(
 
     existing = await ctx.ps.get_property(prop_id)
 
+    # Build mid from lowest to highest priority — later assignments win.
+    mid: str | None = existing.manager_id if existing else None
+
+    # Document-scope fallback (set by resolve_manager tool from LLM extract)
     if ctx.upload_manager_id is not None:
-        mid: str | None = ctx.upload_manager_id
-    elif prop_id in ctx.property_manager:
+        mid = ctx.upload_manager_id
+
+    # Per-property explicit assignment from directory rows (highest static priority)
+    if prop_id in ctx.property_manager:
         mid = ctx.property_manager[prop_id]
-    else:
-        mid = existing.manager_id if existing else None
 
     address = parse_address(raw_addr)
     tag = ctx.prop_manager_tags.get(prop_id)

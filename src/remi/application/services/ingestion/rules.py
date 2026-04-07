@@ -72,12 +72,56 @@ def is_junk_property(address: str) -> bool:
 
 _DO_NOT_USE_PREFIXES = ("DO NOT USE - ", "DO NOT USE-", "DO NOT USE ")
 
+# AppFolio property directory format: "<display label> - <full address>"
+# The label is always a prefix of the address, e.g.:
+#   "1 Crosman St - 1 Crosman St Pittsburgh, PA 15203"
+#   "1 Pius Street - C6 - 1 Pius Street Unit C6 Pittsburgh, PA 15203"
+#   "101-103 E Agnew Avenue - 101-103 E Agnew Avenue Pittsburgh, PA 15210"
+#
+# Strategy: try every " - " split point; if the part after the split starts
+# with the label (case-insensitive), the label is redundant — strip it.
+# We scan left-to-right so the first matching split wins (shortest label).
+#
+# Handles the tricky unit-suffix case:
+#   "1 Pius Street - C6 - 1 Pius Street Unit C6 Pittsburgh, PA 15203"
+#   Split 1: label="1 Pius Street", remainder="C6 - 1 Pius Street Unit C6..."
+#            → no match (remainder starts with "C6", not "1 Pius")
+#   Split 2: label="1 Pius Street - C6", remainder="1 Pius Street Unit C6..."
+#            → no match (label has " - " in it, remainder doesn't start with it)
+# For this pattern the remainder after the LAST " - " is the canonical address:
+#   "1 Pius Street Unit C6 Pittsburgh, PA 15203"
+# So if no early split matches, we also try: does stripping everything up to
+# the last " - " produce a remainder that starts with a street number?
+def _strip_appfolio_label(address: str) -> str:
+    sep = " - "
+    start = 0
+    while True:
+        idx = address.find(sep, start)
+        if idx == -1:
+            break
+        label = address[:idx].strip()
+        remainder = address[idx + len(sep):]
+        if label and remainder.lower().startswith(label.lower()):
+            return remainder.strip()
+        start = idx + len(sep)
+
+    # Fallback: if the string has multiple " - " segments and the last segment
+    # starts with a digit (street number), take it — it's the canonical address.
+    last_idx = address.rfind(sep)
+    if last_idx > 0:
+        last_part = address[last_idx + len(sep):].strip()
+        if last_part and last_part[0].isdigit():
+            return last_part
+
+    return address
+
 
 def normalize_address(address: str) -> str:
-    """Strip 'DO NOT USE' prefixes so addresses match across reports."""
+    """Strip AppFolio label prefixes and 'DO NOT USE' prefixes from addresses."""
+    address = _strip_appfolio_label(address)
     for prefix in _DO_NOT_USE_PREFIXES:
         if address.upper().startswith(prefix.upper()):
-            return address[len(prefix) :].strip()
+            return address[len(prefix):].strip()
     return address
 
 

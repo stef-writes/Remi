@@ -53,13 +53,8 @@ class LLMSettings(BaseModel):
 
 
 class SandboxSettings(BaseModel):
-    """Sandbox execution backend configuration."""
+    """Sandbox execution configuration."""
 
-    backend: str = "auto"  # "auto", "docker", or "local"
-    image: str = "remi-sandbox:latest"
-    memory_limit: str = "512m"
-    cpu_limit: float = 1.0
-    network: str = ""  # empty = auto-detect; "host" (Linux only), "bridge"
     default_timeout: int = 30
     max_output_bytes: int = 100_000
 

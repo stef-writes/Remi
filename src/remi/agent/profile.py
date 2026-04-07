@@ -47,5 +47,5 @@ class DomainProfile:
     api_path_examples: str = ""
     """Example API paths appended to the http_request tool description."""
 
-    data_bridge_hint: str = ""
-    """Supplemental description for what ``remi_data`` exposes in the sandbox."""
+    sdk_hint: str = ""
+    """Supplemental description for the ``remi`` SDK available in the sandbox."""

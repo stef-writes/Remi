@@ -172,13 +172,17 @@ class WorkflowRunner:
                 return
 
             all_deps = set(node.depends_on)
+            optional_deps: set[str] = set()
             for binding in plan.inbound.get(step_id, ()):
                 all_deps.add(binding.source_step)
+                if binding.optional:
+                    optional_deps.add(binding.source_step)
             for dep in all_deps:
                 if dep in completion_events:
                     await completion_events[dep].wait()
 
-            if any(dep in gated_steps for dep in all_deps):
+            required_deps = all_deps - optional_deps
+            if any(dep in gated_steps for dep in required_deps):
                 gated_steps.add(step_id)
                 sr = StepResult(step_id=step_id, value={}, gated=True)
                 step_results[step_id] = sr

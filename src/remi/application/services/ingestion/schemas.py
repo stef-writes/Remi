@@ -34,6 +34,33 @@ class ExtractResult(BaseModel):
     section_header_column: str | None = None
     observations_likely: bool = False
     unknown_columns: list[str] = Field(default_factory=list)
+    needs_inspection: bool = False
+
+
+# ---------------------------------------------------------------------------
+# document_ingestion: inspect step output
+# ---------------------------------------------------------------------------
+
+
+class AmbiguousColumn(BaseModel):
+    """A column whose mapping was uncertain and how it was resolved."""
+
+    column: str
+    original_mapping: str
+    corrected_mapping: str
+    reason: str
+
+
+class InspectResult(BaseModel):
+    """Validated output from the document_ingestion ``inspect`` step.
+
+    The inspect step sees real row values and corrects any ambiguous column
+    mappings that the extract step got wrong from headers alone.
+    """
+
+    column_map: dict[str, str] = Field(default_factory=dict)
+    ambiguous_columns: list[AmbiguousColumn] = Field(default_factory=list)
+    notes: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +156,7 @@ class GraphExtendResult(BaseModel):
 
 INGESTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "ExtractResult": ExtractResult,
+    "InspectResult": InspectResult,
     "CaptureResult": CaptureResult,
     "GraphReasonResult": GraphReasonResult,
     "GraphExtendResult": GraphExtendResult,

@@ -400,6 +400,126 @@ class WorkflowToolProvider(ToolProvider):
             ),
         )
 
+        async def portfolio_comparison(args: dict[str, Any]) -> Any:
+            sort_by = args.get("sort_by", "occupancy_rate")
+            limit = int(args.get("limit", 0)) or None
+            ascending = str(args.get("ascending", "false")).lower() == "true"
+            rankings = await mr.rank_managers(
+                sort_by=sort_by, ascending=ascending, limit=limit
+            )
+            return {
+                "manager_count": len(rankings),
+                "sort_by": sort_by,
+                "ascending": ascending,
+                "managers": [r.model_dump(mode="json") for r in rankings],
+            }
+
+        registry.register(
+            "portfolio_comparison",
+            portfolio_comparison,
+            ToolDefinition(
+                name="portfolio_comparison",
+                description=(
+                    "Compare all managers side-by-side on any metric — occupancy, "
+                    "delinquency, vacancy loss, maintenance, loss-to-lease. Returns "
+                    "a sorted table of every manager with full metrics. Use this for "
+                    "any cross-manager ranking or comparison question."
+                ),
+                args=[
+                    ToolArg(
+                        name="sort_by",
+                        description=(
+                            "Metric to sort by (default: occupancy_rate). Options: "
+                            "occupancy_rate, delinquency_rate, total_delinquent_balance, "
+                            "loss_to_lease, vacancy_loss, open_maintenance, "
+                            "expiring_leases_90d, total_units, property_count"
+                        ),
+                    ),
+                    ToolArg(
+                        name="ascending",
+                        description="Sort ascending (default: false = worst first)",
+                    ),
+                    ToolArg(
+                        name="limit",
+                        description="Return only top N managers (default: all)",
+                    ),
+                ],
+            ),
+        )
+
+        async def portfolio_health(args: dict[str, Any]) -> Any:
+            overview = await ds.dashboard_overview()
+            delinquency = await ds.delinquency_board()
+            vacancies = await ds.vacancy_tracker()
+            lease_risk = await ds.lease_expiration_calendar(days=90)
+            needs_mgr = await ds.needs_manager()
+
+            rankings = await mr.rank_managers(sort_by="delinquency_rate", limit=5)
+
+            red_flags: list[str] = []
+            if overview.occupancy_rate < 0.90:
+                red_flags.append(
+                    f"Portfolio occupancy {overview.occupancy_rate:.1%} is below 90%"
+                )
+            if delinquency.total_delinquent > 0:
+                red_flags.append(
+                    f"{delinquency.total_delinquent} delinquent tenants "
+                    f"owing ${delinquency.total_balance:,.0f}"
+                )
+            if vacancies.total_vacant > 0:
+                red_flags.append(
+                    f"{vacancies.total_vacant} vacant units — "
+                    f"${vacancies.total_market_rent_at_risk:,.0f}/mo at risk"
+                )
+            if lease_risk.total_expiring > 0:
+                rent_at_risk = sum(le.monthly_rent for le in lease_risk.leases)
+                red_flags.append(
+                    f"{lease_risk.total_expiring} leases expiring in 90 days — "
+                    f"${rent_at_risk:,.0f}/mo revenue at risk"
+                )
+            if needs_mgr.total > 0:
+                red_flags.append(
+                    f"{needs_mgr.total} properties have no manager assigned"
+                )
+
+            return {
+                "red_flags": red_flags,
+                "overview": overview.model_dump(mode="json"),
+                "delinquency_summary": {
+                    "total_delinquent": delinquency.total_delinquent,
+                    "total_balance": delinquency.total_balance,
+                    "top_5": [t.model_dump(mode="json") for t in delinquency.tenants[:5]],
+                },
+                "vacancy_summary": {
+                    "total_vacant": vacancies.total_vacant,
+                    "total_notice": vacancies.total_notice,
+                    "market_rent_at_risk": vacancies.total_market_rent_at_risk,
+                    "avg_days_vacant": vacancies.avg_days_vacant,
+                },
+                "lease_risk_summary": {
+                    "expiring_90d": lease_risk.total_expiring,
+                    "month_to_month": lease_risk.month_to_month_count,
+                },
+                "worst_managers": [r.model_dump(mode="json") for r in rankings],
+                "unassigned_properties": needs_mgr.total,
+            }
+
+        registry.register(
+            "portfolio_health",
+            portfolio_health,
+            ToolDefinition(
+                name="portfolio_health",
+                description=(
+                    "Complete portfolio health check in a single call — red flags, "
+                    "occupancy, delinquency, vacancies, lease risk, worst-performing "
+                    "managers, and unassigned properties. Use this when the user asks "
+                    "about overall portfolio status, problems, or 'what needs attention'. "
+                    "No parameters needed."
+                ),
+                args=[],
+            ),
+        )
+
         async def portfolio_trends(args: dict[str, Any]) -> Any:
             manager_id = await _resolve_manager_id(ps, args) if (
                 args.get("manager_id") or args.get("manager_name")

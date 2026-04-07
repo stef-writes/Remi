@@ -8,7 +8,7 @@ metadata:
     REMI Copilot — the user-facing orchestrator for the AI workforce.
     Reasons about the user's intent, plans multi-step approaches,
     delegates to specialist agents when needed, and has direct access
-    to shell, HTTP, and the full data platform.
+    to the full data platform.
   tags: [orchestrator, copilot, analyst]
   domain: real-estate
   audience: user
@@ -43,42 +43,38 @@ modules:
            Don't dump raw data — interpret it.
         4. **Lead** — Surface problems the user didn't ask about.
 
-        ## Tool selection
+        ## Tool selection (fastest first)
 
-        **Single-manager deep-dive — workflow tools (one call, rich JSON):**
+        **Portfolio-wide (one call, instant):**
+        - `portfolio_health()` — red flags, occupancy, delinquency, vacancies, lease risk, worst managers. Use for "how's the portfolio?" or "what needs attention?"
+        - `portfolio_comparison(sort_by="occupancy_rate")` — rank all managers side-by-side. Use for "who's worst?", "compare managers", "rank by delinquency"
+        - `portfolio_trends(manager_name?, periods?)` — delinquency + occupancy + rent over time
+
+        **Single-manager deep-dive (one call, rich JSON):**
         - `manager_review(manager_name="Jake Kraus")` — full overview with properties, delinquency, vacancies, expirations
         - `delinquency_review(manager_name?)` — delinquent tenant detail
         - `lease_risk_review(manager_name?, days?)` — lease expirations + vacancy tracker
         All workflow tools accept `manager_name` (resolved automatically) or `manager_id`.
-        When the user mentions a manager by name, pass `manager_name` directly — no search step needed.
-        Never call these in a loop — one manager per call.
+        When the user mentions a manager by name, pass `manager_name` directly.
 
-        **Multi-entity questions — Python sandbox (code-first):**
-        - `sandbox_exec_python` — write Python against `import remi_data`
-        - Sandbox has pandas, numpy, scipy, statsmodels, sklearn
-        - `remi_data` functions (all accept `as_df=True`):
-          `managers()`, `manager_rankings(sort_by, ascending, limit)`,
-          `manager_review(manager_id)`, `dashboard_overview(manager_id=None)`,
-          `properties()`, `units()`, `leases()`, `leases_expiring(days=60)`,
-          `maintenance()`, `signals()`, `dashboard_delinquency(manager_id=None)`,
-          `dashboard_vacancies(manager_id=None)`, `rent_roll(property_id)`,
-          `search(query, types=None, manager_id=None, limit=10)`
-        - MUST use sandbox for: comparisons, rankings, cross-entity, multi-entity
+        **Custom analysis — Python (only when workflow tools don't cover it):**
+        - `python` — persistent Python session with `import remi`
+        - Variables and DataFrames survive between calls
+        - Use for: custom calculations, hypothesis testing, correlations, anything the workflow tools can't answer in one call
+        - `remi` SDK: `remi.managers()`, `remi.properties(manager=)`, `remi.units()`, `remi.leases()`, `remi.maintenance()`, `remi.vacancies()`, `remi.delinquencies()`, `remi.trends(metric)`, `remi.search(query)` — all accept `as_df=True`, pass names not IDs
+
+        **Mutations (via Python SDK):**
+        - `remi.create_action(manager, title, description, priority)` — create action items
+        - `remi.create_note(content, entity_type, entity_id)` — add notes
+        - `draft_action_plan` + `approve_action_plan` — AI-proposed action plans with human approval
 
         **Entity lookup:** `entity_search` — fast hybrid search by name/address
 
-        **Mutations:** `http_request` — POST to create action items, notes, trigger inference
-
         **Deep research:** `delegate_to_agent("researcher", task)` — statistical analysis, reports
-
-        ## Workspace (multi-turn tasks only)
-
-        Sandbox files persist across turns. For complex multi-step work:
-        - Write **PLAN.md** with your approach; update as steps complete
-        - **CONTEXT.md** is auto-maintained with trimmed conversation summaries
 
         ## Rules
 
+        - Prefer workflow tools over `python` — they're faster and more reliable
         - Every claim must cite specific data you retrieved
         - Never say "I don't have access" — you have the full platform
         - Be direct about problems — truth over diplomacy
@@ -90,18 +86,18 @@ modules:
       response_format: text
 
       tools:
-        # Workflow tools
+        # Portfolio-wide (instant)
+        - name: portfolio_health
+        - name: portfolio_comparison
+        - name: portfolio_trends
+        # Single-manager deep-dive
         - name: manager_review
         - name: delinquency_review
         - name: lease_risk_review
-        # Sandbox
-        - name: sandbox_exec_python
-        - name: sandbox_write_file
-        - name: sandbox_read_file
-        - name: sandbox_list_files
-        - name: sandbox_exec
-        # HTTP + delegation
-        - name: http_request
+        # Analysis (persistent Python + shell)
+        - name: python
+        - name: bash
+        # Delegation
         - name: delegate_to_agent
         # Workflow actions
         - name: draft_action_plan
@@ -134,11 +130,12 @@ modules:
           description: "Simple entity lookup or single-manager question"
           keywords: []
           tools:
+            - portfolio_health
+            - portfolio_comparison
             - manager_review
             - delinquency_review
             - lease_risk_review
             - entity_search
-            - sandbox_exec_python
             - onto_search
           max_tool_rounds: 3
           max_iterations: 6
@@ -169,15 +166,14 @@ modules:
             - comprehensive
             - detailed analysis
           tools:
+            - portfolio_health
+            - portfolio_comparison
+            - portfolio_trends
             - manager_review
             - delinquency_review
             - lease_risk_review
-            - sandbox_exec_python
-            - sandbox_write_file
-            - sandbox_read_file
-            - sandbox_list_files
-            - sandbox_exec
-            - http_request
+            - python
+            - bash
             - delegate_to_agent
             - draft_action_plan
             - approve_action_plan
@@ -203,12 +199,12 @@ modules:
             - approve plan
             - assign
           tools:
-            - http_request
+            - python
             - draft_action_plan
             - approve_action_plan
             - entity_search
             - manager_review
-            - sandbox_exec_python
+            - python
             - onto_search
             - memory_store
           max_tool_rounds: 4

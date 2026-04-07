@@ -1,4 +1,4 @@
-"""Tests for the sandbox tool surface — exec, exec_python, write/read/list files.
+"""Tests for the analysis tool surface — python and bash.
 
 Every tool is exercised end-to-end through the real LocalSandbox (temp dirs,
 real subprocesses). No mocks of the sandbox itself.
@@ -13,22 +13,22 @@ import pytest
 from remi.agent.sandbox.local import LocalSandbox
 from remi.agent.sandbox.types import ExecStatus
 from remi.agent.tools.registry import InMemoryToolRegistry
-from remi.agent.tools.sandbox import SandboxToolProvider
+from remi.agent.tools.sandbox import AnalysisToolProvider
 
 
 @pytest.fixture
 def sandbox(tmp_path: Path) -> LocalSandbox:
-    from remi.application.sandbox_bridge import RE_BRIDGE_FILES
+    from remi.application.sdk import __file__ as sdk_path
 
     sb = LocalSandbox(root=tmp_path / "sandbox")
-    sb.set_session_files(RE_BRIDGE_FILES)
+    sb.set_session_files({"remi.py": Path(sdk_path).read_text("utf-8")})
     return sb
 
 
 @pytest.fixture
 def registry(sandbox: LocalSandbox) -> InMemoryToolRegistry:
     reg = InMemoryToolRegistry()
-    SandboxToolProvider(sandbox).register(reg)
+    AnalysisToolProvider(sandbox).register(reg)
     return reg
 
 
@@ -39,19 +39,16 @@ async def _call(registry: InMemoryToolRegistry, name: str, args: dict) -> dict:
     return await fn(args)
 
 
-# -- US-1: exec_python --------------------------------------------------------
+# -- python tool ---------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_exec_python_tool(sandbox: LocalSandbox, registry: InMemoryToolRegistry) -> None:
+async def test_python_tool(sandbox: LocalSandbox, registry: InMemoryToolRegistry) -> None:
     await sandbox.create_session("s1")
     result = await _call(
         registry,
-        "sandbox_exec_python",
-        {
-            "session_id": "s1",
-            "code": "print(2 + 2)",
-        },
+        "python",
+        {"session_id": "s1", "code": "print(2 + 2)"},
     )
     assert result["status"] == ExecStatus.SUCCESS
     assert "4" in result["stdout"]
@@ -59,206 +56,142 @@ async def test_exec_python_tool(sandbox: LocalSandbox, registry: InMemoryToolReg
 
 
 @pytest.mark.asyncio
-async def test_exec_python_error_returns_stderr(
+async def test_python_error_returns_stderr(
     sandbox: LocalSandbox, registry: InMemoryToolRegistry
 ) -> None:
     await sandbox.create_session("s-err")
     result = await _call(
         registry,
-        "sandbox_exec_python",
-        {
-            "session_id": "s-err",
-            "code": "raise ValueError('boom')",
-        },
+        "python",
+        {"session_id": "s-err", "code": "raise ValueError('boom')"},
     )
     assert result["status"] == ExecStatus.ERROR
     assert "boom" in result["stderr"]
 
 
-# -- US-1 supplement: exec (shell) --------------------------------------------
+@pytest.mark.asyncio
+async def test_python_persistent_state(
+    sandbox: LocalSandbox, registry: InMemoryToolRegistry
+) -> None:
+    """Variables survive between python calls."""
+    await sandbox.create_session("persist")
+    await _call(registry, "python", {"session_id": "persist", "code": "x = 42"})
+    result = await _call(registry, "python", {"session_id": "persist", "code": "print(x + 8)"})
+    assert result["status"] == ExecStatus.SUCCESS
+    assert "50" in result["stdout"]
+
+
+# -- bash tool -----------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_exec_shell_tool(sandbox: LocalSandbox, registry: InMemoryToolRegistry) -> None:
+async def test_bash_tool(sandbox: LocalSandbox, registry: InMemoryToolRegistry) -> None:
     await sandbox.create_session("s2")
     result = await _call(
         registry,
-        "sandbox_exec",
-        {
-            "session_id": "s2",
-            "command": "echo hello",
-        },
+        "bash",
+        {"session_id": "s2", "command": "echo hello"},
     )
     assert result["status"] == ExecStatus.SUCCESS
     assert "hello" in result["stdout"]
 
 
-# -- US-2: write + read files -------------------------------------------------
+# -- file I/O via python -------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_write_and_read_file_tools(
+async def test_write_and_read_via_python(
     sandbox: LocalSandbox, registry: InMemoryToolRegistry
 ) -> None:
     await sandbox.create_session("s3")
-
     write_result = await _call(
         registry,
-        "sandbox_write_file",
+        "python",
         {
             "session_id": "s3",
-            "filename": "report.md",
-            "content": "# Vacancy Report\nOccupancy is 94%.",
+            "code": 'with open("report.md", "w") as f:\n    f.write("# Report\\n94%")\nprint("done")',
         },
     )
-    assert write_result["status"] == "success"
-    assert write_result["filename"] == "report.md"
+    assert write_result["status"] == ExecStatus.SUCCESS
 
     read_result = await _call(
         registry,
-        "sandbox_read_file",
+        "python",
         {
             "session_id": "s3",
-            "filename": "report.md",
+            "code": 'print(open("report.md").read())',
         },
     )
-    assert read_result["status"] == "success"
-    assert "Vacancy Report" in read_result["content"]
-    assert "94%" in read_result["content"]
+    assert "94%" in read_result["stdout"]
+
+
+# -- list files via bash -------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_read_missing_file(sandbox: LocalSandbox, registry: InMemoryToolRegistry) -> None:
-    await sandbox.create_session("s-miss")
-    result = await _call(
-        registry,
-        "sandbox_read_file",
-        {
-            "session_id": "s-miss",
-            "filename": "nope.txt",
-        },
-    )
-    assert "error" in result
-    assert "not found" in result["error"].lower()
-
-
-# -- US-3: list files ----------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_list_files_tool(sandbox: LocalSandbox, registry: InMemoryToolRegistry) -> None:
+async def test_list_files_via_bash(
+    sandbox: LocalSandbox, registry: InMemoryToolRegistry
+) -> None:
     await sandbox.create_session("s4")
     await _call(
         registry,
-        "sandbox_write_file",
+        "python",
         {
             "session_id": "s4",
-            "filename": "a.csv",
-            "content": "x,y\n1,2",
-        },
-    )
-    await _call(
-        registry,
-        "sandbox_write_file",
-        {
-            "session_id": "s4",
-            "filename": "b.json",
-            "content": '{"ok": true}',
+            "code": (
+                'with open("a.csv", "w") as f: f.write("x,y")\n'
+                'with open("b.json", "w") as f: f.write("{}")'
+            ),
         },
     )
 
-    result = await _call(registry, "sandbox_list_files", {"session_id": "s4"})
-    assert result["status"] == "success"
-    assert "a.csv" in result["files"]
-    assert "b.json" in result["files"]
-    assert result["count"] >= 2
+    result = await _call(registry, "bash", {"session_id": "s4", "command": "ls"})
+    assert result["status"] == ExecStatus.SUCCESS
+    assert "a.csv" in result["stdout"]
+    assert "b.json" in result["stdout"]
 
 
-# -- US-5: data bridge auto-written -------------------------------------------
+# -- SDK auto-written -----------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_session_has_data_bridge(sandbox: LocalSandbox) -> None:
+async def test_session_has_sdk(sandbox: LocalSandbox) -> None:
     session = await sandbox.create_session("s5")
-    bridge_path = Path(session.working_dir) / "remi_data.py"
-    assert bridge_path.exists(), "remi_data.py should be auto-written on session create"
-    source = bridge_path.read_text()
+    sdk_path = Path(session.working_dir) / "remi.py"
+    assert sdk_path.exists(), "remi.py should be auto-written on session create"
+    source = sdk_path.read_text()
     assert "def properties(" in source
     assert "def rent_roll(" in source
     assert "def managers(" in source
 
 
-# -- US-6: session_id injection for all sandbox_* tools -----------------------
+# -- session_id injection -------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_session_id_injection(sandbox: LocalSandbox) -> None:
-    """AgentNode._build_tool_set injects session_id for name.startswith('sandbox_').
-
-    We simulate the same logic here: verify every registered sandbox tool
-    gets session_id routed correctly by calling through the tool handlers
-    with only session_id in args (auto-create via _ensure_session).
-    """
     reg = InMemoryToolRegistry()
-    SandboxToolProvider(sandbox).register(reg)
+    AnalysisToolProvider(sandbox).register(reg)
 
     session_id = "injected-session"
     await sandbox.create_session(session_id)
 
     result_python = await _call(
         reg,
-        "sandbox_exec_python",
-        {
-            "session_id": session_id,
-            "code": "print('ok')",
-        },
+        "python",
+        {"session_id": session_id, "code": "print('ok')"},
     )
     assert result_python["status"] == ExecStatus.SUCCESS
 
-    result_shell = await _call(
+    result_bash = await _call(
         reg,
-        "sandbox_exec",
-        {
-            "session_id": session_id,
-            "command": "echo ok",
-        },
+        "bash",
+        {"session_id": session_id, "command": "echo ok"},
     )
-    assert result_shell["status"] == ExecStatus.SUCCESS
-
-    result_write = await _call(
-        reg,
-        "sandbox_write_file",
-        {
-            "session_id": session_id,
-            "filename": "test.txt",
-            "content": "hello",
-        },
-    )
-    assert result_write["status"] == "success"
-
-    result_read = await _call(
-        reg,
-        "sandbox_read_file",
-        {
-            "session_id": session_id,
-            "filename": "test.txt",
-        },
-    )
-    assert result_read["status"] == "success"
-    assert result_read["content"] == "hello"
-
-    result_list = await _call(
-        reg,
-        "sandbox_list_files",
-        {
-            "session_id": session_id,
-        },
-    )
-    assert result_list["status"] == "success"
-    assert "test.txt" in result_list["files"]
+    assert result_bash["status"] == ExecStatus.SUCCESS
 
 
-# -- US-8: pandas available in sandbox Python ---------------------------------
+# -- pandas available -----------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -268,11 +201,8 @@ async def test_pandas_available_in_sandbox(
     await sandbox.create_session("s-pandas")
     result = await _call(
         registry,
-        "sandbox_exec_python",
-        {
-            "session_id": "s-pandas",
-            "code": "import pandas; print(pandas.__version__)",
-        },
+        "python",
+        {"session_id": "s-pandas", "code": "import pandas; print(pandas.__version__)"},
     )
     assert result["status"] == ExecStatus.SUCCESS, (
         f"pandas should be importable in sandbox. stderr: {result['stderr']}"
@@ -280,52 +210,26 @@ async def test_pandas_available_in_sandbox(
     assert result["stdout"].strip(), "pandas version should be printed"
 
 
-# -- Tool registration completeness -------------------------------------------
+# -- Tool registration completeness --------------------------------------------
 
 
-def test_all_five_tools_registered(registry: InMemoryToolRegistry) -> None:
-    expected = {
-        "sandbox_exec",
-        "sandbox_exec_python",
-        "sandbox_write_file",
-        "sandbox_read_file",
-        "sandbox_list_files",
-    }
+def test_two_tools_registered(registry: InMemoryToolRegistry) -> None:
+    expected = {"python", "bash"}
     registered = {d.name for d in registry.list_tools()}
     assert expected.issubset(registered), f"Missing tools: {expected - registered}"
 
 
-# -- Validation: empty args ---------------------------------------------------
+# -- Validation: empty args ----------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_exec_python_rejects_empty_code(
+async def test_python_rejects_empty_code(
     sandbox: LocalSandbox, registry: InMemoryToolRegistry
 ) -> None:
     await sandbox.create_session("s-empty")
     result = await _call(
         registry,
-        "sandbox_exec_python",
-        {
-            "session_id": "s-empty",
-            "code": "",
-        },
-    )
-    assert "error" in result
-
-
-@pytest.mark.asyncio
-async def test_write_file_rejects_empty_filename(
-    sandbox: LocalSandbox, registry: InMemoryToolRegistry
-) -> None:
-    await sandbox.create_session("s-nofn")
-    result = await _call(
-        registry,
-        "sandbox_write_file",
-        {
-            "session_id": "s-nofn",
-            "filename": "",
-            "content": "data",
-        },
+        "python",
+        {"session_id": "s-empty", "code": ""},
     )
     assert "error" in result

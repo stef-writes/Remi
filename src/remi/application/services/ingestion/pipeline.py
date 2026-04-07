@@ -1,17 +1,15 @@
-"""Document ingestion orchestrator — workflow-driven upload pipeline.
+"""Ingestion host — thin entry point, delegates everything to the YAML workflow.
 
-Guards (parse, dedup, non-tabular, empty) stay as Python because they
-decide whether to invoke the workflow at all. The full tabular pipeline
-(extract → map → validate → persist) runs as a YAML workflow with typed
-Pydantic nodes, retry policies, and for-each persistence.
+Responsibilities (things the YAML workflow cannot do):
+  1. Parse      — bytes → DocumentContent (parser knows file types)
+  2. Dedup      — content-hash check against the store
+  3. Guard      — non-tabular / empty early exits
+  4. Run        — hand off to the document_ingestion YAML workflow
+  5. Save       — persist the Document record after workflow completes
 
-Phases:
-  1. Parse     — file bytes to ``DocumentContent``
-  2. Dedup     — content-hash duplicate check
-  3. Guard     — non-tabular / empty early exits
-  4. Workflow  — document_ingestion workflow (extract, map, validate, persist)
-  5. Manager   — ensure PropertyManager from user-supplied param
-  6. Store     — save to ContentStore + PropertyStore
+Everything else — manager resolution, report type classification, column
+mapping, validation, entity persistence — lives in the YAML workflow and its
+registered Python tools (transforms.py).
 """
 
 from __future__ import annotations
@@ -27,18 +25,9 @@ from remi.agent.documents import ContentStore
 from remi.agent.documents.parsers import parse_document
 from remi.agent.documents.types import DocumentKind
 from remi.agent.workflow import load_workflow
-from remi.application.core.models import (
-    Document,
-    DocumentType,
-    PropertyManager,
-    ReportType,
-)
+from remi.application.core.models import Document, DocumentType, PropertyManager, ReportType
+from remi.application.services.ingestion.base import IngestionResult, ReviewItem, RowWarning  # noqa: F401
 from remi.application.services.ingestion.matcher import entity_schemas_for_prompt
-from remi.application.services.ingestion.base import (
-    IngestionResult,
-    ReviewItem,
-    RowWarning,
-)
 from remi.application.services.ingestion.schemas import INGESTION_SCHEMAS
 from remi.application.services.ingestion.service import IngestionService
 from remi.application.services.ingestion.transforms import register_ingestion_tools
@@ -49,8 +38,6 @@ _log = structlog.get_logger(__name__)
 
 @dataclass
 class UploadResult:
-    """Result of the full upload pipeline, consumed by the API and tool layers."""
-
     doc: Document
     report_type: str = "unknown"
     entities_extracted: int = 0
@@ -67,10 +54,7 @@ class UploadResult:
 
 
 class DocumentIngestService:
-    """Top-level orchestrator for document uploads.
-
-    ``_ingestion`` is exposed for the ``correct_row`` API endpoint.
-    """
+    """Thin host — parse/dedup/guard, then hand off to the YAML workflow."""
 
     def __init__(
         self,
@@ -96,86 +80,73 @@ class DocumentIngestService:
         lease_id: str | None = None,
         document_type: str | None = None,
     ) -> UploadResult:
-        """Run the full ingestion workflow."""
 
-        # -- Phase 1: Parse -------------------------------------------------------
+        # 1. Parse
         doc_content = parse_document(
-            filename,
-            content,
-            content_type,
+            filename, content, content_type,
             extra_skip_patterns=self._skip_patterns,
             section_labels=self._section_labels,
         )
         doc_content.size_bytes = len(content)
 
-        # -- Phase 2: Dedup -------------------------------------------------------
+        # 2. Dedup
         content_hash = hashlib.sha256(content).hexdigest()
-
-        existing_doc = await self._ingestion._ps.find_by_content_hash(content_hash)
-        if existing_doc is not None:
-            doc_model = _build_document_model(
-                doc_content, content_hash=content_hash,
-                document_type=document_type, unit_id=unit_id,
-                property_id=property_id, lease_id=lease_id,
-            )
+        existing = await self._ingestion._ps.find_by_content_hash(content_hash)
+        if existing is not None:
             return UploadResult(
-                doc=doc_model,
-                duplicate_of=existing_doc,
-                report_type=existing_doc.report_type.value,
+                doc=_build_doc(doc_content, content_hash=content_hash,
+                               document_type=document_type, unit_id=unit_id,
+                               property_id=property_id, lease_id=lease_id),
+                duplicate_of=existing,
+                report_type=existing.report_type.value,
             )
 
-        # -- Phase 3: Non-tabular guard -------------------------------------------
+        # 3. Guard — non-tabular
         if doc_content.kind != DocumentKind.tabular:
             await self._content_store.save(doc_content)
-            doc_model = _build_document_model(
-                doc_content, content_hash=content_hash,
-                document_type=document_type, unit_id=unit_id,
-                property_id=property_id, lease_id=lease_id,
-            )
-            await self._ingestion._ps.upsert_document(doc_model)
-            return UploadResult(doc=doc_model, report_type="unknown")
+            doc = _build_doc(doc_content, content_hash=content_hash,
+                             document_type=document_type, unit_id=unit_id,
+                             property_id=property_id, lease_id=lease_id)
+            await self._ingestion._ps.upsert_document(doc)
+            return UploadResult(doc=doc, report_type="unknown")
 
-        columns = doc_content.column_names
-        rows = doc_content.rows
+        # 4. Guard — empty
         warnings: list[str] = []
-
-        if not columns or not rows:
+        if not doc_content.column_names or not doc_content.rows:
             warnings.append("No columns or rows found in document")
             await self._content_store.save(doc_content)
-            doc_model = _build_document_model(
-                doc_content, content_hash=content_hash,
-                document_type=document_type, unit_id=unit_id,
-                property_id=property_id, lease_id=lease_id,
-            )
-            await self._ingestion._ps.upsert_document(doc_model)
-            return UploadResult(doc=doc_model, pipeline_warnings=warnings)
+            doc = _build_doc(doc_content, content_hash=content_hash,
+                             document_type=document_type, unit_id=unit_id,
+                             property_id=property_id, lease_id=lease_id)
+            await self._ingestion._ps.upsert_document(doc)
+            return UploadResult(doc=doc, pipeline_warnings=warnings)
 
-        # -- Phase 4: Workflow (extract → map → validate → persist) ---------------
-        result, extract_data = await self._run_ingestion_workflow(
-            doc_content, rows, manager=manager,
+        # 5. Workflow — YAML DAG owns all entity work
+        result, extract_data = await self._run_workflow(
+            doc_content, doc_content.rows, upload_manager_hint=manager,
         )
 
-        report_type_str = extract_data.get("report_type", "unknown")
+        rt = _resolve_rt(extract_data.get("report_type", "unknown"))
         llm_manager = extract_data.get("manager")
-        rt = _resolve_report_type(report_type_str)
 
-        # -- Phase 5: Manager ensure ----------------------------------------------
-        effective_manager_id: str | None = None
-        if manager:
-            effective_manager_id = await self._ensure_manager(manager)
+        # Document record gets the resolved manager as metadata only
+        doc_manager_id: str | None = None
+        resolved_name = llm_manager or manager
+        if resolved_name:
+            doc_manager_id = await self._ensure_manager(resolved_name)
 
-        # -- Phase 6: Store -------------------------------------------------------
+        # 6. Save
         await self._content_store.save(doc_content)
-        doc_model = _build_document_model(
+        doc = _build_doc(
             doc_content, content_hash=content_hash, report_type=rt,
             document_type=document_type, unit_id=unit_id,
             property_id=property_id, lease_id=lease_id,
-            manager_id=effective_manager_id, report_manager=llm_manager,
+            manager_id=doc_manager_id, report_manager=llm_manager,
         )
-        await self._ingestion._ps.upsert_document(doc_model)
+        await self._ingestion._ps.upsert_document(doc)
 
         return UploadResult(
-            doc=doc_model,
+            doc=doc,
             report_type=rt.value,
             entities_extracted=result.entities_created,
             relationships_extracted=result.relationships_created,
@@ -189,67 +160,83 @@ class DocumentIngestService:
             pipeline_warnings=warnings,
         )
 
-    async def _run_ingestion_workflow(
+    async def _build_graph_context(self) -> str:
+        """Render a compact snapshot of existing managers and properties.
+
+        Passed as ``context.graph_context`` to the capture step so the LLM
+        can resolve identities against what's already in the system.
+        """
+        ps = self._ingestion._ps
+        lines: list[str] = []
+
+        managers = await ps.list_managers()
+        if managers:
+            lines.append("## Managers")
+            for m in managers:
+                lines.append(f"- id={m.id}  name={m.name}")
+
+        properties = await ps.list_properties()
+        if properties:
+            lines.append("## Properties")
+            for p in properties:
+                mgr = f"  manager={p.manager_id}" if p.manager_id else ""
+                lines.append(f"- id={p.id}  name={p.name}  address={p.address}{mgr}")
+
+        return "\n".join(lines) if lines else "(empty — no entities ingested yet)"
+
+    async def _run_workflow(
         self,
         content: Any,
         rows: list[dict[str, Any]],
         *,
-        manager: str | None = None,
+        upload_manager_hint: str | None = None,
     ) -> tuple[IngestionResult, dict[str, Any]]:
-        """Execute the document_ingestion workflow and return results."""
         from remi.application.core.models.enums import ReportType as _RT
-        from remi.application.services.ingestion.context import IngestionCtx
-        from remi.application.services.ingestion.managers import ManagerResolver
 
         result = IngestionResult(document_id=content.id, report_type=_RT.UNKNOWN)
-        resolver = ManagerResolver(self._ingestion._ps)
 
-        upload_manager_id: str | None = None
-        if manager:
-            from remi.application.core.rules import manager_name_from_tag
-            display_name = manager_name_from_tag(manager)
-            upload_manager_id = _manager_id(display_name)
-
-        ctx = IngestionCtx(
-            platform=content.metadata.get("platform", "appfolio"),
-            report_type=_RT.UNKNOWN,
-            doc_id=content.id,
-            namespace="ingestion",
-            kb=self._ingestion._kb,
-            ps=self._ingestion._ps,
-            manager_resolver=resolver,
-            result=result,
-            upload_manager_id=upload_manager_id,
-        )
-
+        # IngestionCtx is created by the initialize tool inside the workflow —
+        # the host just passes the raw materials.
         register_ingestion_tools(
-            self._ingestion._workflow_runner._tool_registry, ctx, result, rows
+            self._ingestion._workflow_runner._tool_registry,
+            ps=self._ingestion._ps,
+            doc_id=content.id,
+            platform=content.metadata.get("platform", "appfolio"),
+            result=result,
+            all_rows=rows,
+            upload_manager_hint=upload_manager_hint,
         )
 
-        workflow_input = json.dumps(
-            {
-                "metadata": content.metadata or {},
-                "column_names": content.column_names,
-                "sample_rows": content.rows[:5],
-            },
-            default=str,
-        )
-        context = {"entity_schemas": entity_schemas_for_prompt()}
+        graph_context = await self._build_graph_context()
 
         try:
-            workflow_def = load_workflow("document_ingestion")
+            wf = load_workflow("document_ingestion")
             wf_result = await self._ingestion._workflow_runner.run(
-                workflow_def,
-                workflow_input,
-                context=context,
+                wf,
+                json.dumps({
+                    "metadata": content.metadata or {},
+                    "column_names": content.column_names,
+                    "sample_rows": content.rows[:5],
+                }, default=str),
+                context={
+                    "entity_schemas": entity_schemas_for_prompt(),
+                    "upload_manager_hint": upload_manager_hint or "",
+                    # Passed to the inspect step so the LLM sees real values,
+                    # not just headers. Capped at 50 rows to keep prompt size sane.
+                    "full_rows": json.dumps(content.rows[:50], default=str),
+                    # Passed to the capture step so the LLM can resolve identities
+                    # against what already exists in the system.
+                    "graph_context": graph_context,
+                },
                 output_schemas=INGESTION_SCHEMAS,
             )
         except Exception:
             _log.warning("ingestion_workflow_failed", exc_info=True)
             return result, {}
 
-        extract_value = wf_result.step("extract")
-        extract_data = extract_value if isinstance(extract_value, dict) else {}
+        extract_data = wf_result.step("extract")
+        if not isinstance(extract_data, dict):
+            extract_data = {}
 
         rt_str = extract_data.get("report_type", "unknown")
         try:
@@ -259,19 +246,12 @@ class DocumentIngestService:
 
         return result, extract_data
 
-    async def _ensure_manager(self, manager_name: str) -> str:
-        """Create the PropertyManager entity if it doesn't already exist."""
+    async def _ensure_manager(self, name: str) -> str:
         from remi.application.core.rules import manager_name_from_tag
-
-        display_name = manager_name_from_tag(manager_name)
-        mid = _manager_id(display_name)
-
-        existing = await self._ingestion._ps.get_manager(mid)
-        if existing is None:
-            mgr = PropertyManager(id=mid, name=display_name)
-            await self._ingestion._ps.upsert_manager(mgr)
-            _log.info("manager_auto_created", manager_id=mid, name=display_name)
-
+        display = manager_name_from_tag(name)
+        mid = _manager_id(display)
+        if await self._ingestion._ps.get_manager(mid) is None:
+            await self._ingestion._ps.upsert_manager(PropertyManager(id=mid, name=display))
         return mid
 
 
@@ -279,15 +259,14 @@ class DocumentIngestService:
 # Helpers
 # ---------------------------------------------------------------------------
 
-
-def _resolve_report_type(raw: str) -> ReportType:
+def _resolve_rt(raw: str) -> ReportType:
     try:
         return ReportType(raw)
     except ValueError:
         return ReportType.UNKNOWN
 
 
-def _build_document_model(
+def _build_doc(
     content: Any,
     *,
     content_hash: str,
@@ -305,7 +284,6 @@ def _build_document_model(
             dt = DocumentType(document_type)
         except ValueError:
             dt = DocumentType.OTHER
-
     return Document(
         id=content.id,
         filename=content.filename,

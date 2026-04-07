@@ -111,7 +111,7 @@ def build_tool_set(
             return {"error": f"Tool '{name}' not found"}
         fn, _ = entry
         merged = {**tool_configs.get(name, {}), **arguments}
-        if name.startswith("sandbox_") and sandbox_session_id:
+        if name in ("python", "bash") and sandbox_session_id:
             merged.setdefault("session_id", sandbox_session_id)
         return await fn(merged)
 
@@ -138,7 +138,7 @@ def build_tool_set_for_names(
             return {"error": f"Tool '{name}' not found"}
         fn, _ = entry
         merged = dict(arguments)
-        if name.startswith("sandbox_") and sandbox_session_id:
+        if name in ("python", "bash") and sandbox_session_id:
             merged.setdefault("session_id", sandbox_session_id)
         return await fn(merged)
 

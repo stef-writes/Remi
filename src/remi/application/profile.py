@@ -67,9 +67,11 @@ _RE_API_PATH_EXAMPLES = (
     "  GET /api/v1/ontology/search?object_type=Property \u2014 ontology query"
 )
 
-_RE_DATA_BRIDGE_HINT = (
-    "Use `import remi_data` to query live platform data "
-    "(properties, units, leases, maintenance, signals)."
+_RE_SDK_HINT = (
+    "Use `import remi` to query live platform data. "
+    "Flat namespace: remi.managers(), remi.leases(), remi.properties(), "
+    "remi.maintenance(), remi.vacancies(), remi.trends(), remi.search(). "
+    "Pass names, not IDs. Add as_df=True for DataFrames."
 )
 
 _RE_SECTION_LABELS = frozenset({
@@ -100,6 +102,6 @@ def build_re_profile() -> DomainProfile:
         tool_hints=dict(_RE_TOOL_HINTS),
         available_agents=dict(_RE_AVAILABLE_AGENTS),
         api_path_examples=_RE_API_PATH_EXAMPLES,
-        data_bridge_hint=_RE_DATA_BRIDGE_HINT,
+        sdk_hint=_RE_SDK_HINT,
         section_labels=_RE_SECTION_LABELS,
     )

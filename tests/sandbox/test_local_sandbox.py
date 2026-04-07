@@ -148,3 +148,66 @@ async def test_path_traversal_blocked(sandbox: LocalSandbox) -> None:
     await sandbox.create_session("s11")
     name = await sandbox.write_file("s11", "../../etc/passwd", "hacked")
     assert name == "passwd"
+
+
+@pytest.mark.asyncio
+async def test_persistent_python_state(sandbox: LocalSandbox) -> None:
+    """Variables survive between exec_python calls in the same session."""
+    await sandbox.create_session("persist")
+
+    r1 = await sandbox.exec_python("persist", "x = 42")
+    assert r1.status == ExecStatus.SUCCESS
+
+    r2 = await sandbox.exec_python("persist", "print(x + 8)")
+    assert r2.status == ExecStatus.SUCCESS
+    assert "50" in r2.stdout
+
+
+@pytest.mark.asyncio
+async def test_persistent_import_survives(sandbox: LocalSandbox) -> None:
+    """Imports done in one call are available in the next."""
+    await sandbox.create_session("imp")
+
+    r1 = await sandbox.exec_python("imp", "import json")
+    assert r1.status == ExecStatus.SUCCESS
+
+    r2 = await sandbox.exec_python("imp", 'print(json.dumps({"a": 1}))')
+    assert r2.status == ExecStatus.SUCCESS
+    assert '{"a": 1}' in r2.stdout
+
+
+@pytest.mark.asyncio
+async def test_interpreter_restarts_after_timeout(sandbox: LocalSandbox) -> None:
+    """After a timeout kills the interpreter, the next call still works."""
+    await sandbox.create_session("restart")
+
+    r1 = await sandbox.exec_python(
+        "restart", "import time; time.sleep(10)", timeout_seconds=1
+    )
+    assert r1.status == ExecStatus.TIMEOUT
+
+    r2 = await sandbox.exec_python("restart", "print('recovered')")
+    assert r2.status == ExecStatus.SUCCESS
+    assert "recovered" in r2.stdout
+
+
+@pytest.mark.asyncio
+async def test_bash_persistent_cwd(sandbox: LocalSandbox) -> None:
+    """Working directory survives between exec_shell calls."""
+    session = await sandbox.create_session("cwd")
+    work_dir = session.working_dir
+
+    r1 = await sandbox.exec_shell("cwd", "mkdir -p subdir")
+    assert r1.status == ExecStatus.SUCCESS
+
+    r2 = await sandbox.exec_shell("cwd", "cd subdir && pwd")
+    assert r2.status == ExecStatus.SUCCESS
+    assert r2.stdout.endswith("subdir")
+
+    r3 = await sandbox.exec_shell("cwd", "pwd")
+    assert r3.status == ExecStatus.SUCCESS
+    assert r3.stdout.endswith("subdir"), f"cwd should persist: got {r3.stdout}"
+
+    r4 = await sandbox.exec_shell("cwd", "cd .. && pwd")
+    assert r4.status == ExecStatus.SUCCESS
+    assert r4.stdout.rstrip("/") == work_dir.rstrip("/")

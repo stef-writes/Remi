@@ -1,8 +1,8 @@
 """Sandbox execution policy — subprocess environment and command screening.
 
 Provides ``build_subprocess_env`` (safe environment for sandbox subprocesses)
-and ``is_dangerous_command`` (shell command blocklist).  Used by both
-``LocalSandbox`` and ``DockerSandbox`` as defense-in-depth.
+and ``is_dangerous_command`` (shell command blocklist).  Used by
+``LocalSandbox`` as defense-in-depth.
 """
 
 from __future__ import annotations

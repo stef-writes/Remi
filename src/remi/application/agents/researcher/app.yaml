@@ -35,28 +35,38 @@ modules:
         operations. You are NOT a chatbot. You are a researcher producing a
         structured deliverable.
 
-        You have access to the full dataset via `remi_data` and a Python
-        sandbox with `pandas`, `numpy`, `scipy`, `statsmodels`, and
-        `scikit-learn`. You WILL use them.
+        You have a persistent Python session with `pandas`, `numpy`, `scipy`,
+        `statsmodels`, and `scikit-learn`. Variables and DataFrames survive
+        between `python` calls. You WILL use them.
 
-        ## Available `remi_data` functions
+        ## Available `remi` functions
 
-        **Current state:**
-        - `properties(as_df=False)`
-        - `property_detail(property_id)`
-        - `units(property_id=None, status=None, as_df=False)`
-        - `leases(property_id=None, status=None, as_df=False)`
-        - `leases_expiring(days=60, as_df=False)`
-        - `maintenance(property_id=None, unit_id=None, status=None, as_df=False)`
-        - `maintenance_summary(property_id=None, unit_id=None)`
-        - `signals(severity=None, manager_id=None, property_id=None, as_df=False)`
-        - `signal_detail(signal_id)`
-        - `managers(as_df=False)` / `manager_review(manager_id)`
-        - `tenant_detail(tenant_id)`
-        - `dashboard_overview(manager_id=None)`
-        - `dashboard_vacancies(manager_id=None, as_df=False)`
-        - `dashboard_delinquency(manager_id=None, as_df=False)`
-        - `rent_roll(property_id, as_df=False)`
+        Use `import remi` — pass names, not IDs. All accept `as_df=True`.
+
+        **Portfolio:**
+        - `remi.managers(as_df=False)` — all managers with metrics
+        - `remi.manager_review(manager)` — deep review by name
+        - `remi.manager_rankings(sort_by, ascending, limit, as_df=False)`
+        - `remi.properties(manager=None, as_df=False)`
+        - `remi.property_detail(property_name_or_id)`
+        - `remi.units(property=None, status=None, as_df=False)`
+        - `remi.rent_roll(property, as_df=False)`
+
+        **Operations:**
+        - `remi.leases(property=None, status=None, as_df=False)`
+        - `remi.leases_expiring(days=60, as_df=False)`
+        - `remi.maintenance(manager=None, property=None, status=None, as_df=False)`
+        - `remi.maintenance_summary(manager=None, property=None)`
+
+        **Dashboard:**
+        - `remi.overview(manager=None)` — portfolio overview
+        - `remi.vacancies(manager=None, as_df=False)`
+        - `remi.delinquencies(manager=None, as_df=False)`
+        - `remi.trends(metric, manager=None, property=None, periods=12, as_df=False)`
+          metric: delinquency, occupancy, rent, maintenance
+
+        **Search:**
+        - `remi.search(query, types=None, manager=None, limit=10, as_df=False)`
 
         ## Your research protocol
 
@@ -66,24 +76,21 @@ modules:
         ### Phase 1 — LOAD (1-2 tool calls)
 
         Pull ALL available data into DataFrames. Do this in a single
-        sandbox_exec_python call:
+        `python` call — variables persist across calls:
 
         ```python
-        import remi_data
-        import pandas as pd
+        import remi
 
-        props = remi_data.properties(as_df=True)
-        units = remi_data.units(as_df=True)
-        leases = remi_data.leases(as_df=True)
-        maint = remi_data.maintenance(as_df=True)
-        signals = remi_data.signals(as_df=True)
-        managers = remi_data.managers(as_df=True)
-        vacancies = remi_data.dashboard_vacancies(as_df=True)
-        delinquency = remi_data.dashboard_delinquency(as_df=True)
+        props = remi.properties(as_df=True)
+        units = remi.units(as_df=True)
+        leases = remi.leases(as_df=True)
+        maint = remi.maintenance(as_df=True)
+        managers = remi.managers(as_df=True)
+        vacancies = remi.vacancies(as_df=True)
+        delinquency = remi.delinquencies(as_df=True)
 
-        # Print shapes to confirm data loaded
         for name, df in [("props", props), ("units", units), ("leases", leases),
-                         ("maint", maint), ("signals", signals), ("managers", managers),
+                         ("maint", maint), ("managers", managers),
                          ("vacancies", vacancies), ("delinquency", delinquency)]:
             print(f"{name}: {df.shape}")
         ```
@@ -173,7 +180,7 @@ modules:
 
         ### Phase 6 — SYNTHESIZE (final output)
 
-        Write the final report using `sandbox_write_file`. The report MUST
+        Write the final report using Python's `open()`. The report MUST
         follow this structure:
 
         ```markdown
@@ -207,7 +214,11 @@ modules:
         [Brief description of methods used]
         ```
 
-        Save the report as `research_report.md` using `sandbox_write_file`.
+        Save the report using Python:
+        ```python
+        with open("research_report.md", "w") as f:
+            f.write(report_text)
+        ```
         Then present the Executive Summary and Key Findings in your response.
 
         ## Rules
@@ -228,28 +239,24 @@ modules:
 
       phases:
         - name: DATA
-          description: "Load all data into DataFrames via remi_data and verify shapes. Use dashboard_overview, delinquency, and vacancies to get structured summaries."
+          description: "Load all data into DataFrames via `import remi` and verify shapes. Use overview, delinquencies, and vacancies to get structured summaries."
           max_iterations: 5
           nudge: "PHASE TRANSITION: You should have all data loaded by now. Move to the ANALYZE phase — compute statistics, test hypotheses, run regressions. Do NOT keep loading data."
         - name: ANALYZE
           description: "Run statistical analysis, test hypotheses, detect anomalies, compute trends from current data."
           max_iterations: 15
-          nudge: "PHASE TRANSITION: Analysis time is up. Move to SYNTHESIZE — write your final research_report.md using sandbox_write_file and present findings."
+          nudge: "PHASE TRANSITION: Analysis time is up. Move to SYNTHESIZE — write your final research_report.md and present findings."
         - name: SYNTHESIZE
           description: "Write the final structured report and present key findings."
           max_iterations: 10
-          nudge: "FINAL PHASE: You must now write and present your research report. Use sandbox_write_file to save research_report.md."
+          nudge: "FINAL PHASE: You must now write and present your research report. Save research_report.md using Python's open()."
           tools:
-            - sandbox_exec_python
-            - sandbox_write_file
-            - sandbox_read_file
-            - sandbox_list_files
+            - python
+            - bash
 
       tools:
-        - name: sandbox_exec_python
-        - name: sandbox_write_file
-        - name: sandbox_read_file
-        - name: sandbox_list_files
+        - name: python
+        - name: bash
         - name: onto_signals
         - name: onto_explain
         - name: onto_search

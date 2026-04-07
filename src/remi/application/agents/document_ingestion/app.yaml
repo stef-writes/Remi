@@ -3,21 +3,43 @@ kind: Workflow
 
 metadata:
   name: document-ingestion
-  version: "5.0.0"
+  version: "7.0.0"
   description: >
-    Full ingestion workflow: LLM extract → map → validate → persist.
+    Full ingestion workflow: extract → (inspect gate) → merge_maps
+    → initialize → map_rows → validate_rows → persist.
 
-    The LLM sees metadata, column headers, and sample rows — returns a
-    column_map and entity type. Python transforms apply the map, validate
-    rows, and persist entities. The capture step runs only when the LLM
-    flags observations_likely.
+    Step narrative:
+      1. extract (LLM): reads metadata + column headers + 5 sample rows.
+         Returns report_type, scope, manager name, column_map, and two gate flags:
+         needs_inspection (true when column values are ambiguous) and
+         observations_likely (true for unknown entity types).
 
-    Step 1 (extract): fast model, column mapping via ontology.
-    Step 2 (should_capture): gate on observations_likely.
-    Step 3 (capture): gated LLM, structures novel rows as KG entries.
-    Step 4 (map_rows): transform, apply_column_map to all rows.
-    Step 5 (validate_rows): transform, check required fields.
-    Step 6 (persist): for_each, persist each validated row.
+      2. should_inspect (gate): passes when extract.needs_inspection is true.
+         Triggers the inspect LLM step which sees up to 50 real data rows.
+
+      3. inspect (LLM, gated): receives the full column_map from extract plus
+         real row data. Returns a corrected column_map with explanations for any
+         ambiguous columns (e.g. a "Tags" column that contains manager names
+         rather than lease tags).
+
+      4. merge_maps (transform): merges extract.column_map and
+         inspect.column_map. Inspect entries override extract entries.
+         Skipped inspect means override_map is null — base wins.
+
+      5. initialize (transform): creates IngestionCtx, resolves the manager
+         from the LLM-extracted name (or upload hint fallback), stamps
+         report_type on the context.
+
+      6. map_rows (transform): applies merged column_map to all rows,
+         normalises addresses, strips junk, propagates section context.
+
+      7. validate_rows (transform): required-field checks, emits RowWarnings.
+
+      8. persist (for_each): persist_row for every accepted row via
+         ROW_PERSISTERS dispatch.
+
+      9. capture (LLM, gated by observations_likely): structures novel rows
+         as knowledge graph entries.
 
   tags: [ingestion, extraction, internal]
   domain: real-estate
@@ -27,6 +49,7 @@ metadata:
 steps:
   # ---------------------------------------------------------------------------
   # Step 1 — Extract
+  # LLM column mapping + report classification + manager/scope identification.
   # ---------------------------------------------------------------------------
   - id: extract
     kind: llm
@@ -46,6 +69,9 @@ steps:
       DOMAIN ONTOLOGY — the entity types the system knows and their canonical fields:
       {context.entity_schemas}
 
+      UPLOAD HINT — the uploader named this manager (may be empty):
+      {context.upload_manager_hint}
+
       You receive three things:
         - metadata: key-value pairs from the report header rows. AppFolio reports
           always include a title like "Ryan Steen Rent Roll" and lines like
@@ -56,15 +82,17 @@ steps:
 
       YOUR JOB IS COLUMN MAPPING ONLY. Produce these fields:
 
-      1. report_type: snake_case label for the report. Derive from
-         metadata.report_title first (e.g. "Ryan Steen Rent Roll" → "rent_roll"),
-         fall back to column pattern inference. Common values: "rent_roll",
-         "delinquency", "lease_expiration", "maintenance", "property_directory".
+      1. report_type: snake_case label. Derive from metadata.report_title first
+         (e.g. "Ryan Steen Rent Roll" → "rent_roll"), fall back to column
+         pattern inference. Common values: "rent_roll", "delinquency",
+         "lease_expiration", "maintenance", "property_directory".
 
       2. platform: source system from metadata if present. Default "appfolio".
 
       3. manager: manager name extracted from metadata.property_groups or
          metadata.report_title (e.g. "Ryan Steen"). Null if not identifiable.
+         IMPORTANT: This is the person whose portfolio this report covers — it
+         may differ from the upload hint above. Trust the document metadata.
 
       4. scope: what slice of the portfolio this report covers. One of:
            "portfolio_wide"    — all properties, no manager/property filter
@@ -77,10 +105,9 @@ steps:
          metadata (e.g. "Exported On: 03/23/2026" → "2026-03-23"). Null otherwise.
 
       6. date_range_start / date_range_end: the start and end of the DATA the
-         report covers, as "YYYY-MM-DD". Distinct from effective_date (which is
-         when it was exported). Null when the report is a point-in-time snapshot.
+         report covers. Null when the report is a point-in-time snapshot.
 
-      8. primary_entity_type: the ontology entity whose fields best match the
+      7. primary_entity_type: the ontology entity whose fields best match the
          column headers. Examples:
            - Rent roll / occupancy reports → "Unit"
            - Delinquency / balance / aging reports → "BalanceObservation"
@@ -90,7 +117,7 @@ steps:
            - Owner directory → "Owner"
            - Vendor directory → "Vendor"
 
-      9. column_map: dict mapping every meaningful raw column header to the
+      8. column_map: dict mapping every meaningful raw column header to the
          canonical snake_case field from the ontology.
 
          Conventions:
@@ -106,50 +133,101 @@ steps:
            - Map the manager/site manager column → "name"
            - Map units/unit count → "_unit_count"
 
-      10. section_header_column: the raw column name whose value encodes section
-          context in hierarchical reports. Usually "Property". Null if flat.
+      9. section_header_column: the raw column name whose value encodes section
+         context in hierarchical reports. Usually "Property". Null if flat.
+
+      10. needs_inspection: true when column VALUES could be ambiguous from
+          headers alone. Set this to true when:
+            - A "Tags" column is present (it may contain manager names, lease
+              tags, or other embedded data that headers don't reveal)
+            - >40% of columns map to "_*" (too much unknown content)
+            - The report type inferred from headers conflicts with the title
+            - Any column header is a generic word ("Notes", "Info", "Other",
+              "Tags", "Remarks") whose actual content is unknown
 
       11. observations_likely: true when the document type has no strong match,
-          >30% columns map to "_*", or the data is a new concept. False only
-          when the document is cleanly one entity type with strong coverage.
+          >30% columns map to "_*", or the data is a new concept.
 
-      12. unknown_columns: list of raw column headers mapped to "_*" that contain
-          meaningful data the capture step should preserve.
+      12. unknown_columns: list of raw column headers mapped to "_*" that
+          contain meaningful data the capture step should preserve.
 
       SKIP pure formatting columns (blank headers, row numbers, page markers).
 
-      RESPOND ONLY WITH VALID JSON matching this shape:
-      {
-        "report_type": "rent_roll",
-        "platform": "appfolio",
-        "manager": "Ryan Steen",
-        "scope": "manager_portfolio",
-        "effective_date": "2026-03-23",
-        "date_range_start": null,
-        "date_range_end": null,
-        "primary_entity_type": "Unit",
-        "column_map": {
-          "Property": "property_address",
-          "Unit": "unit_number",
-          "BD/BA": "_bd_ba",
-          "Sq Ft": "sqft",
-          "Lease From": "start_date",
-          "Lease To": "end_date",
-          "Rent": "monthly_rent",
-          "Market Rent": "market_rent",
-          "Status": "_occupancy_section",
-          "Days Vacant": "_days_vacant"
-        },
-        "section_header_column": "Property",
-        "observations_likely": false,
-        "unknown_columns": ["Status", "Days Vacant"]
-      }
+      RESPOND ONLY WITH VALID JSON matching the ExtractResult schema.
 
     input_template: |
       {input}
 
   # ---------------------------------------------------------------------------
-  # Step 2 — Gate: should we run capture?
+  # Step 2 — Gate: should we run inspect?
+  # Fires when the extract step flagged needs_inspection=true, meaning column
+  # values are ambiguous and the LLM needs to see real data to map correctly.
+  # ---------------------------------------------------------------------------
+  - id: should_inspect
+    kind: gate
+    condition: steps.extract.needs_inspection
+    depends_on: [extract]
+
+  # ---------------------------------------------------------------------------
+  # Step 3 — Inspect (gated — only when needs_inspection=true)
+  # The LLM sees up to 50 REAL rows (not just headers) plus the initial
+  # column_map from extract. It corrects any ambiguous mappings and explains
+  # why. Classic case: "Tags" column in AppFolio delinquency reports contains
+  # manager company names, not lease tags.
+  # Runs before merge_maps / initialize so the corrected map flows forward.
+  # ---------------------------------------------------------------------------
+  - id: inspect
+    kind: llm
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    temperature: 0.0
+    max_tokens: 4096
+    response_format: json
+    output_schema: InspectResult
+    depends_on: [should_inspect]
+    system_prompt: |
+      You are a real-estate data column-mapping correction agent.
+
+      DOMAIN ONTOLOGY — known entity types and their fields:
+      {context.entity_schemas}
+
+      The initial extract step mapped column headers to ontology fields, but
+      some columns were ambiguous because their headers are generic (e.g. "Tags",
+      "Notes", "Remarks"). You will now see REAL row data for those columns.
+
+      Your job: review the initial column_map and produce a corrected version.
+
+      Rules:
+        - Only change mappings you are confident about after seeing real values.
+        - If a "Tags" column contains values like "Jake Kraus Management" or
+          "Ryan Steen Mgmt" — those are property MANAGER names. Map "Tags" to
+          "_manager_tag" (it will be used for manager-to-property association,
+          NOT as a lease tag).
+        - If a "Tags" column contains values like "Month-to-Month", "Section 8",
+          "Commercial" — those are lease tags. Map "Tags" to "_lease_tags".
+        - If a column is mapped to "_*" but values clearly match an ontology
+          field (e.g. values look like dates → lease_end_date), correct it.
+        - Do NOT change mappings that were already correct in the base map.
+        - Include ALL columns in the returned column_map (carry forward any
+          you didn't change from the base map).
+
+      For each column you change, add an entry to ambiguous_columns explaining
+      the original mapping, corrected mapping, and why.
+
+      RESPOND ONLY WITH VALID JSON matching the InspectResult schema.
+
+    input_template: |
+      Initial column_map (from extract step, headers only):
+      {steps.extract.column_map}
+
+      Unknown/ambiguous columns flagged by extract:
+      {steps.extract.unknown_columns}
+
+      Real data rows (up to 50) — inspect column VALUES to resolve ambiguity:
+      {context.full_rows}
+
+  # ---------------------------------------------------------------------------
+  # Step 4 — Gate: should we run capture?
   # ---------------------------------------------------------------------------
   - id: should_capture
     kind: gate
@@ -157,7 +235,9 @@ steps:
     depends_on: [extract]
 
   # ---------------------------------------------------------------------------
-  # Step 3 — Capture (gated — only when observations_likely=true)
+  # Step 5 — Capture (gated — only when observations_likely=true)
+  # Structures novel rows as knowledge graph entries. Runs in parallel with
+  # merge_maps / initialize since it does not affect the main persist path.
   # ---------------------------------------------------------------------------
   - id: capture
     kind: llm
@@ -174,49 +254,29 @@ steps:
       DOMAIN ONTOLOGY — known entity types:
       {context.entity_schemas}
 
+      EXISTING GRAPH — entities already in the system that this document
+      may reference or extend. Use these to resolve identities — match
+      against existing IDs instead of creating duplicates:
+      {context.graph_context}
+
       You receive rows from a document that either (a) don't fit any known entity
       type, or (b) come from a report type not yet in the ontology.
 
       Your job: create KG entries that preserve everything meaningful.
-      This is how the ontology grows — don't discard novel data.
 
       For each row (or group of related rows), produce:
 
-      1. entity_type: descriptive PascalCase for this concept. If the whole document
-         is a new type (e.g. "InspectionLog", "InsuranceCertificate"), use that.
+      1. entity_type: descriptive PascalCase for this concept.
          Use "noise" only for truly blank/junk rows.
 
       2. entity_id: stable slug — "<lowercase_type>:<key_fields_slugified>"
 
       3. properties: ALL fields from the row including unknown_columns.
-         Preserve everything — the system can reason over it later.
 
-      4. relationships: link to known entities using UPPER_SNAKE_CASE relation types
-         (AT_PROPERTY, AFFECTS, REPORTED_BY, SERVICED_BY).
+      4. relationships: link to known entities using UPPER_SNAKE_CASE relation
+         types (AT_PROPERTY, AFFECTS, REPORTED_BY, SERVICED_BY).
 
-      RESPOND ONLY WITH VALID JSON:
-      {
-        "captured": [
-          {
-            "entity_type": "InspectionRecord",
-            "entity_id": "inspection_record:123-main-st:apt-2:2026-03-01",
-            "properties": {
-              "property_address": "123 Main St",
-              "unit_number": "Apt 2",
-              "inspector": "Mike Jones",
-              "score": 87,
-              "date": "2026-03-01"
-            },
-            "relationships": [
-              {
-                "source_id": "inspection_record:123-main-st:apt-2:2026-03-01",
-                "target_id": "property:123-main-st",
-                "relation_type": "AT_PROPERTY"
-              }
-            ]
-          }
-        ]
-      }
+      RESPOND ONLY WITH VALID JSON matching the CaptureResult schema.
 
     input_template: |
       Extraction context (report_type, primary_entity_type, unknown_columns):
@@ -226,15 +286,39 @@ steps:
       {input}
 
   # ---------------------------------------------------------------------------
-  # Step 4 — Map rows (transform, parallel with capture)
+  # Step 6 — Merge maps (transform)
+  # Merges extract.column_map (base) with inspect.column_map (override).
+  # If the inspect gate was skipped, override_map will be null and the
+  # base map wins unchanged.
+  # ---------------------------------------------------------------------------
+  - id: merge_maps
+    kind: transform
+    tool: merge_maps
+    depends_on: [extract]
+
+  # ---------------------------------------------------------------------------
+  # Step 7 — Initialize (transform, Python tool, depends on extract)
+  # Creates IngestionCtx, resolves the manager (LLM name → PropertyManager,
+  # falls back to upload hint), stamps report_type onto the context.
+  # All downstream tools share this ctx via the closure in transforms.py.
+  # ---------------------------------------------------------------------------
+  - id: initialize
+    kind: transform
+    tool: initialize
+    depends_on: [extract]
+
+  # ---------------------------------------------------------------------------
+  # Step 8 — Map rows (transform, depends on merge_maps + initialize)
+  # Applies merged column_map to all rows, normalises addresses, strips junk,
+  # propagates section context.
   # ---------------------------------------------------------------------------
   - id: map_rows
     kind: transform
     tool: apply_column_map
-    depends_on: [extract]
+    depends_on: [merge_maps, initialize]
 
   # ---------------------------------------------------------------------------
-  # Step 5 — Validate rows
+  # Step 9 — Validate rows
   # ---------------------------------------------------------------------------
   - id: validate_rows
     kind: transform
@@ -242,7 +326,7 @@ steps:
     depends_on: [map_rows]
 
   # ---------------------------------------------------------------------------
-  # Step 6 — Persist each row
+  # Step 10 — Persist each row
   # ---------------------------------------------------------------------------
   - id: persist
     kind: for_each
@@ -253,11 +337,31 @@ steps:
     depends_on: [validate_rows]
 
 wires:
+  # extract → initialize
+  - source: extract.manager
+    target: initialize.manager_name
+  - source: extract.scope
+    target: initialize.scope
+  - source: extract.report_type
+    target: initialize.report_type
+
+  # extract + inspect → merge_maps
+  # The inspect wire is optional: if inspect was gated (skipped), merge_maps
+  # still runs with only the base_map from extract. No cascade-gate.
   - source: extract.column_map
+    target: merge_maps.base_map
+  - source: inspect.column_map
+    target: merge_maps.override_map
+    optional: true
+
+  # merge_maps → map_rows (final resolved column mapping)
+  - source: merge_maps.column_map
     target: map_rows.column_map
   - source: extract.primary_entity_type
     target: map_rows.entity_type
   - source: extract.section_header_column
     target: map_rows.section_header_column
+
+  # map_rows → validate_rows
   - source: map_rows.rows
     target: validate_rows.rows

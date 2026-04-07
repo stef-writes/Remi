@@ -51,7 +51,8 @@ def build_execution_plan(workflow: WorkflowDef) -> ExecutionPlan:
                 f"Wire target step '{wire.target_step}' does not exist "
                 f"in workflow '{workflow.name}'"
             )
-        predecessors[wire.target_step].add(wire.source_step)
+        if not wire.optional:
+            predecessors[wire.target_step].add(wire.source_step)
 
     order = _topological_sort(predecessors, workflow.name)
     groups = _parallel_groups(predecessors)
@@ -144,6 +145,7 @@ def _build_inbound(
                 target_port=wire.target_port,
                 source_step=wire.source_step,
                 source_port=wire.source_port,
+                optional=wire.optional,
             )
         )
 
