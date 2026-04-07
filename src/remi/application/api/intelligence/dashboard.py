@@ -8,9 +8,13 @@ from remi.application.views import (
     AutoAssignResult,
     DashboardOverview,
     DelinquencyBoard,
+    DelinquencyTrend,
     LeaseCalendar,
+    MaintenanceTrend,
     NeedsManagerResult,
+    OccupancyTrend,
     RentRollResult,
+    RentTrend,
     VacancyTracker,
     property_ids_for_owner,
 )
@@ -77,6 +81,58 @@ async def vacancies(
 @router.get("/needs-manager", response_model=NeedsManagerResult)
 async def needs_manager(c: Ctr) -> NeedsManagerResult:
     return await c.dashboard_resolver.needs_manager()
+
+
+@router.get("/trends/delinquency", response_model=DelinquencyTrend)
+async def delinquency_trend(
+    c: Ctr,
+    manager_id: str | None = None,
+    property_id: str | None = None,
+    periods: int = 12,
+) -> DelinquencyTrend:
+    return await c.dashboard_resolver.delinquency_trend(
+        manager_id=manager_id, property_id=property_id, periods=periods
+    )
+
+
+@router.get("/trends/occupancy", response_model=OccupancyTrend)
+async def occupancy_trend(
+    c: Ctr,
+    manager_id: str | None = None,
+    property_id: str | None = None,
+    periods: int = 12,
+) -> OccupancyTrend:
+    return await c.dashboard_resolver.occupancy_trend(
+        manager_id=manager_id, property_id=property_id, periods=periods
+    )
+
+
+@router.get("/trends/rent", response_model=RentTrend)
+async def rent_trend(
+    c: Ctr,
+    manager_id: str | None = None,
+    property_id: str | None = None,
+    periods: int = 12,
+) -> RentTrend:
+    return await c.dashboard_resolver.rent_trend(
+        manager_id=manager_id, property_id=property_id, periods=periods
+    )
+
+
+@router.get("/trends/maintenance", response_model=MaintenanceTrend)
+async def maintenance_trend(
+    c: Ctr,
+    manager_id: str | None = None,
+    property_id: str | None = None,
+    unit_id: str | None = None,
+    periods: int = 12,
+) -> MaintenanceTrend:
+    return await c.dashboard_resolver.maintenance_trend(
+        manager_id=manager_id,
+        property_id=property_id,
+        unit_id=unit_id,
+        periods=periods,
+    )
 
 
 @router.post("/auto-assign", response_model=AutoAssignResult)

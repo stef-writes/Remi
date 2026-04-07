@@ -89,14 +89,12 @@ class WorkflowToolProvider(ToolProvider):
         sub_agent: SubAgentInvoker | None = None,
     ) -> None:
         self._ps = property_store
-        self._kg = knowledge_graph
         self._mr = manager_resolver
         self._ds = dashboard_resolver
         self._sub_agent = sub_agent
 
     def register(self, registry: ToolRegistry) -> None:
         ps = self._ps
-        kg = self._kg
         mr = self._mr
         ds = self._ds
 
@@ -128,10 +126,8 @@ class WorkflowToolProvider(ToolProvider):
             if action_items:
                 result["action_items"] = [ai.model_dump(mode="json") for ai in action_items]
 
-            notes = await kg.search_objects(
-                "Note",
-                filters={"entity_type": "PropertyManager", "entity_id": manager_id},
-                limit=50,
+            notes = await ps.list_notes(
+                entity_type="PropertyManager", entity_id=manager_id
             )
             if notes:
                 result["notes"] = [n.model_dump(mode="json") for n in notes]
@@ -173,10 +169,8 @@ class WorkflowToolProvider(ToolProvider):
             actions_by_tenant: dict[str, list[dict[str, Any]]] = {}
             for t in board.tenants:
                 tid = t.tenant_id
-                tenant_notes = await kg.search_objects(
-                    "Note",
-                    filters={"entity_type": "Tenant", "entity_id": tid},
-                    limit=20,
+                tenant_notes = await ps.list_notes(
+                    entity_type="Tenant", entity_id=tid
                 )
                 if tenant_notes:
                     notes_by_tenant[tid] = [n.model_dump(mode="json") for n in tenant_notes]
@@ -403,6 +397,60 @@ class WorkflowToolProvider(ToolProvider):
                         ),
                         type="object",
                         required=True,
+                    ),
+                ],
+            ),
+        )
+
+        async def portfolio_trends(args: dict[str, Any]) -> Any:
+            manager_id = await _resolve_manager_id(ps, args) if (
+                args.get("manager_id") or args.get("manager_name")
+            ) else None
+            property_id = args.get("property_id")
+            periods = int(args.get("periods", 12))
+
+            result: dict[str, Any] = {}
+            kw = dict(manager_id=manager_id, property_id=property_id, periods=periods)
+
+            delq = await ds.delinquency_trend(**kw)
+            result["delinquency"] = delq.model_dump(mode="json")
+
+            occ = await ds.occupancy_trend(**kw)
+            result["occupancy"] = occ.model_dump(mode="json")
+
+            rent = await ds.rent_trend(**kw)
+            result["rent"] = rent.model_dump(mode="json")
+
+            return result
+
+        registry.register(
+            "portfolio_trends",
+            portfolio_trends,
+            ToolDefinition(
+                name="portfolio_trends",
+                description=(
+                    "Time-series trends for a portfolio — delinquency, occupancy, "
+                    "and rent over time, grouped by month. Use this to answer questions "
+                    "about how a manager's or property's performance has changed. "
+                    "Returns direction indicators (improving/worsening/stable) and "
+                    "monthly data points suitable for charting or comparison."
+                ),
+                args=[
+                    ToolArg(
+                        name="manager_id",
+                        description="Manager ID to scope trends (or use manager_name)",
+                    ),
+                    ToolArg(
+                        name="manager_name",
+                        description="Manager name — resolved to ID automatically",
+                    ),
+                    ToolArg(
+                        name="property_id",
+                        description="Property ID to scope trends to a single property",
+                    ),
+                    ToolArg(
+                        name="periods",
+                        description="Number of monthly periods to return (default 12)",
                     ),
                 ],
             ),

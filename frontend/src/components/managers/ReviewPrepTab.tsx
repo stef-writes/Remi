@@ -1,13 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import type {
   MeetingBriefResponse,
   MeetingBriefListResponse,
   MeetingAgendaItem,
+  EntityNoteResponse,
 } from "@/lib/types";
+
+/* ------------------------------------------------------------------ */
+/* Formatting helpers                                                  */
+/* ------------------------------------------------------------------ */
 
 const SEVERITY_VARIANT: Record<string, "red" | "amber" | "blue"> = {
   high: "red",
@@ -30,22 +35,53 @@ function fmtTimestamp(iso: string) {
   });
 }
 
+function fmtDateShort(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Timeline entry types                                                */
+/* ------------------------------------------------------------------ */
+
+type TimelineEntry =
+  | { kind: "brief"; ts: string; data: MeetingBriefResponse }
+  | { kind: "note"; ts: string; data: EntityNoteResponse };
+
+function buildTimeline(
+  briefs: MeetingBriefResponse[],
+  notes: EntityNoteResponse[],
+): TimelineEntry[] {
+  const entries: TimelineEntry[] = [
+    ...briefs.map((b) => ({ kind: "brief" as const, ts: b.generated_at, data: b })),
+    ...notes.map((n) => ({ kind: "note" as const, ts: n.created_at ?? n.updated_at ?? "", data: n })),
+  ];
+  entries.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+  return entries;
+}
+
+/* ------------------------------------------------------------------ */
+/* Agenda card (compact)                                               */
+/* ------------------------------------------------------------------ */
+
 function AgendaCard({ item, index }: { item: MeetingAgendaItem; index: number }) {
-  const [expanded, setExpanded] = useState(index === 0);
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-xl border border-border bg-surface overflow-hidden">
+    <div className="rounded-lg border border-border-subtle bg-surface-sunken/30 overflow-hidden">
       <button
         onClick={() => setExpanded((x) => !x)}
-        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-surface-raised/50 transition-colors"
+        className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left hover:bg-surface-raised/50 transition-colors"
       >
-        <span className="shrink-0 w-6 h-6 rounded-full bg-surface-sunken border border-border-subtle flex items-center justify-center text-[10px] font-bold text-fg-muted">
+        <span className="shrink-0 w-5 h-5 rounded-full bg-surface border border-border-subtle flex items-center justify-center text-[9px] font-bold text-fg-muted">
           {index + 1}
         </span>
-        <span className="flex-1 text-sm font-medium text-fg">{item.topic}</span>
+        <span className="flex-1 text-xs font-medium text-fg">{item.topic}</span>
         <Badge variant={SEVERITY_VARIANT[item.severity] ?? "blue"}>{item.severity}</Badge>
         <svg
-          className={`w-4 h-4 text-fg-muted transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`w-3 h-3 text-fg-muted transition-transform ${expanded ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -56,14 +92,13 @@ function AgendaCard({ item, index }: { item: MeetingAgendaItem; index: number })
       </button>
 
       {expanded && (
-        <div className="px-5 pb-5 space-y-4 border-t border-border-subtle">
+        <div className="px-3.5 pb-3 space-y-2.5 border-t border-border-subtle">
           {item.talking_points.length > 0 && (
-            <div className="pt-4">
-              <h4 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide mb-2">Talking Points</h4>
-              <ul className="space-y-1.5">
+            <div className="pt-2.5">
+              <ul className="space-y-1">
                 {item.talking_points.map((tp, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-fg-secondary">
-                    <span className="shrink-0 mt-1.5 w-1.5 h-1.5 rounded-full bg-accent/60" />
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-fg-secondary">
+                    <span className="shrink-0 mt-1 w-1 h-1 rounded-full bg-accent/60" />
                     {tp}
                   </li>
                 ))}
@@ -73,36 +108,27 @@ function AgendaCard({ item, index }: { item: MeetingAgendaItem; index: number })
 
           {item.questions.length > 0 && (
             <div>
-              <h4 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide mb-2">Questions to Ask</h4>
-              <ul className="space-y-1.5">
-                {item.questions.map((q, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-fg-secondary italic">
-                    <span className="shrink-0 text-accent mt-0.5">?</span>
-                    {q}
-                  </li>
-                ))}
-              </ul>
+              {item.questions.map((q, i) => (
+                <p key={i} className="text-xs text-fg-secondary italic flex items-start gap-1.5">
+                  <span className="shrink-0 text-accent mt-0.5 text-[10px]">?</span>
+                  {q}
+                </p>
+              ))}
             </div>
           )}
 
           {item.suggested_actions.length > 0 && (
-            <div>
-              <h4 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide mb-2">Suggested Actions</h4>
-              <div className="space-y-2">
-                {item.suggested_actions.map((action, i) => (
-                  <div key={i} className="rounded-lg bg-surface-sunken border border-border-subtle px-3.5 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-fg font-medium">{action.title}</span>
-                      <Badge variant={SEVERITY_VARIANT[action.priority] ?? "blue"}>{action.priority}</Badge>
-                      <span className="text-[10px] text-fg-faint px-1.5 py-0.5 rounded bg-surface border border-border-subtle">
-                        {OWNER_LABEL[action.owner] ?? action.owner}
-                      </span>
-                    </div>
-                    <p className="text-xs text-fg-muted mt-1">{action.description}</p>
-                    <p className="text-[10px] text-fg-faint mt-1">{action.timeframe}</p>
-                  </div>
-                ))}
-              </div>
+            <div className="flex flex-wrap gap-1.5">
+              {item.suggested_actions.map((action, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 text-[10px] bg-surface border border-border-subtle rounded px-2 py-1 text-fg-muted"
+                >
+                  <span className="font-medium text-fg">{action.title}</span>
+                  <span className="text-fg-faint">{OWNER_LABEL[action.owner] ?? action.owner}</span>
+                  <span className="text-fg-ghost">{action.timeframe}</span>
+                </span>
+              ))}
             </div>
           )}
         </div>
@@ -111,224 +137,289 @@ function AgendaCard({ item, index }: { item: MeetingAgendaItem; index: number })
   );
 }
 
-function BriefView({
+/* ------------------------------------------------------------------ */
+/* Brief card (in timeline)                                            */
+/* ------------------------------------------------------------------ */
+
+function BriefCard({
   brief,
   currentHash,
-  onRegenerate,
-  generating,
 }: {
   brief: MeetingBriefResponse;
   currentHash: string | null;
-  onRegenerate: () => void;
-  generating: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const b = brief.brief;
   const analysis = brief.analysis;
   const isStale = currentHash !== null && brief.snapshot_hash !== currentHash;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-fg">Meeting Brief</h2>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-xs text-fg-faint">
-              {fmtTimestamp(brief.generated_at)}
-            </span>
-            {brief.focus && (
-              <Badge variant="default">{brief.focus}</Badge>
-            )}
-            {isStale ? (
-              <span className="text-[10px] font-medium text-warn bg-warn-soft px-1.5 py-0.5 rounded border border-warn/20">
-                Data changed since this brief
-              </span>
-            ) : (
-              <span className="text-[10px] font-medium text-ok bg-ok/10 px-1.5 py-0.5 rounded border border-ok/20">
-                Current
-              </span>
-            )}
+    <div className="rounded-xl border border-border bg-surface overflow-hidden">
+      <button
+        onClick={() => setExpanded((x) => !x)}
+        className="w-full text-left px-4 py-3 hover:bg-surface-raised/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+            <svg className="w-3.5 h-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+            </svg>
           </div>
-          <p className="text-[10px] text-fg-ghost mt-0.5 font-mono">
-            snapshot {brief.snapshot_hash}
-          </p>
-        </div>
-        <button
-          onClick={onRegenerate}
-          disabled={generating}
-          className="shrink-0 h-8 px-3.5 rounded-xl border border-border text-xs font-medium text-fg-muted hover:text-accent hover:border-accent/40 transition-all flex items-center gap-1.5 disabled:opacity-40"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-fg">Meeting Brief</span>
+              {brief.focus && <Badge variant="default">{brief.focus}</Badge>}
+              {isStale ? (
+                <span className="text-[9px] text-warn bg-warn-soft px-1 py-0.5 rounded">stale</span>
+              ) : (
+                <span className="text-[9px] text-ok bg-ok/10 px-1 py-0.5 rounded">current</span>
+              )}
+            </div>
+            <p className="text-xs text-fg-muted mt-0.5 line-clamp-1">{b.summary}</p>
+          </div>
+          <svg
+            className={`w-4 h-4 text-fg-muted shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
           </svg>
-          {generating ? "Generating..." : isStale ? "Regenerate (data changed)" : "Regenerate"}
-        </button>
-      </div>
+        </div>
+      </button>
 
-      {/* Executive summary */}
-      <section className="rounded-xl border border-border bg-surface p-5">
-        <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide mb-3">Executive Summary</h3>
-        <div className="text-sm text-fg-secondary leading-relaxed whitespace-pre-line">{b.summary}</div>
-      </section>
-
-      {/* Positives */}
-      {b.positives.length > 0 && (
-        <section className="rounded-xl border border-ok/20 bg-ok/5 p-5">
-          <h3 className="text-[10px] font-semibold text-ok uppercase tracking-wide mb-3">What&apos;s Going Well</h3>
-          <ul className="space-y-1.5">
-            {b.positives.map((p, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-fg-secondary">
-                <span className="shrink-0 mt-1 text-ok">+</span>
-                {p}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Agenda items */}
-      <div className="space-y-3">
-        <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide">
-          Agenda
-          <span className="text-fg-faint font-normal ml-1">
-            &middot; {b.agenda.length} items &middot;
-            {b.agenda.reduce((n, a) => n + a.suggested_actions.length, 0)} actions
-            {b.follow_up_date && <> &middot; Follow-up: {b.follow_up_date}</>}
-          </span>
-        </h3>
-        {b.agenda.map((item, i) => (
-          <AgendaCard key={i} item={item} index={i} />
-        ))}
-      </div>
-
-      {/* Analysis themes */}
-      {analysis?.themes && analysis.themes.length > 0 && (
-        <section className="rounded-xl border border-border bg-surface overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-border-subtle">
-            <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide">
-              Underlying Themes <span className="text-fg-faint font-normal">&middot; {analysis.themes.length}</span>
-            </h3>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-4 border-t border-border-subtle">
+          {/* Summary */}
+          <div className="pt-3">
+            <p className="text-sm text-fg-secondary leading-relaxed whitespace-pre-line">{b.summary}</p>
           </div>
-          <div className="divide-y divide-border-subtle">
-            {analysis.themes.map((theme) => (
-              <div key={theme.id} className="px-5 py-3.5">
-                <div className="flex items-center gap-2">
+
+          {/* Positives */}
+          {b.positives.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {b.positives.map((p, i) => (
+                <span key={i} className="inline-flex items-center gap-1 text-xs text-ok bg-ok/5 border border-ok/20 rounded-lg px-2 py-1">
+                  <span className="text-ok">+</span> {p}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Agenda */}
+          {b.agenda.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide">
+                Agenda &middot; {b.agenda.length} items
+                {b.follow_up_date && <span className="font-normal text-fg-faint"> &middot; Follow-up: {b.follow_up_date}</span>}
+              </h4>
+              {b.agenda.map((item, i) => (
+                <AgendaCard key={i} item={item} index={i} />
+              ))}
+            </div>
+          )}
+
+          {/* Analysis themes */}
+          {analysis?.themes && analysis.themes.length > 0 && (
+            <div className="space-y-1.5">
+              <h4 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide">Themes</h4>
+              {analysis.themes.map((theme) => (
+                <div key={theme.id} className="flex items-center gap-2 text-xs">
                   <Badge variant={SEVERITY_VARIANT[theme.severity] ?? "blue"}>{theme.severity}</Badge>
-                  <span className="text-sm font-medium text-fg">{theme.title}</span>
+                  <span className="text-fg">{theme.title}</span>
+                  <span className="text-fg-muted flex-1 truncate">{theme.summary}</span>
                   {theme.monthly_impact > 0 && (
-                    <span className="text-xs text-warn font-mono ml-auto">-${theme.monthly_impact.toLocaleString()}/mo</span>
+                    <span className="text-warn font-mono shrink-0">-${theme.monthly_impact.toLocaleString()}/mo</span>
                   )}
                 </div>
-                <p className="text-xs text-fg-muted mt-1">{theme.summary}</p>
-                {theme.affected_properties.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {theme.affected_properties.map((p) => (
-                      <span key={p} className="text-[10px] text-fg-faint bg-surface-sunken border border-border-subtle rounded px-1.5 py-0.5">{p}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+              ))}
+            </div>
+          )}
 
-      {/* Data gaps */}
-      {analysis?.data_gaps && analysis.data_gaps.length > 0 && (
-        <section className="rounded-xl border border-border-subtle bg-surface-sunken/50 p-5">
-          <h3 className="text-[10px] font-semibold text-fg-faint uppercase tracking-wide mb-2">Data Gaps</h3>
-          <ul className="space-y-1">
-            {analysis.data_gaps.map((gap, i) => (
-              <li key={i} className="text-xs text-fg-faint">&bull; {gap}</li>
-            ))}
-          </ul>
-        </section>
+          {/* Token usage */}
+          <p className="text-[10px] text-fg-ghost text-right font-mono">
+            {brief.usage.prompt_tokens.toLocaleString()}+{brief.usage.completion_tokens.toLocaleString()} tokens &middot; {brief.snapshot_hash}
+          </p>
+        </div>
       )}
-
-      {/* Usage */}
-      <p className="text-[10px] text-fg-ghost text-right">
-        {brief.usage.prompt_tokens.toLocaleString()} prompt + {brief.usage.completion_tokens.toLocaleString()} completion tokens
-      </p>
     </div>
   );
 }
 
-function PastBriefRow({
-  brief,
-  currentHash,
-  isActive,
-  onClick,
+/* ------------------------------------------------------------------ */
+/* Note card (in timeline)                                             */
+/* ------------------------------------------------------------------ */
+
+function NoteCard({
+  note,
+  onDelete,
 }: {
-  brief: MeetingBriefResponse;
-  currentHash: string | null;
-  isActive: boolean;
-  onClick: () => void;
+  note: EntityNoteResponse;
+  onDelete: (id: string) => void;
 }) {
-  const isStale = currentHash !== null && brief.snapshot_hash !== currentHash;
+  const [confirming, setConfirming] = useState(false);
+
   return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left px-3.5 py-2.5 border-b border-border-subtle hover:bg-surface-raised/50 transition-colors ${
-        isActive ? "bg-accent/5 border-l-2 border-l-accent" : ""
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-fg font-medium">{fmtTimestamp(brief.generated_at)}</span>
-        {isStale ? (
-          <span className="w-1.5 h-1.5 rounded-full bg-warn shrink-0" title="Stale — data has changed" />
+    <div className="rounded-xl border border-border-subtle bg-surface px-4 py-3 group">
+      <div className="flex items-start gap-2">
+        <div className="w-6 h-6 rounded-lg bg-surface-sunken border border-border-subtle flex items-center justify-center shrink-0 mt-0.5">
+          <svg className="w-3.5 h-3.5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-fg-secondary whitespace-pre-line">{note.content}</p>
+          {note.created_by && (
+            <span className="text-[10px] text-fg-ghost mt-1 inline-block">by {note.created_by}</span>
+          )}
+        </div>
+        {confirming ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => { onDelete(note.id); setConfirming(false); }}
+              className="text-[10px] text-error hover:text-error/80 font-medium px-1.5 py-0.5 rounded border border-error/20 hover:bg-error-soft transition-all"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              className="text-[10px] text-fg-muted hover:text-fg px-1.5 py-0.5"
+            >
+              Cancel
+            </button>
+          </div>
         ) : (
-          <span className="w-1.5 h-1.5 rounded-full bg-ok shrink-0" title="Current" />
+          <button
+            onClick={() => setConfirming(true)}
+            className="shrink-0 opacity-0 group-hover:opacity-100 text-fg-ghost hover:text-fg-muted transition-all p-0.5"
+            title="Delete note"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         )}
       </div>
-      <div className="flex items-center gap-1.5 mt-0.5">
-        <span className="text-[10px] text-fg-faint font-mono">{brief.snapshot_hash}</span>
-        {brief.focus && <span className="text-[10px] text-fg-muted">&middot; {brief.focus}</span>}
-      </div>
-    </button>
+    </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Add note input                                                      */
+/* ------------------------------------------------------------------ */
+
+function AddNote({
+  managerId,
+  onCreated,
+}: {
+  managerId: string;
+  onCreated: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const submit = useCallback(async () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      await api.createEntityNote("PropertyManager", managerId, trimmed);
+      setValue("");
+      onCreated();
+    } catch {
+      // silent — the note will just stay in the input
+    } finally {
+      setSaving(false);
+    }
+  }, [managerId, value, onCreated]);
+
+  return (
+    <div className="rounded-xl border border-border bg-surface p-3">
+      <textarea
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="Add a note about this manager..."
+        rows={2}
+        className="w-full bg-transparent text-sm text-fg placeholder:text-fg-ghost focus:outline-none resize-none"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+        }}
+      />
+      <div className="flex items-center justify-between mt-1.5">
+        <span className="text-[10px] text-fg-ghost">
+          {navigator.platform?.includes("Mac") ? "⌘" : "Ctrl"}+Enter to save
+        </span>
+        <button
+          onClick={submit}
+          disabled={saving || !value.trim()}
+          className="px-3 py-1 rounded-lg bg-surface-sunken border border-border text-xs font-medium text-fg-secondary hover:text-fg hover:border-fg-ghost transition-all disabled:opacity-30"
+        >
+          {saving ? "Saving..." : "Add Note"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Main component                                                      */
+/* ------------------------------------------------------------------ */
+
 export function ReviewPrepTab({ managerId }: { managerId: string }) {
-  const [listData, setListData] = useState<MeetingBriefListResponse | null>(null);
-  const [activeBrief, setActiveBrief] = useState<MeetingBriefResponse | null>(null);
+  const [briefList, setBriefList] = useState<MeetingBriefListResponse | null>(null);
+  const [notes, setNotes] = useState<EntityNoteResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState("");
 
-  const loadBriefs = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const data = await api.listMeetingBriefs(managerId);
-      setListData(data);
-      if (data.briefs.length > 0 && !activeBrief) {
-        setActiveBrief(data.briefs[0]);
-      }
+      const [bl, noteRes] = await Promise.all([
+        api.listMeetingBriefs(managerId),
+        api.listEntityNotes("PropertyManager", managerId),
+      ]);
+      setBriefList(bl);
+      setNotes(noteRes.notes);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load briefs");
+      setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
-  }, [managerId, activeBrief]);
+  }, [managerId]);
 
-  useEffect(() => { loadBriefs(); }, [loadBriefs]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const generate = useCallback(async () => {
     setGenerating(true);
     setError(null);
     try {
-      const result = await api.generateMeetingBrief(managerId, focus || undefined);
-      setActiveBrief(result);
-      const updated = await api.listMeetingBriefs(managerId);
-      setListData(updated);
+      await api.generateMeetingBrief(managerId, focus || undefined);
       setFocus("");
+      await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate meeting brief");
     } finally {
       setGenerating(false);
     }
-  }, [managerId, focus]);
+  }, [managerId, focus, loadData]);
 
-  const currentHash = listData?.current_snapshot_hash ?? null;
+  const handleDeleteNote = useCallback(async (noteId: string) => {
+    try {
+      await api.deleteEntityNote(noteId);
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    } catch {
+      // optimistic removal failed — reload
+      loadData();
+    }
+  }, [loadData]);
+
+  const currentHash = briefList?.current_snapshot_hash ?? null;
+  const briefs = briefList?.briefs ?? [];
+  const timeline = buildTimeline(briefs, notes);
 
   if (loading) {
     return (
@@ -338,89 +429,88 @@ export function ReviewPrepTab({ managerId }: { managerId: string }) {
     );
   }
 
-  const hasBriefs = listData && listData.briefs.length > 0;
-
   return (
-    <div className="space-y-6">
-      {/* Generate section */}
-      <div className="rounded-xl border border-border bg-surface p-5">
+    <div className="space-y-4 max-w-3xl">
+      {/* Generate brief */}
+      <div className="rounded-xl border border-border bg-surface p-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-            <svg className="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+          <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-fg">
-              {hasBriefs ? "Generate New Brief" : "Meeting Brief"}
-            </h3>
-            <p className="text-xs text-fg-muted mt-0.5">
-              AI analysis of this manager&apos;s portfolio — talking points, questions, and action items.
-            </p>
+            <h3 className="text-sm font-semibold text-fg">Generate Meeting Brief</h3>
+            <p className="text-[11px] text-fg-muted">AI-powered portfolio analysis with talking points and action items.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex items-center gap-2 mt-2.5">
           <input
             type="text"
             value={focus}
             onChange={(e) => setFocus(e.target.value)}
-            placeholder="Optional: focus area (e.g. delinquency, vacancies)"
-            className="flex-1 bg-surface-sunken border border-border rounded-xl px-3 py-2 text-sm text-fg placeholder:text-fg-ghost focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+            placeholder="Optional focus (e.g. delinquency, vacancies)"
+            className="flex-1 bg-surface-sunken border border-border rounded-lg px-3 py-1.5 text-sm text-fg placeholder:text-fg-ghost focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
             onKeyDown={(e) => e.key === "Enter" && generate()}
           />
           <button
             onClick={generate}
             disabled={generating}
-            className="shrink-0 px-4 py-2 rounded-xl bg-accent text-accent-fg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-40"
+            className="shrink-0 px-3.5 py-1.5 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:bg-accent-hover transition-colors disabled:opacity-40"
           >
             {generating ? "Generating..." : "Generate"}
           </button>
         </div>
-        {error && <p className="text-sm text-error mt-2">{error}</p>}
+        {error && <p className="text-xs text-error mt-2">{error}</p>}
         {generating && (
-          <div className="flex items-center gap-3 mt-3">
-            <div className="relative w-5 h-5">
+          <div className="flex items-center gap-2.5 mt-2.5">
+            <div className="relative w-4 h-4">
               <div className="absolute inset-0 rounded-full border-2 border-accent/20" />
               <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-accent animate-spin" />
             </div>
-            <span className="text-xs text-fg-muted">Analyzing portfolio... this takes 15–30 seconds</span>
+            <span className="text-[11px] text-fg-muted">Analyzing portfolio... 15–30 seconds</span>
           </div>
         )}
       </div>
 
-      {/* Past briefs + active brief */}
-      {hasBriefs && (
-        <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4">
-          {/* Sidebar: past briefs */}
-          <div className="rounded-xl border border-border bg-surface overflow-hidden">
-            <div className="px-3.5 py-2.5 border-b border-border-subtle">
-              <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide">
-                Past Briefs <span className="text-fg-faint font-normal">&middot; {listData!.total}</span>
-              </h3>
-            </div>
-            <div className="max-h-[500px] overflow-y-auto">
-              {listData!.briefs.map((b) => (
-                <PastBriefRow
-                  key={b.id}
-                  brief={b}
-                  currentHash={currentHash}
-                  isActive={activeBrief?.id === b.id}
-                  onClick={() => setActiveBrief(b)}
-                />
-              ))}
-            </div>
-          </div>
+      {/* Add note */}
+      <AddNote managerId={managerId} onCreated={loadData} />
 
-          {/* Main: active brief */}
-          {activeBrief && (
-            <BriefView
-              brief={activeBrief}
-              currentHash={currentHash}
-              onRegenerate={generate}
-              generating={generating}
-            />
-          )}
+      {/* Timeline */}
+      {timeline.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-[10px] font-semibold text-fg-muted uppercase tracking-wide">
+            Timeline
+            <span className="font-normal text-fg-faint ml-1">
+              &middot; {briefs.length} brief{briefs.length !== 1 ? "s" : ""}, {notes.length} note{notes.length !== 1 ? "s" : ""}
+            </span>
+          </h3>
+
+          {timeline.map((entry) => {
+            const dateLabel = entry.ts ? fmtDateShort(entry.ts) : "";
+            const timeLabel = entry.ts ? fmtTimestamp(entry.ts) : "";
+
+            return (
+              <div key={entry.kind === "brief" ? entry.data.id : entry.data.id}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[10px] text-fg-faint font-mono">{dateLabel}</span>
+                  <span className="text-[10px] text-fg-ghost">{timeLabel}</span>
+                </div>
+                {entry.kind === "brief" ? (
+                  <BriefCard brief={entry.data} currentHash={currentHash} />
+                ) : (
+                  <NoteCard note={entry.data} onDelete={handleDeleteNote} />
+                )}
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {timeline.length === 0 && (
+        <p className="text-sm text-fg-faint text-center py-8">
+          No briefs or notes yet. Generate a meeting brief or add a note to get started.
+        </p>
       )}
     </div>
   );

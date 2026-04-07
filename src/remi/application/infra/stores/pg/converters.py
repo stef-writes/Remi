@@ -12,6 +12,7 @@ from remi.application.core.models import (
     ActionItem,
     ActionItemStatus,
     Address,
+    AssetClass,
     BalanceObservation,
     DateRange,
     Document,
@@ -25,6 +26,7 @@ from remi.application.core.models import (
     Note,
     NoteProvenance,
     Owner,
+    OwnerType,
     Platform,
     Priority,
     Property,
@@ -108,8 +110,15 @@ def property_from_row(row: PropertyRow) -> Property:
             if row.property_type == "residential"
             else PropertyType(row.property_type)
         ),
+        asset_class=_coerce_enum(AssetClass, row.asset_class, None) if row.asset_class else None,
         year_built=row.year_built,
         owner_id=row.owner_id,
+        unit_count=row.unit_count,
+        neighborhood=row.neighborhood,
+        year_renovated=row.year_renovated,
+        acquisition_date=row.acquisition_date,
+        management_start_date=row.management_start_date,
+        content_hash=row.content_hash,
         source_document_id=row.source_document_id,
         created_at=row.created_at,
     )
@@ -121,13 +130,20 @@ def property_to_row(p: Property) -> PropertyRow:
         manager_id=p.manager_id,
         name=p.name,
         property_type=p.property_type.value,
+        asset_class=p.asset_class.value if p.asset_class else None,
         year_built=p.year_built,
         owner_id=p.owner_id,
+        unit_count=p.unit_count,
+        neighborhood=p.neighborhood,
+        year_renovated=p.year_renovated,
+        acquisition_date=p.acquisition_date,
+        management_start_date=p.management_start_date,
         address_street=p.address.street,
         address_city=p.address.city,
         address_state=p.address.state,
         address_zip_code=p.address.zip_code,
         address_country=p.address.country,
+        content_hash=p.content_hash,
         source_document_id=p.source_document_id,
         created_at=p.created_at,
     )
@@ -343,6 +359,7 @@ def document_from_row(row: AppDocumentRow) -> Document:
         property_id=row.property_id,
         lease_id=row.lease_id,
         manager_id=row.manager_id,
+        report_manager=row.report_manager,
         source_document_id=row.source_document_id,
         uploaded_at=row.uploaded_at,
     )
@@ -372,6 +389,7 @@ def document_to_row(doc: Document) -> AppDocumentRow:
         property_id=doc.property_id,
         lease_id=doc.lease_id,
         manager_id=doc.manager_id,
+        report_manager=doc.report_manager,
         source_document_id=doc.source_document_id,
         uploaded_at=doc.uploaded_at,
     )
@@ -446,12 +464,24 @@ def note_to_row(note: Note) -> NoteRow:
 
 
 def owner_from_row(row: OwnerRow) -> Owner:
+    addr: Address | None = None
+    if row.address_street:
+        addr = Address(
+            street=row.address_street or "",
+            city=row.address_city or "",
+            state=row.address_state or "",
+            zip_code=row.address_zip_code or "",
+            country=row.address_country or "US",
+        )
     return Owner(
         id=row.id,
         name=row.name,
-        entity_type_label=row.entity_type_label,
+        owner_type=_coerce_enum(OwnerType, row.owner_type, OwnerType.OTHER),
+        company=row.company,
         email=row.email,
         phone=row.phone,
+        address=addr,
+        content_hash=row.content_hash,
         source_document_id=row.source_document_id,
         created_at=row.created_at,
     )
@@ -461,9 +491,16 @@ def owner_to_row(o: Owner) -> OwnerRow:
     return OwnerRow(
         id=o.id,
         name=o.name,
-        entity_type_label=o.entity_type_label,
+        owner_type=o.owner_type.value,
+        company=o.company,
         email=o.email,
         phone=o.phone,
+        address_street=o.address.street if o.address else None,
+        address_city=o.address.city if o.address else None,
+        address_state=o.address.state if o.address else None,
+        address_zip_code=o.address.zip_code if o.address else None,
+        address_country=o.address.country if o.address else None,
+        content_hash=o.content_hash,
         source_document_id=o.source_document_id,
         created_at=o.created_at,
     )
@@ -519,7 +556,10 @@ def apply_merge(existing_row: _T, incoming_dto: BaseModel) -> _T:
             updates["address_country"] = value.country
             continue
 
-        if field_name in ("status", "property_type", "category", "priority", "unit_type"):
+        if field_name in (
+            "status", "property_type", "category", "priority",
+            "unit_type", "owner_type", "asset_class",
+        ):
             value = value.value if value is not None else None
 
         updates[field_name] = value

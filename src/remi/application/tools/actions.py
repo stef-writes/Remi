@@ -2,8 +2,8 @@
 
 Provides: action_create, action_update, action_list, note_create.
 
-Action items live in PropertyStore (SQL-backed, mutable workflow objects).
-Notes live in KnowledgeGraph (graph-backed, provenance-tracked).
+Action items and notes both live in PropertyStore (SQL-backed).
+The ProjectingPropertyStore syncs notes to the KnowledgeGraph automatically.
 """
 
 from __future__ import annotations
@@ -12,11 +12,12 @@ import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
-from remi.agent.graph import KnowledgeGraph
 from remi.agent.types import ToolArg, ToolDefinition, ToolProvider, ToolRegistry
 from remi.application.core.models import (
     ActionItem,
     ActionItemStatus,
+    Note,
+    NoteProvenance,
     Priority,
 )
 from remi.application.core.protocols import PropertyStore
@@ -26,10 +27,9 @@ class ActionToolProvider(ToolProvider):
     def __init__(
         self,
         property_store: PropertyStore,
-        knowledge_graph: KnowledgeGraph | None = None,
+        **_kwargs: Any,
     ) -> None:
         self._property_store = property_store
-        self._knowledge_graph = knowledge_graph
 
     def register(self, registry: ToolRegistry) -> None:
         ps = self._property_store
@@ -177,47 +177,44 @@ class ActionToolProvider(ToolProvider):
             ),
         )
 
-        # -- Notes (KnowledgeGraph-backed) -----------------------------------------
+        # -- Notes (PropertyStore-backed, projected to KG automatically) -----------
 
-        if self._knowledge_graph is not None:
-            kg = self._knowledge_graph
-
-            async def note_create(args: dict[str, Any]) -> Any:
-                note_id = f"note:{uuid.uuid4().hex[:12]}"
-                now = datetime.now(UTC).isoformat()
-                props = {
-                    "content": args["content"],
-                    "entity_type": args.get("entity_type", ""),
-                    "entity_id": args.get("entity_id", ""),
-                    "provenance": "user_stated",
-                    "created_at": now,
-                    "updated_at": now,
-                }
-                await kg.put_object("Note", note_id, props)
-                if entity_id := args.get("entity_id"):
-                    await kg.put_link(entity_id, "HAS_NOTE", note_id)
-                return {"id": note_id, "content": props["content"], "created": True}
-
-            registry.register(
-                "note_create",
-                note_create,
-                ToolDefinition(
-                    name="note_create",
-                    description=(
-                        "Create a note attached to a manager, property, tenant, or other "
-                        "entity. Use when the director says to make a note about something "
-                        "or when you want to record context for future reference."
-                    ),
-                    args=[
-                        ToolArg(name="content", description="Note text", required=True),
-                        ToolArg(
-                            name="entity_type",
-                            description="Type of entity (e.g. PropertyManager, Tenant, Property)",
-                        ),
-                        ToolArg(
-                            name="entity_id",
-                            description="ID of the entity this note is about",
-                        ),
-                    ],
-                ),
+        async def note_create(args: dict[str, Any]) -> Any:
+            note_id = f"note:{uuid.uuid4().hex[:12]}"
+            now = datetime.now(UTC)
+            note = Note(
+                id=note_id,
+                content=args["content"],
+                entity_type=args.get("entity_type", ""),
+                entity_id=args.get("entity_id", ""),
+                provenance=NoteProvenance.USER_STATED,
+                created_by="agent",
+                created_at=now,
+                updated_at=now,
             )
+            await ps.upsert_note(note)
+            return {"id": note.id, "content": note.content, "created": True}
+
+        registry.register(
+            "note_create",
+            note_create,
+            ToolDefinition(
+                name="note_create",
+                description=(
+                    "Create a note attached to a manager, property, tenant, or other "
+                    "entity. Use when the director says to make a note about something "
+                    "or when you want to record context for future reference."
+                ),
+                args=[
+                    ToolArg(name="content", description="Note text", required=True),
+                    ToolArg(
+                        name="entity_type",
+                        description="Type of entity (e.g. PropertyManager, Tenant, Property)",
+                    ),
+                    ToolArg(
+                        name="entity_id",
+                        description="ID of the entity this note is about",
+                    ),
+                ],
+            ),
+        )

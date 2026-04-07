@@ -227,7 +227,7 @@ class Container:
                 document_ingest=self.document_ingest,
                 vector_search=vector_search,
             ),
-            ActionToolProvider(self.property_store, knowledge_graph=self.knowledge_graph),
+            ActionToolProvider(self.property_store),
             SearchToolProvider(self.search_service),
         ]
         for provider in phase1_providers:

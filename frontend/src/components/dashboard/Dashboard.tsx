@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { fmt$, pct } from "@/lib/format";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -173,6 +173,74 @@ function PropertyRow({ p }: { p: PropertyOverview }) {
   );
 }
 
+function AssignDropdown({
+  propertyId,
+  managers,
+  onAssigned,
+}: {
+  propertyId: string;
+  managers: ManagerOverview[];
+  onAssigned: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  async function handleSelect(managerId: string) {
+    setSaving(true);
+    try {
+      await api.assignProperties(managerId, [propertyId]);
+      onAssigned();
+    } finally {
+      setSaving(false);
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(!open); }}
+        disabled={saving}
+        className="h-7 px-2.5 rounded-lg border border-dashed border-violet-500/30 bg-violet-500/5 text-[10px] font-medium text-violet-400 hover:bg-violet-500/10 hover:border-violet-500/50 transition-all flex items-center gap-1"
+      >
+        {saving ? "..." : "Assign"}
+        <svg className="w-2.5 h-2.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-52 rounded-xl border border-border bg-surface shadow-xl shadow-black/20 overflow-hidden anim-scale-in">
+          <div className="px-3 py-2 border-b border-border-subtle">
+            <p className="text-[10px] font-semibold text-fg-muted uppercase tracking-widest">Assign to</p>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {managers.length === 0 ? (
+              <div className="px-3 py-3 text-center text-[10px] text-fg-faint">No managers yet</div>
+            ) : (
+              managers.map((m) => (
+                <button
+                  key={m.manager_id}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSelect(m.manager_id); }}
+                  className="w-full text-left px-3 py-2 text-xs text-fg hover:bg-surface-sunken transition-colors truncate"
+                >
+                  {m.manager_name}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function openCommandMenu() {
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
 }
@@ -224,7 +292,7 @@ export function Dashboard() {
   if (totalOpenMaint > 0)
     alerts.push({ href: "/properties", count: totalOpenMaint, label: "Open maintenance", color: "sky" });
   if (needsMgr && needsMgr.total > 0)
-    alerts.push({ href: "/documents", count: needsMgr.total, label: "Need manager", sub: "Upload with PM to assign", color: "violet" });
+    alerts.push({ href: "#unassigned", count: needsMgr.total, label: "Need manager", sub: "Assign below", color: "violet" });
 
   if (loading) {
     return (
@@ -540,7 +608,20 @@ export function Dashboard() {
           </div>
           <div className="divide-y divide-border-subtle">
             {unassignedProps.slice(0, 20).map((p) => (
-              <PropertyRow key={p.property_id} p={p} />
+              <div key={p.property_id} className="grid grid-cols-[1fr_60px_70px_90px_80px_auto] items-center gap-2 px-4 py-2.5 hover:bg-surface-sunken transition-colors group">
+                <Link href={`/properties/${p.property_id}`} className="min-w-0">
+                  <p className="text-xs font-medium text-fg truncate group-hover:text-accent transition-colors">{p.property_name}</p>
+                </Link>
+                <span className="text-[11px] font-mono text-fg text-right">{p.total_units} u</span>
+                <span className={`text-[11px] font-mono text-right font-semibold ${p.occupancy_rate >= 0.95 ? "text-ok" : p.occupancy_rate >= 0.9 ? "text-warn" : "text-error"}`}>{pct(p.occupancy_rate)}</span>
+                <span className="text-[11px] font-mono text-fg text-right">{fmt$(p.monthly_rent)}</span>
+                <span className={`text-[11px] font-mono text-right ${p.loss_to_lease > 0 ? "text-warn" : "text-fg-faint"}`}>{p.loss_to_lease > 0 ? fmt$(p.loss_to_lease) : "—"}</span>
+                <AssignDropdown
+                  propertyId={p.property_id}
+                  managers={activeMgrs}
+                  onAssigned={refetch}
+                />
+              </div>
             ))}
             {unassignedProps.length > 20 && (
               <div className="px-4 py-3 text-center">

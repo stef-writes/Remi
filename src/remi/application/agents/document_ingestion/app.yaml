@@ -86,7 +86,9 @@ steps:
            - Delinquency / balance / aging reports → "BalanceObservation"
            - Lease expiration reports → "Lease"
            - Work orders / maintenance → "MaintenanceRequest"
-           - Property directory → "Property"
+           - Property directory (lists properties with their site managers) → "PropertyManager"
+           - Owner directory → "Owner"
+           - Vendor directory → "Vendor"
          For a truly novel report type with no close match, pick the closest
          entity and set observations_likely to true.
 
@@ -98,8 +100,16 @@ steps:
            - Property/address columns → "property_address"
            - Unit/apt identifier → "unit_number"
            - Person name → "tenant_name" or "name" depending on entity type
+           - Site manager / property manager name in directories → "name"
            - Combined "Beds/Baths" or "BD/BA" → "_bd_ba" (auto-split by Python)
            - Columns with no ontology match → prefix with "_" (stored as extra_fields)
+
+         For property directory reports (primary_entity_type: "PropertyManager"):
+           - Map the property/address column → "property_address"
+           - Map the manager/site manager column → "name"
+           - Map units/unit count → "_unit_count"
+           These rows carry BOTH a manager identity AND a property address,
+           so the system creates both entities and links them.
 
       10. section_header_column: the raw column name whose value encodes section
           context (property address or occupancy status label) in hierarchical

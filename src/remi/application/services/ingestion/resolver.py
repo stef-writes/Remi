@@ -169,48 +169,97 @@ def to_int(val: object) -> int | None:
 # Address / property name helpers
 # ---------------------------------------------------------------------------
 
+_STREET_SUFFIXES = frozenset({
+    "st", "ave", "avenue", "blvd", "boulevard", "ct", "court", "dr", "drive",
+    "ln", "lane", "pl", "place", "rd", "road", "sq", "street", "ter",
+    "terrace", "way", "cir", "circle", "pkwy", "parkway", "hwy", "highway",
+    "run", "alley", "aly",
+})
+
+# Two-comma: "123 Main St, Pittsburgh, PA 15203"
 _CITY_STATE_ZIP_RE = re.compile(r",\s*([A-Za-z\s]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$")
 
+# Trailing ", ST ZIP" (single-comma / AppFolio): "123 Main St Pittsburgh, PA 15203"
+_STATE_ZIP_RE = re.compile(r",\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$")
+
 _TRAILING_STATE_RE = re.compile(r",\s*([A-Z]{2})\s*$")
+
+
+def _split_address(raw: str) -> tuple[str, str, str, str]:
+    """Split a raw address into (street, city, state, zip).
+
+    Handles both standard and AppFolio formats:
+      "123 Main St, Pittsburgh, PA 15203"   → two-comma
+      "123 Main St Pittsburgh, PA 15203"    → single-comma (AppFolio)
+      "100 Smithfield St - 100 Smithfield St Pittsburgh, PA 15222" → AppFolio with dash
+    """
+    addr = raw.strip()
+    if not addr:
+        return ("", "", "", "")
+
+    # Two-comma format: "Street, City, ST ZIP"
+    m = _CITY_STATE_ZIP_RE.search(addr)
+    if m:
+        street = addr[: m.start()].strip().rstrip(",")
+        return (street, m.group(1).strip(), m.group(2), m.group(3))
+
+    # Single-comma format: "Street City, ST ZIP"
+    # Common in AppFolio: "100 Smithfield St Pittsburgh, PA 15222"
+    # Zip is captured above. City is the last word(s) before the comma.
+    # We can't reliably distinguish "St" (street) from a city name using
+    # casing alone, so we use a simple heuristic: scan backwards from the
+    # comma collecting words that are NOT common street suffixes.
+    m = _STATE_ZIP_RE.search(addr)
+    if m:
+        before_comma = addr[: m.start()].strip()
+        state = m.group(1)
+        zipcode = m.group(2)
+        tokens = before_comma.split()
+        city_parts: list[str] = []
+        for tok in reversed(tokens):
+            low = tok.lower().rstrip(".")
+            if low in _STREET_SUFFIXES or not tok[0].isupper():
+                break
+            city_parts.insert(0, tok)
+        if city_parts:
+            city = " ".join(city_parts)
+            street = before_comma[: before_comma.rfind(city_parts[0])].strip()
+        else:
+            city = ""
+            street = before_comma
+        return (street, city, state, zipcode)
+
+    # Trailing state only: "123 Main St, PA"
+    m = _TRAILING_STATE_RE.search(addr)
+    if m:
+        street = addr[: m.start()].strip().rstrip(",")
+        return (street, "", m.group(1), "")
+
+    return (addr, "", "", "")
 
 
 def property_name(address: str) -> str:
     """Extract the canonical short name from a full address.
 
-    Strips city/state/zip suffix: "123 Main St, Pittsburgh, PA 15203" -> "123 Main St"
+    Strips city/state/zip suffix:
+      "123 Main St, Pittsburgh, PA 15203" -> "123 Main St"
+      "123 Main St Pittsburgh, PA 15203"  -> "123 Main St"
     """
-    addr = address.strip()
-    if not addr:
-        return ""
-    m = _CITY_STATE_ZIP_RE.search(addr)
-    if m:
-        return addr[: m.start()].strip().rstrip(",")
-    m = _TRAILING_STATE_RE.search(addr)
-    if m:
-        return addr[: m.start()].strip().rstrip(",")
-    return addr
+    street, city, state, zipcode = _split_address(address)
+    return street if street else address.strip()
 
 
 def parse_address(raw: str) -> Address:
     """Split a raw address string into an Address model.
 
-    Handles "123 Main St, Pittsburgh, PA 15203" and partial addresses
-    where city/state/zip may be missing.
+    Handles both standard and AppFolio address formats:
+      "123 Main St, Pittsburgh, PA 15203"  (two commas)
+      "123 Main St Pittsburgh, PA 15203"   (single comma)
     """
-    raw = raw.strip()
-    m = _CITY_STATE_ZIP_RE.search(raw)
-    if m:
-        street = raw[: m.start()].strip().rstrip(",")
-        return Address(
-            street=street,
-            city=m.group(1).strip(),
-            state=m.group(2),
-            zip_code=m.group(3),
-        )
-    parts = [p.strip() for p in raw.split(",")]
+    street, city, state, zipcode = _split_address(raw)
     return Address(
-        street=parts[0] if parts else raw,
-        city=parts[1] if len(parts) > 1 else "",
-        state=parts[2].split()[0] if len(parts) > 2 else "",
-        zip_code=(parts[2].split()[1] if len(parts) > 2 and len(parts[2].split()) > 1 else ""),
+        street=street or raw.strip(),
+        city=city,
+        state=state,
+        zip_code=zipcode,
     )

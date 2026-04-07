@@ -242,6 +242,9 @@ export function DocumentsView() {
             processing={upload.processing}
             onFiles={upload.addFiles}
             onClear={upload.clear}
+            managers={managers}
+            selectedManagerId={selectedManager}
+            onManagerChange={setSelectedManager}
           />
         )}
 

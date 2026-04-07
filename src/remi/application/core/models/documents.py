@@ -54,6 +54,11 @@ class Document(BaseModel, frozen=True):
     scope: ReportScope = ReportScope.UNKNOWN
     import_status: ImportStatus = ImportStatus.COMPLETE
 
+    # The manager name extracted from the report title/metadata by the LLM.
+    # Purely informational — NOT used for property assignment.
+    # e.g. "Alex Budavich" from "Alex - Delinquency Report"
+    report_manager: str | None = None
+
     # When the report was exported / run by the PM software.
     effective_date: date | None = None
 

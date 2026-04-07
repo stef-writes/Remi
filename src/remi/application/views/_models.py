@@ -15,6 +15,9 @@ class PropertyListItem(BaseModel):
     year_built: int | None
     total_units: int
     occupied: int
+    manager_id: str | None = None
+    owner_id: str | None = None
+    owner_name: str | None = None
 
 
 class PropertyDetailUnit(BaseModel):
@@ -39,6 +42,8 @@ class PropertyDetail(BaseModel):
     year_built: int | None
     manager_id: str | None = None
     manager_name: str | None = None
+    owner_id: str | None = None
+    owner_name: str | None = None
     total_units: int
     occupied: int
     vacant: int
@@ -353,6 +358,81 @@ class VacancyTracker(BaseModel):
     total_market_rent_at_risk: float
     avg_days_vacant: float | None
     units: list[VacantUnit]
+
+
+# -- Trend models ------------------------------------------------------------
+
+
+class TrendPeriod(BaseModel, frozen=True):
+    """A single data point in a time-series trend."""
+
+    period: str
+    total_balance: float
+    tenant_count: int
+    avg_balance: float
+    max_balance: float
+
+
+class DelinquencyTrend(BaseModel, frozen=True):
+    """Delinquency totals over time, grouped by month."""
+
+    manager_id: str | None
+    periods: list[TrendPeriod]
+    period_count: int
+    direction: str  # "improving" | "worsening" | "stable" | "insufficient_data"
+
+
+class OccupancyTrendPeriod(BaseModel, frozen=True):
+    period: str
+    total_units: int
+    occupied: int
+    vacant: int
+    occupancy_rate: float
+
+
+class OccupancyTrend(BaseModel, frozen=True):
+    manager_id: str | None
+    property_id: str | None
+    periods: list[OccupancyTrendPeriod]
+    period_count: int
+    direction: str
+
+
+class RentTrendPeriod(BaseModel, frozen=True):
+    period: str
+    avg_rent: float
+    median_rent: float
+    total_rent: float
+    unit_count: int
+
+
+class RentTrend(BaseModel, frozen=True):
+    manager_id: str | None
+    property_id: str | None
+    periods: list[RentTrendPeriod]
+    period_count: int
+    direction: str
+
+
+class MaintenanceTrendPeriod(BaseModel, frozen=True):
+    """One month of maintenance activity."""
+
+    period: str
+    opened: int
+    completed: int
+    net_open: int
+    total_cost: float
+    avg_resolution_days: float | None
+    by_category: dict[str, int] = {}
+
+
+class MaintenanceTrend(BaseModel, frozen=True):
+    manager_id: str | None
+    property_id: str | None
+    unit_id: str | None
+    periods: list[MaintenanceTrendPeriod]
+    period_count: int
+    direction: str  # "improving" | "worsening" | "stable" | "insufficient_data"
 
 
 # -- Tenant models -----------------------------------------------------------

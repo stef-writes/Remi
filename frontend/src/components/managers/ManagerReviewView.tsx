@@ -9,6 +9,7 @@ import { fmt$, fmtDate, pct } from "@/lib/format";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { MaintenanceTab } from "./MaintenanceTab";
 import { ReviewPrepTab } from "./ReviewPrepTab";
+import { TrendsTab } from "./TrendsTab";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { MetricStrip } from "@/components/ui/MetricStrip";
 import { PageContainer } from "@/components/ui/PageContainer";
@@ -22,10 +23,11 @@ import type {
   VacancyTracker,
 } from "@/lib/types";
 
-type Tab = "overview" | "delinquency" | "leases" | "vacancies" | "maintenance" | "review";
+type Tab = "overview" | "trends" | "delinquency" | "leases" | "vacancies" | "maintenance" | "review";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
+  { key: "trends", label: "Trends" },
   { key: "delinquency", label: "Delinquency" },
   { key: "leases", label: "Leases" },
   { key: "vacancies", label: "Vacancies" },
@@ -544,6 +546,7 @@ export function ManagerReviewView({ managerId }: { managerId: string }) {
 
         {/* Tab content */}
         {tab === "overview" && <OverviewTab review={review} />}
+        {tab === "trends" && <TrendsTab managerId={managerId} />}
         {tab === "delinquency" && <DelinquencyTab data={delinquency} />}
         {tab === "leases" && <LeasesTab data={leases} />}
         {tab === "vacancies" && <VacanciesTab data={vacancies} />}

@@ -9,6 +9,7 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { MetricStrip } from "@/components/ui/MetricStrip";
 import { PageContainer } from "@/components/ui/PageContainer";
 import { Badge } from "@/components/ui/Badge";
+import { SparklineChart } from "@/components/ui/SparklineChart";
 import { EntityFormPanel, type FieldDef } from "@/components/ui/EntityFormPanel";
 import type {
   PropertyDetail,
@@ -229,38 +230,80 @@ function LeaseHistoryTab({ unitId, propertyId }: { unitId: string; propertyId: s
 
 function UnitMaintenanceTab({ unitId }: { unitId: string }) {
   const { data, loading } = useApiQuery(() => api.listMaintenance({ unit_id: unitId }), [unitId]);
+  const { data: trend } = useApiQuery(() => api.maintenanceTrend({ unit_id: unitId }), [unitId]);
   if (loading) return <div className="py-12 text-center text-sm text-fg-faint animate-pulse">Loading maintenance...</div>;
 
   const unitRequests = data?.requests ?? [];
-  if (unitRequests.length === 0) return <div className="py-12 text-center text-sm text-fg-faint">No maintenance requests for this unit</div>;
+  if (unitRequests.length === 0 && (!trend || trend.periods.length === 0)) {
+    return <div className="py-12 text-center text-sm text-fg-faint">No maintenance requests for this unit</div>;
+  }
 
   const open = unitRequests.filter((r) => r.status === "open" || r.status === "in_progress");
   const closed = unitRequests.filter((r) => r.status !== "open" && r.status !== "in_progress");
 
+  const trendPeriods = trend?.periods ?? [];
+  const latestCost = trendPeriods.length > 0 ? trendPeriods[trendPeriods.length - 1].total_cost : 0;
+  const latestRes = trendPeriods.length > 0 ? trendPeriods[trendPeriods.length - 1].avg_resolution_days : null;
+
   return (
-    <section className="rounded-2xl border border-border bg-surface overflow-hidden anim-fade-up">
-      <div className="px-5 py-3.5 border-b border-border-subtle">
-        <h2 className="text-xs font-semibold text-fg-secondary uppercase tracking-wide">Maintenance <span className="text-fg-faint font-normal">· {unitRequests.length} total · {open.length} open</span></h2>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-border">{["Title", "Category", "Priority", "Status", "Cost", "Created", "Resolved"].map((h) => <th key={h} className="text-left px-4 py-2.5 text-[11px] font-semibold text-fg-muted uppercase tracking-wide">{h}</th>)}</tr></thead>
-          <tbody>
-            {[...open, ...closed].map((mr) => (
-              <tr key={mr.id} className="border-b border-border-subtle hover:bg-surface-raised transition-colors">
-                <td className="px-4 py-2.5 text-sm text-fg">{mr.title}</td>
-                <td className="px-4 py-2.5 text-sm text-fg-muted">{mr.category}</td>
-                <td className="px-4 py-2.5"><Badge variant={mr.priority === "emergency" ? "red" : mr.priority === "high" ? "amber" : "default"}>{mr.priority}</Badge></td>
-                <td className="px-4 py-2.5"><Badge variant={mr.status === "open" ? "amber" : mr.status === "completed" ? "emerald" : "default"}>{mr.status}</Badge></td>
-                <td className="px-4 py-2.5 font-mono text-sm text-fg-muted">{mr.cost != null ? fmt$(mr.cost) : "—"}</td>
-                <td className="px-4 py-2.5 text-sm text-fg-muted">{fmtDate(mr.created)}</td>
-                <td className="px-4 py-2.5 text-sm text-fg-muted">{mr.resolved ? fmtDate(mr.resolved) : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <div className="space-y-4 anim-fade-up">
+      {trendPeriods.length >= 2 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <SparklineChart
+            data={trendPeriods}
+            dataKey="opened"
+            color="var(--color-warn)"
+            label="Opened / Month"
+            value={String(trendPeriods[trendPeriods.length - 1]?.opened ?? 0)}
+            invertTrend
+          />
+          <SparklineChart
+            data={trendPeriods}
+            dataKey="total_cost"
+            color="var(--color-error)"
+            label="Cost / Month"
+            value={fmt$(latestCost)}
+            valueFormatter={(v) => fmt$(v)}
+            invertTrend
+          />
+          <SparklineChart
+            data={trendPeriods}
+            dataKey="avg_resolution_days"
+            color="var(--color-accent)"
+            label="Avg Resolution (days)"
+            value={latestRes != null ? `${latestRes}d` : "—"}
+            valueFormatter={(v) => `${v.toFixed(1)}d`}
+            invertTrend
+          />
+        </div>
+      )}
+
+      <section className="rounded-2xl border border-border bg-surface overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-border-subtle">
+          <h2 className="text-xs font-semibold text-fg-secondary uppercase tracking-wide">Maintenance <span className="text-fg-faint font-normal">· {unitRequests.length} total · {open.length} open</span></h2>
+        </div>
+        {unitRequests.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border">{["Title", "Category", "Priority", "Status", "Cost", "Created", "Resolved"].map((h) => <th key={h} className="text-left px-4 py-2.5 text-[11px] font-semibold text-fg-muted uppercase tracking-wide">{h}</th>)}</tr></thead>
+              <tbody>
+                {[...open, ...closed].map((mr) => (
+                  <tr key={mr.id} className="border-b border-border-subtle hover:bg-surface-raised transition-colors">
+                    <td className="px-4 py-2.5 text-sm text-fg">{mr.title}</td>
+                    <td className="px-4 py-2.5 text-sm text-fg-muted">{mr.category}</td>
+                    <td className="px-4 py-2.5"><Badge variant={mr.priority === "emergency" ? "red" : mr.priority === "high" ? "amber" : "default"}>{mr.priority}</Badge></td>
+                    <td className="px-4 py-2.5"><Badge variant={mr.status === "open" ? "amber" : mr.status === "completed" ? "emerald" : "default"}>{mr.status}</Badge></td>
+                    <td className="px-4 py-2.5 font-mono text-sm text-fg-muted">{mr.cost != null ? fmt$(mr.cost) : "—"}</td>
+                    <td className="px-4 py-2.5 text-sm text-fg-muted">{fmtDate(mr.created)}</td>
+                    <td className="px-4 py-2.5 text-sm text-fg-muted">{mr.resolved ? fmtDate(mr.resolved) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <div className="py-12 text-center text-sm text-fg-faint">No maintenance requests</div>}
+      </section>
+    </div>
   );
 }
 

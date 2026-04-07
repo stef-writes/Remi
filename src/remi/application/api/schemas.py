@@ -120,6 +120,7 @@ class UnitListResponse(BaseModel):
 class CreatePropertyRequest(BaseModel):
     name: str
     manager_id: str | None = None
+    owner_id: str | None = None
     street: str
     city: str
     state: str
@@ -140,6 +141,7 @@ class UpdatePropertyRequest(BaseModel):
     state: str | None = None
     zip_code: str | None = None
     manager_id: str | None = None
+    owner_id: str | None = None
 
 
 # -- Unit schemas -----------------------------------------------------------

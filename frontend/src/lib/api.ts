@@ -3,22 +3,25 @@ import type {
   ChangeSetSummary,
   CorrectRowResponse,
   DashboardOverview,
+  DelinquencyTrend,
   EntityNoteResponse,
   ModelsConfig,
   ManagerListItem,
-  ManagerNoteResponse,
   ManagerReview,
   MeetingBriefResponse,
   MeetingBriefListResponse,
   DelinquencyBoard,
   LeaseCalendar,
   LeaseListResponse,
+  OccupancyTrend,
+  RentTrend,
   VacancyTracker,
   NeedsManagerResponse,
   PropertyDetail,
   RentRollResponse,
   MaintenanceListResponse,
   MaintenanceSummary,
+  MaintenanceTrend,
   DocumentMeta,
   SearchResponse,
   SignalSummary,
@@ -63,10 +66,24 @@ export const api = {
   needsManager: () =>
     get<NeedsManagerResponse>("/api/v1/dashboard/needs-manager"),
 
+  // --- Trends ---
+
+  delinquencyTrend: (scope?: { manager_id?: string; property_id?: string; periods?: number }) =>
+    get<DelinquencyTrend>(`/api/v1/dashboard/trends/delinquency${qs(scope || {})}`),
+
+  occupancyTrend: (scope?: { manager_id?: string; property_id?: string; periods?: number }) =>
+    get<OccupancyTrend>(`/api/v1/dashboard/trends/occupancy${qs(scope || {})}`),
+
+  rentTrend: (scope?: { manager_id?: string; property_id?: string; periods?: number }) =>
+    get<RentTrend>(`/api/v1/dashboard/trends/rent${qs(scope || {})}`),
+
+  maintenanceTrend: (scope?: { manager_id?: string; property_id?: string; unit_id?: string; periods?: number }) =>
+    get<MaintenanceTrend>(`/api/v1/dashboard/trends/maintenance${qs(scope || {})}`),
+
   // --- Owners ---
 
   listOwners: () =>
-    get<{ id: string; name: string; email: string; property_count: number }[]>("/api/v1/owners"),
+    get<{ id: string; name: string; owner_type: string; company: string | null; email: string; phone: string | null; property_count: number }[]>("/api/v1/owners"),
 
   // --- Search ---
 
@@ -97,10 +114,23 @@ export const api = {
 
   // --- Properties ---
 
+  listProperties: (params?: { manager_id?: string; owner_id?: string }) =>
+    get<{ properties: PropertyDetail[] }>(`/api/v1/properties${qs(params || {})}`).then((r) => r.properties),
+
   getProperty: (id: string) => get<PropertyDetail>(`/api/v1/properties/${id}`),
 
   getRentRoll: (propertyId: string) =>
     get<RentRollResponse>(`/api/v1/properties/${propertyId}/rent-roll`),
+
+  assignProperties: async (managerId: string, propertyIds: string[]) => {
+    const res = await fetch(`${BASE}/api/v1/managers/${managerId}/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ property_ids: propertyIds }),
+    });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
+    return res.json() as Promise<{ manager_id: string; assigned: number; already_assigned: number; not_found: string[] }>;
+  },
 
   // --- Leases ---
 
@@ -237,7 +267,7 @@ export const api = {
 
   // --- Property CRUD ---
 
-  createProperty: async (data: { name: string; manager_id?: string; street: string; city: string; state: string; zip_code: string; property_type?: string; year_built?: number }) => {
+  createProperty: async (data: { name: string; manager_id?: string; owner_id?: string; street: string; city: string; state: string; zip_code: string; property_type?: string; year_built?: number }) => {
     const res = await fetch(`${BASE}/api/v1/properties`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -247,7 +277,7 @@ export const api = {
     return res.json() as Promise<{ property_id: string; name: string }>;
   },
 
-  updateProperty: async (propertyId: string, updates: { name?: string; street?: string; city?: string; state?: string; zip_code?: string; manager_id?: string }) => {
+  updateProperty: async (propertyId: string, updates: { name?: string; street?: string; city?: string; state?: string; zip_code?: string; manager_id?: string; owner_id?: string }) => {
     const res = await fetch(`${BASE}/api/v1/properties/${propertyId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -378,38 +408,7 @@ export const api = {
     return res.json() as Promise<{ deleted: boolean }>;
   },
 
-  // --- Manager Notes ---
-
-  listManagerNotes: (managerId: string) =>
-    get<{ notes: ManagerNoteResponse[]; total: number }>(`/api/v1/actions/notes${qs({ manager_id: managerId })}`),
-
-  createManagerNote: async (managerId: string, content: string) => {
-    const res = await fetch(`${BASE}/api/v1/actions/notes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ manager_id: managerId, content }),
-    });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
-    return res.json() as Promise<ManagerNoteResponse>;
-  },
-
-  updateManagerNote: async (noteId: string, content: string) => {
-    const res = await fetch(`${BASE}/api/v1/actions/notes/${noteId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
-    return res.json() as Promise<ManagerNoteResponse>;
-  },
-
-  deleteManagerNote: async (noteId: string) => {
-    const res = await fetch(`${BASE}/api/v1/actions/notes/${noteId}`, { method: "DELETE" });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || res.statusText); }
-    return res.json() as Promise<{ deleted: boolean }>;
-  },
-
-  // --- Entity Notes (KnowledgeGraph-backed) ---
+  // --- Entity Notes ---
 
   listEntityNotes: (entityType: string, entityId: string) =>
     get<{ notes: EntityNoteResponse[]; total: number }>(`/api/v1/notes?entity_type=${encodeURIComponent(entityType)}&entity_id=${encodeURIComponent(entityId)}`),

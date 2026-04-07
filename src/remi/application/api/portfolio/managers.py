@@ -102,7 +102,7 @@ async def _build_pipeline_input(
     review: ManagerSummary,
     focus: str | None,
 ) -> str:
-    delinquency, leases, vacancies, action_items = await asyncio.gather(
+    delinquency, leases, vacancies, action_items, notes = await asyncio.gather(
         c.dashboard_resolver.delinquency_board(manager_id=manager_id),
         c.dashboard_resolver.lease_expiration_calendar(days=90, manager_id=manager_id),
         c.dashboard_resolver.vacancy_tracker(manager_id=manager_id),
@@ -110,7 +110,13 @@ async def _build_pipeline_input(
             manager_id=manager_id,
             status=ActionItemStatus.OPEN,
         ),
+        c.property_store.list_notes(
+            entity_type="PropertyManager",
+            entity_id=manager_id,
+        ),
     )
+
+    recent_notes = sorted(notes, key=lambda n: n.created_at, reverse=True)[:10]
 
     return json.dumps(
         {
@@ -134,6 +140,10 @@ async def _build_pipeline_input(
             "existing_actions": [
                 {"title": a.title, "status": a.status.value, "priority": a.priority.value}
                 for a in action_items
+            ],
+            "notes": [
+                {"content": n.content, "created_at": n.created_at.isoformat()}
+                for n in recent_notes
             ],
             "focus": focus,
         },

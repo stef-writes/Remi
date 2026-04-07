@@ -43,6 +43,13 @@ class PropertyResolver:
             all_leases = await self._ps.list_leases(property_id=p.id)
             leases_by_unit = _group_by_unit(all_leases)
             occ = sum(1 for u in units if is_occupied(leases_by_unit.get(u.id, [])))
+
+            o_name: str | None = None
+            if p.owner_id:
+                owner = await self._ps.get_owner(p.owner_id)
+                if owner:
+                    o_name = owner.name
+
             items.append(
                 PropertyListItem(
                     id=p.id,
@@ -52,6 +59,9 @@ class PropertyResolver:
                     year_built=p.year_built,
                     total_units=len(units),
                     occupied=occ,
+                    manager_id=p.manager_id,
+                    owner_id=p.owner_id,
+                    owner_name=o_name,
                 )
             )
         return items
@@ -80,6 +90,14 @@ class PropertyResolver:
             if manager:
                 manager_id = manager.id
                 manager_name = manager.name
+
+        o_id: str | None = None
+        o_name: str | None = None
+        if prop.owner_id:
+            owner = await self._ps.get_owner(prop.owner_id)
+            if owner:
+                o_id = owner.id
+                o_name = owner.name
 
         unit_rows: list[PropertyDetailUnit] = []
         for u in units:
@@ -110,6 +128,8 @@ class PropertyResolver:
             year_built=prop.year_built,
             manager_id=manager_id,
             manager_name=manager_name,
+            owner_id=o_id,
+            owner_name=o_name,
             total_units=len(units),
             occupied=occupied,
             vacant=vacant,

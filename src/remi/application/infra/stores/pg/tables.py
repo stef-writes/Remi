@@ -46,8 +46,14 @@ class PropertyRow(SQLModel, table=True):
     manager_id: str | None = Field(default=None, index=True)
     name: str
     property_type: str = "multi_family"
+    asset_class: str | None = None
     year_built: int | None = None
     owner_id: str | None = Field(default=None, index=True)
+    unit_count: int | None = None
+    neighborhood: str | None = None
+    year_renovated: int | None = None
+    acquisition_date: date | None = None
+    management_start_date: date | None = None
     address_street: str = ""
     address_city: str = ""
     address_state: str = ""
@@ -187,9 +193,15 @@ class OwnerRow(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     name: str
-    entity_type_label: str = ""
+    owner_type: str = "other"
+    company: str | None = None
     email: str = ""
     phone: str | None = None
+    address_street: str | None = None
+    address_city: str | None = None
+    address_state: str | None = None
+    address_zip_code: str | None = None
+    address_country: str | None = None
     content_hash: str | None = None
     source_document_id: str | None = None
     created_at: datetime = Field(default_factory=_utcnow, sa_type=_TZDateTime)
@@ -250,6 +262,9 @@ class AppDocumentRow(SQLModel, table=True):
     property_id: str | None = Field(default=None, index=True)
     lease_id: str | None = None
     manager_id: str | None = Field(default=None, index=True)
+
+    # LLM-extracted manager name from report title — informational only
+    report_manager: str | None = None
 
     # Self-referential: the report this one supersedes
     source_document_id: str | None = None

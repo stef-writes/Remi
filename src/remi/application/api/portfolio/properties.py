@@ -48,6 +48,7 @@ async def create_property(
     prop = Property(
         id=pid,
         manager_id=body.manager_id,
+        owner_id=body.owner_id,
         name=body.name,
         address=Address(
             street=body.street,
@@ -120,7 +121,9 @@ async def update_property(
     if body.name is not None:
         updates["name"] = body.name
     if body.manager_id is not None:
-        updates["manager_id"] = body.manager_id
+        updates["manager_id"] = body.manager_id or None
+    if body.owner_id is not None:
+        updates["owner_id"] = body.owner_id or None
     if any(f is not None for f in (body.street, body.city, body.state, body.zip_code)):
         updates["address"] = Address(
             street=body.street or prop.address.street,

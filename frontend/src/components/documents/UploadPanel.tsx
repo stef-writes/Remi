@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/Badge";
 import type { FileEntry } from "@/hooks/useFileUpload";
-import type { ReviewItem } from "@/lib/types";
+import type { ManagerListItem, ReviewItem } from "@/lib/types";
 
 const ACCEPT =
   ".csv,.xlsx,.xls,.pdf,.docx,.txt,.md,.jpg,.jpeg,.png,.gif,.webp";
@@ -14,6 +14,9 @@ interface UploadPanelProps {
   processing: boolean;
   onFiles: (files: FileList | File[]) => void;
   onClear: () => void;
+  managers?: ManagerListItem[];
+  selectedManagerId?: string;
+  onManagerChange?: (managerId: string) => void;
 }
 
 function StatusIcon({ status }: { status: FileEntry["status"] }) {
@@ -348,7 +351,7 @@ function FileRow({ entry }: { entry: FileEntry }) {
   );
 }
 
-export function UploadPanel({ entries, processing, onFiles, onClear }: UploadPanelProps) {
+export function UploadPanel({ entries, processing, onFiles, onClear, managers, selectedManagerId, onManagerChange }: UploadPanelProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -381,8 +384,41 @@ export function UploadPanel({ entries, processing, onFiles, onClear }: UploadPan
     0,
   );
 
+  const hasManagers = managers && managers.length > 0 && onManagerChange;
+
   return (
     <div className="space-y-3">
+      {/* Manager scope selector */}
+      {hasManagers && (
+        <div className="rounded-xl border border-border-subtle bg-surface-sunken/50 px-4 py-3">
+          <label className="block text-[10px] font-medium text-fg-faint uppercase tracking-wide mb-1.5">
+            Which manager is this report for?
+          </label>
+          <select
+            value={selectedManagerId ?? ""}
+            onChange={(e) => onManagerChange(e.target.value)}
+            disabled={processing}
+            className="w-full bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-fg-secondary focus:outline-none focus:border-accent/40 disabled:opacity-50"
+          >
+            <option value="">All managers (portfolio-wide)</option>
+            {managers
+              .filter((m) => m.metrics.total_units > 0 || m.property_count > 0)
+              .map((m) => (
+                <option key={m.id} value={m.name}>{m.name}</option>
+              ))}
+          </select>
+          {selectedManagerId ? (
+            <p className="text-[10px] text-fg-ghost mt-1">
+              Properties in this report will be assigned to this manager
+            </p>
+          ) : (
+            <p className="text-[10px] text-fg-ghost mt-1">
+              Properties keep their existing manager assignments
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Drop zone */}
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}

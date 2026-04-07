@@ -21,6 +21,17 @@ class EntityType(StrEnum):
     MAINTENANCE_REQUEST = "MaintenanceRequest"
 
 
+class OwnerType(StrEnum):
+    """Legal structure of the property owner."""
+
+    INDIVIDUAL = "individual"
+    LLC = "llc"
+    TRUST = "trust"
+    PARTNERSHIP = "partnership"
+    CORPORATION = "corporation"
+    OTHER = "other"
+
+
 class PropertyType(StrEnum):
     SINGLE_FAMILY = "single_family"
     MULTI_FAMILY = "multi_family"

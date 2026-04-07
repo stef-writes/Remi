@@ -5,11 +5,19 @@ The LLM sees metadata, column headers, and sample rows — then returns a
 column_map, entity type, and report type. Python applies that map
 deterministically to every row, then persists.
 
+Manager assignment policy:
+  upload_manager_id is set ONLY from the user-supplied ``manager`` form
+  field. The LLM may extract a manager name from the report title/metadata
+  (e.g. "Alex - Delinquency Report"), but that is stored as document
+  metadata (report_manager) — never used to reassign properties. Per-row
+  manager columns (e.g. Site Manager Name in property directories) are
+  handled inside the row-level persisters, not here.
+
 Phases:
   1. Parse     — file bytes to ``DocumentContent``
   2. Dedup     — content-hash duplicate check
-  3. Manager   — ensure PropertyManager exists from upload param or LLM
-  4. Extract   — workflow engine runs document_ingestion extract step
+  3. Extract   — workflow engine runs document_ingestion extract step
+  4. Manager   — ensure PropertyManager exists from user-supplied param
   5. Map       — apply_column_map to all rows
   6. Validate  — check rows have enough data for persisters
   7. Persist   — row-level persistence via IngestionService
@@ -175,19 +183,20 @@ class DocumentIngestService:
             )
             warnings.append("LLM returned empty column_map or entity_type")
 
-        effective_manager = manager or llm_manager
-
-        # -- Phase 3b: Ensure manager entity exists --------------------------------
+        # upload_manager_id comes ONLY from the user's explicit choice.
+        # The LLM-extracted manager is metadata (who ran the report),
+        # not an assignment directive.
         effective_manager_id: str | None = None
-        if effective_manager:
-            effective_manager_id = await self._ensure_manager(effective_manager)
+        if manager:
+            effective_manager_id = await self._ensure_manager(manager)
 
         _log.info(
             "llm_extract_done",
             report_type=report_type_str,
             entity_type=entity_type,
-            manager=effective_manager,
-            manager_id=effective_manager_id,
+            llm_manager=llm_manager,
+            upload_manager=manager,
+            upload_manager_id=effective_manager_id,
             mapped_columns=len(column_map),
             total_rows=len(rows),
         )
@@ -215,7 +224,7 @@ class DocumentIngestService:
             doc_content,
             report_type=rt,
             rows=validated_rows,
-            manager=effective_manager,
+            manager=manager,
         )
 
         persist_result.rows_rejected += pre_result.rows_rejected
@@ -234,6 +243,7 @@ class DocumentIngestService:
             property_id=property_id,
             lease_id=lease_id,
             manager_id=effective_manager_id,
+            report_manager=llm_manager,
         )
         await self._ingestion._ps.upsert_document(doc_model)
 
@@ -334,6 +344,7 @@ def _build_document_model(
     property_id: str | None = None,
     lease_id: str | None = None,
     manager_id: str | None = None,
+    report_manager: str | None = None,
 ) -> Document:
     dt = DocumentType.REPORT
     if document_type:
@@ -359,4 +370,5 @@ def _build_document_model(
         property_id=property_id,
         lease_id=lease_id,
         manager_id=manager_id,
+        report_manager=report_manager,
     )

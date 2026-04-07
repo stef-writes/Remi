@@ -199,6 +199,8 @@ export interface PropertyDetail {
   year_built: number;
   manager_id: string | null;
   manager_name: string | null;
+  owner_id: string | null;
+  owner_name: string | null;
   total_units: number;
   units: Unit[];
   occupancy_rate: number;
@@ -662,8 +664,8 @@ export interface OperationalGraph {
 
 export interface MeetingBriefAction {
   title: string;
-  description: string;
-  priority: "urgent" | "high" | "medium" | "low";
+  description?: string;
+  priority?: "urgent" | "high" | "medium" | "low";
   owner: "manager" | "director" | "both";
   timeframe: string;
 }
@@ -690,12 +692,12 @@ export interface MeetingBriefAnalysis {
     title: string;
     severity: string;
     summary: string;
-    details: string;
+    details?: string;
     affected_properties: string[];
     monthly_impact: number;
   }[];
   positive_notes: string[];
-  data_gaps: string[];
+  data_gaps?: string[];
 }
 
 export interface MeetingBriefResponse {
@@ -713,6 +715,74 @@ export interface MeetingBriefListResponse {
   briefs: MeetingBriefResponse[];
   total: number;
   current_snapshot_hash: string | null;
+}
+
+// --- Trends (time-series) ---
+
+export interface DelinquencyTrendPeriod {
+  period: string;
+  total_balance: number;
+  tenant_count: number;
+  avg_balance: number;
+  max_balance: number;
+}
+
+export interface DelinquencyTrend {
+  manager_id: string | null;
+  periods: DelinquencyTrendPeriod[];
+  period_count: number;
+  direction: "improving" | "worsening" | "stable" | "insufficient_data";
+}
+
+export interface OccupancyTrendPeriod {
+  period: string;
+  total_units: number;
+  occupied: number;
+  vacant: number;
+  occupancy_rate: number;
+}
+
+export interface OccupancyTrend {
+  manager_id: string | null;
+  property_id: string | null;
+  periods: OccupancyTrendPeriod[];
+  period_count: number;
+  direction: "improving" | "worsening" | "stable" | "insufficient_data";
+}
+
+export interface RentTrendPeriod {
+  period: string;
+  avg_rent: number;
+  median_rent: number;
+  total_rent: number;
+  unit_count: number;
+}
+
+export interface RentTrend {
+  manager_id: string | null;
+  property_id: string | null;
+  periods: RentTrendPeriod[];
+  period_count: number;
+  direction: "improving" | "worsening" | "stable" | "insufficient_data";
+}
+
+export interface MaintenanceTrendPeriod {
+  period: string;
+  opened: number;
+  completed: number;
+  net_open: number;
+  total_cost: number;
+  avg_resolution_days: number | null;
+  by_category: Record<string, number>;
+}
+
+export interface MaintenanceTrend {
+  manager_id: string | null;
+  property_id: string | null;
+  unit_id: string | null;
+  periods: MaintenanceTrendPeriod[];
+  period_count: number;
+  direction: "improving" | "worsening" | "stable" | "insufficient_data";
 }
 
 // --- WebSocket ---

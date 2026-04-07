@@ -354,6 +354,12 @@ async def persist_maintenance(
     vendor_name = str(row.get("vendor") or "").strip() or None
     vid = _vendor_id(vendor_name) if vendor_name else None
 
+    scheduled = to_date(row.get("scheduled_date"))
+    completed = to_date(row.get("completed_date") or row.get("completed_on"))
+    resolved_at: datetime | None = None
+    if completed and MAINTENANCE_STATUS_MAP.get(st, MaintenanceStatus.OPEN) == MaintenanceStatus.COMPLETED:
+        resolved_at = datetime(completed.year, completed.month, completed.day, tzinfo=UTC)
+
     mr = MaintenanceRequest(
         id=rid,
         unit_id=uid,
@@ -364,6 +370,9 @@ async def persist_maintenance(
         title=title,
         description=str(row.get("description") or "").strip(),
         status=MAINTENANCE_STATUS_MAP.get(st, MaintenanceStatus.OPEN),
+        scheduled_date=scheduled,
+        completed_date=completed,
+        resolved_at=resolved_at,
         cost=to_decimal(row.get("cost")),
         vendor=vendor_name,
         vendor_id=vid,
@@ -374,14 +383,25 @@ async def persist_maintenance(
 
 
 async def persist_owner(row: dict[str, Any], ctx: IngestionCtx) -> None:
+    from remi.application.core.models.enums import OwnerType
+
     name = str(row.get("name") or row.get("owner_name") or "").strip()
     if not name:
         return
     oid = _owner_id(name)
+
+    raw_type = str(row.get("owner_type") or "other").strip().lower()
+    otype = (
+        OwnerType(raw_type)
+        if raw_type in {m.value for m in OwnerType}
+        else OwnerType.OTHER
+    )
+
     owner = Owner(
         id=oid,
         name=name,
-        entity_type_label=str(row.get("entity_type_label") or "").strip(),
+        owner_type=otype,
+        company=str(row.get("company") or "").strip() or None,
         email=str(row.get("email") or "").strip(),
         phone=str(row.get("phone") or "").strip() or None,
         source_document_id=ctx.doc_id,

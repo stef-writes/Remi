@@ -242,6 +242,70 @@ def dashboard_delinquency(manager_id=None, as_df=False):
 
 
 # ---------------------------------------------------------------------------
+# Trends (time-series)
+# ---------------------------------------------------------------------------
+
+def delinquency_trend(manager_id=None, property_id=None, periods=12, as_df=False):
+    """Delinquency totals by month — returns a time-series of balance, count, avg.
+
+    Parameters
+    ----------
+    manager_id : str, optional
+        Filter to a specific manager's portfolio.
+    property_id : str, optional
+        Filter to a single property.
+    periods : int
+        Number of monthly periods to return (default 12).
+    as_df : bool
+        Return a pandas DataFrame of the ``periods`` list.
+    """
+    data = _get(f"/dashboard/trends/delinquency{_qs(manager_id=manager_id, property_id=property_id, periods=periods)}")
+    if as_df:
+        return _maybe_df(data.get("periods", []), True)
+    return data
+
+
+def occupancy_trend(manager_id=None, property_id=None, periods=12, as_df=False):
+    """Occupancy rate by month — units occupied vs total.
+
+    Parameters
+    ----------
+    manager_id : str, optional
+        Filter to a specific manager's portfolio.
+    property_id : str, optional
+        Filter to a single property.
+    periods : int
+        Number of monthly periods to return (default 12).
+    as_df : bool
+        Return a pandas DataFrame of the ``periods`` list.
+    """
+    data = _get(f"/dashboard/trends/occupancy{_qs(manager_id=manager_id, property_id=property_id, periods=periods)}")
+    if as_df:
+        return _maybe_df(data.get("periods", []), True)
+    return data
+
+
+def rent_trend(manager_id=None, property_id=None, periods=12, as_df=False):
+    """Average and total rent by month across active leases.
+
+    Parameters
+    ----------
+    manager_id : str, optional
+        Filter to a specific manager's portfolio.
+    property_id : str, optional
+        Filter to a single property.
+    periods : int
+        Number of monthly periods to return (default 12).
+    as_df : bool
+        Return a pandas DataFrame of the ``periods`` list.
+    """
+    data = _get(f"/dashboard/trends/rent{_qs(manager_id=manager_id, property_id=property_id, periods=periods)}")
+    if as_df:
+        return _maybe_df(data.get("periods", []), True)
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Mutations (POST/PATCH/DELETE)
 # ---------------------------------------------------------------------------
 
