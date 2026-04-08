@@ -166,7 +166,10 @@ class AnthropicProvider(LLMProvider):
         if self._client is None:
             import anthropic
 
-            kwargs: dict[str, Any] = {"api_key": self._config.api_key}
+            kwargs: dict[str, Any] = {
+                "api_key": self._config.api_key,
+                "timeout": 120.0,
+            }
             if self._config.base_url:
                 kwargs["base_url"] = self._config.base_url
             self._client = anthropic.AsyncAnthropic(**kwargs)

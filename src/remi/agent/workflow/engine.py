@@ -202,9 +202,25 @@ class WorkflowRunner:
                 all_deps.add(binding.source_step)
                 if binding.optional:
                     optional_deps.add(binding.source_step)
+            _log.debug(
+                "step_waiting_deps",
+                workflow=workflow.name,
+                step=step_id,
+                deps=sorted(all_deps),
+                optional=sorted(optional_deps),
+            )
             for dep in all_deps:
                 if dep in completion_events:
                     await completion_events[dep].wait()
+                    _log.debug("step_dep_resolved", step=step_id, dep=dep)
+
+            if all_deps:
+                _log.debug(
+                    "step_deps_resolved",
+                    workflow=workflow.name,
+                    step=step_id,
+                    deps=sorted(all_deps),
+                )
 
             required_deps = all_deps - optional_deps
             if any(dep in gated_steps for dep in required_deps):
@@ -212,6 +228,13 @@ class WorkflowRunner:
                 sr = StepResult(step_id=step_id, value={}, gated=True)
                 step_results[step_id] = sr
                 step_outputs[step_id] = {}
+                _log.info(
+                    "step_skipped",
+                    workflow=workflow.name,
+                    step=step_id,
+                    reason="gate",
+                    gated_deps=sorted(dep for dep in required_deps if dep in gated_steps),
+                )
                 _emit(on_event, NodeSkipped(
                     workflow=workflow.name, node_id=step_id, reason="gate",
                 ))
@@ -222,6 +245,12 @@ class WorkflowRunner:
                 sr = StepResult(step_id=step_id, value={}, skipped=True)
                 step_results[step_id] = sr
                 step_outputs[step_id] = {}
+                _log.info(
+                    "step_skipped",
+                    workflow=workflow.name,
+                    step=step_id,
+                    reason="explicit",
+                )
                 _emit(on_event, NodeSkipped(
                     workflow=workflow.name, node_id=step_id, reason="explicit",
                 ))
@@ -232,6 +261,13 @@ class WorkflowRunner:
                 sr = StepResult(step_id=step_id, value={}, skipped=True)
                 step_results[step_id] = sr
                 step_outputs[step_id] = {}
+                _log.info(
+                    "step_skipped",
+                    workflow=workflow.name,
+                    step=step_id,
+                    reason="when",
+                    condition=node.when,
+                )
                 _emit(on_event, NodeSkipped(
                     workflow=workflow.name, node_id=step_id, reason="when",
                 ))
@@ -245,6 +281,12 @@ class WorkflowRunner:
             )
 
             async with semaphore:
+                _log.info(
+                    "step_started",
+                    workflow=workflow.name,
+                    step=step_id,
+                    kind=node.kind,
+                )
                 _emit(on_event, NodeStarted(
                     workflow=workflow.name, node_id=step_id, kind=node.kind,
                 ))
@@ -272,6 +314,15 @@ class WorkflowRunner:
             if sr.gated:
                 gated_steps.add(step_id)
 
+            _log.info(
+                "step_completed",
+                workflow=workflow.name,
+                step=step_id,
+                kind=node.kind,
+                gated=sr.gated,
+                prompt_tokens=sr.usage.prompt_tokens,
+                completion_tokens=sr.usage.completion_tokens,
+            )
             _emit(on_event, NodeCompleted(
                 workflow=workflow.name, node_id=step_id, usage=sr.usage,
             ))
