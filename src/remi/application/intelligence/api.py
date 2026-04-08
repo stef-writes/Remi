@@ -156,7 +156,7 @@ class AddContextRequest(BaseModel):
 
 @knowledge_router.post("/assert")
 async def assert_fact(body: AssertFactRequest, c: Ctr) -> dict[str, str]:
-    from remi.agent.tools.assertions import _assert_fact
+    from remi.application.tools.assertions import _assert_fact
     return await _assert_fact(
         c.property_store, c.event_store, c.event_bus,
         entity_type=body.entity_type, entity_id=body.entity_id,
@@ -166,7 +166,7 @@ async def assert_fact(body: AssertFactRequest, c: Ctr) -> dict[str, str]:
 
 @knowledge_router.post("/context")
 async def add_context(body: AddContextRequest, c: Ctr) -> dict[str, str]:
-    from remi.agent.tools.assertions import _add_context
+    from remi.application.tools.assertions import _add_context
     return await _add_context(
         c.property_store,
         entity_type=body.entity_type, entity_id=body.entity_id, context=body.context,

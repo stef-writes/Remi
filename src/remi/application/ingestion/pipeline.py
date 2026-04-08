@@ -16,7 +16,7 @@ import structlog
 from remi.agent.documents import ContentStore
 from remi.agent.documents.parsers import parse_document
 from remi.agent.documents.types import DocumentKind
-from remi.agent.tools.ingestion import register_ingestion_tools
+from remi.application.tools.ingestion import register_ingestion_tools
 from remi.agent.workflow import WorkflowRunner, load_workflow
 from remi.application.core.models import Document, DocumentType, PropertyManager, ReportType
 from remi.application.core.protocols import PropertyStore

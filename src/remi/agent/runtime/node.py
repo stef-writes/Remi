@@ -18,6 +18,7 @@ import structlog
 
 from remi.agent.config import AgentConfig
 from remi.agent.context.builder import _find_tail_inject_point
+from remi.agent.skills import FilesystemSkillDiscovery, SkillMetadata
 from remi.agent.context.frame import WorldState
 from remi.agent.context.rendering import (
     extract_signal_references,
@@ -44,6 +45,23 @@ logger = structlog.get_logger("remi.agent")
 
 async def _noop_event(_type: str, _data: dict[str, Any]) -> None:
     pass
+
+
+def _render_skills_catalog(skills: list[SkillMetadata]) -> str:
+    """Render discovered skills as a system message for the agent."""
+    if not skills:
+        return ""
+    lines = ["## Available Skills", ""]
+    for s in skills:
+        tags = f" [{', '.join(s.tags)}]" if s.tags else ""
+        lines.append(f"- **{s.name}**{tags}: {s.description}")
+    lines.append("")
+    lines.append(
+        "When a task matches a skill, run the skill's Python code using "
+        "`import remi` in the sandbox. Skills describe step-by-step "
+        "workflows using the platform module."
+    )
+    return "\n".join(lines)
 
 
 @asynccontextmanager
@@ -168,6 +186,16 @@ class AgentNode(BaseModule):
         if sandbox is not None and sandbox_sid:
             workspace = await load_workspace(sandbox, sandbox_sid)
             inject_workspace(thread, workspace)
+
+        if cfg.skills_paths:
+            discovery = FilesystemSkillDiscovery(cfg.skills_paths)
+            discovered = discovery.discover()
+            skills_text = _render_skills_catalog(discovered)
+            if skills_text:
+                _insert_before_last_user(
+                    thread, Message(role="system", content=skills_text)
+                )
+            context = context.with_extras(skill_discovery=discovery)
 
         trace_cm = (
             tracer.start_trace(

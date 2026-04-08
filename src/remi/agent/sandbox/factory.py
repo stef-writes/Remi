@@ -42,12 +42,23 @@ def build_sandbox(
     if backend == "docker":
         from remi.agent.sandbox.docker import DockerSandbox
 
-        _log.info("sandbox_backend", backend="docker", api_url=api_url)
+        _log.info(
+            "sandbox_backend",
+            backend="docker",
+            api_url=api_url,
+            image=cfg.image,
+            network=cfg.network,
+        )
         sb: Sandbox = DockerSandbox(
+            image=cfg.image,
+            network=cfg.network,
             extra_env=extra_env,
             default_timeout=cfg.default_timeout,
             max_output_bytes=cfg.max_output_bytes,
             session_ttl_seconds=cfg.session_ttl_seconds,
+            memory_limit=cfg.memory_limit,
+            cpu_quota=cfg.cpu_quota,
+            pids_limit=cfg.pids_limit,
         )
     else:
         if backend != "local":

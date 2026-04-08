@@ -11,7 +11,6 @@ from remi.agent.graph import (
     GraphLink,
     GraphObject,
     KnowledgeProvenance,
-    TimelineEvent,
 )
 
 # -- Shared -------------------------------------------------------------------
@@ -82,13 +81,6 @@ class AggregateResponse(BaseModel):
     metric: str
     field: str | None = None
     result: AggregateResult | None = None
-
-
-class TimelineResponse(BaseModel):
-    object_type: str
-    object_id: str
-    count: int
-    events: list[TimelineEvent]
 
 
 class SchemaTypeResponse(BaseModel):

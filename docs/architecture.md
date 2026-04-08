@@ -45,34 +45,34 @@ Pure Pydantic models and constants. No I/O, no business logic, no framework impo
 
 ### `agent/` — AI OS kernel
 
-Everything needed to run an AI agent: provider adapters, execution sandbox, memory (with episode extraction and ranked recall), vector search, structured observation, and multi-stage context compression. Contains no real estate concepts — it is domain-agnostic.
+Everything needed to run an AI agent: provider adapters, execution sandbox, memory (with episode extraction and ranked recall), vector search, structured observation, skills, and multi-stage context compression. Contains no real estate concepts — it is domain-agnostic.
 
 ```
 agent/
   llm/          Provider factory + adapters (Anthropic, OpenAI, Gemini)
   vectors/      Embedding port + adapters (in-memory, Postgres/pgvector)
   sandbox/      Code execution port + backends (local subprocess, Docker)
-  graph/        Knowledge graph — types, memory store, retriever
-  documents/    Document types, in-memory + Postgres content stores
-  events/       Typed event bus — the OS-level pub-sub nervous system
+  graph/        Knowledge graph — types, bridge, retriever
   memory/       Agent memory — store, extraction, recall, importance-ranked
+  events/       Typed event bus — the OS-level pub-sub nervous system
+  documents/    Document types, in-memory + Postgres content stores
   db/           Async SQLAlchemy engine + agent-owned tables
   runtime/      Agent loop, tool dispatcher, streaming, multi-stage compaction
   tasks/        Supervised multi-agent delegation — TaskSpec, Task, Supervisor, Pool
-  context/      Perception pipeline, context builder, intent extraction
+  skills/       Skill discovery — filesystem-based markdown playbooks
   pipeline/     YAML-driven multi-stage LLM pipeline executor
   workflow/     YAML-driven multi-step workflow engine
-  tools/        Domain-agnostic tools (HTTP, sandbox exec, memory, vectors)
+  tools/        Kernel primitives only (bash, python, delegate, memory_store, memory_recall)
   sessions/     Chat session persistence (memory / Postgres)
   observe/      Tracing, structured logging, LLM usage ledger
   workspace/    Agent working memory (Markdown scratchpad)
 ```
 
-Key types: `Sandbox`, `LLMProviderFactory`, `VectorStore`, `Embedder`, `AgentRuntime`, `AgentSessions`, `WorkflowRunner`, `AgentStepNode`, `TaskSupervisor`, `TaskSpec`, `TaskResult`, `MemoryStore`, `MemoryEntry`, `Importance`, `MemoryRecallService`, `extract_episode`.
+Key types: `Sandbox`, `LLMProviderFactory`, `VectorStore`, `Embedder`, `AgentRuntime`, `AgentSessions`, `WorkflowRunner`, `AgentStepNode`, `TaskSupervisor`, `TaskSpec`, `TaskResult`, `MemoryStore`, `MemoryEntry`, `Importance`, `MemoryRecallService`, `extract_episode`, `SkillMetadata`, `SkillContent`, `FilesystemSkillDiscovery`.
 
 ### `application/` — Real estate product
 
-The RE domain expressed in hexagonal (ports and adapters) style. Depends on `agent/` for AI infrastructure but defines its own domain models, protocols, and read models.
+The RE domain expressed in hexagonal (ports and adapters) style. Depends on `agent/` for AI infrastructure but defines its own domain models, protocols, and read models. Organized as vertical feature slices — each slice owns its API routes, CLI commands, resolvers, and models.
 
 ```
 application/
@@ -80,11 +80,11 @@ application/
                 business rules, domain events
   views/        Read models — computed views over the domain graph
                 (DashboardResolver, RentRollResolver, LeaseResolver, …)
-  services/     Orchestration pipelines
-    ingestion/  Rule-based + LLM-fallback report ingestion
-    embedding/  Vector indexing pipeline
-    search.py   RE-aware hybrid semantic search
-    auto_assign.py  KB-tag-based property → manager assignment
+  portfolio/    Portfolio slice — managers, properties, units (API + CLI)
+  operations/   Operations slice — leases, maintenance, actions (API + CLI)
+  intelligence/ Intelligence slice — dashboard, search, trends (API + CLI)
+  ingestion/    Document ingestion pipeline, rules, CLI
+  events/       Event feed projections: HTTP poll (api.py) + WebSocket push (ws.py)
   stores/       Port implementations — persistence adapters
     mem.py      InMemoryPropertyStore (dev/test)
     pg/         PostgresPropertyStore + tables + converters
@@ -92,26 +92,20 @@ application/
     indexer.py  AgentVectorSearch, AgentTextIndexer adapters
     events.py   InMemoryEventStore
     factory.py  build_store_suite (Postgres vs in-memory)
-  tools/        RE-domain agent tools (actions, documents, search, workflows)
-  agents/       Agent YAML manifests (director, researcher, document_ingestion, …)
-  api/          HTTP delivery — vertical slices:
-    portfolio/  managers, properties, units
-    operations/ leases, maintenance, tenants, actions, notes
-    intelligence/ signals, dashboard, search, ontology, knowledge, events
-    system/     agents, documents, seed, usage
-  cli/          CLI delivery — vertical slices (mirrors api/ structure)
-  events/       Event feed projections: HTTP poll (api.py) + WebSocket push (ws.py)
+  tools/        Ingestion tool setup; assertion service functions
+  agents/       Agent YAML manifests (director, researcher, …)
+  profile.py    Domain profile builder
 ```
 
 ### `shell/` — Composition root
 
-Wires all rings together. Contains no business logic.
+Wires all rings together. Contains no business logic. Registers only kernel tool providers (sandbox, memory, delegation).
 
 ```
 shell/
   config/
     settings.py   Loads YAML + .env + env-var interpolation → RemiSettings
-    container.py  Calls all factory functions; owns no construction logic
+    container.py  DI wiring — 3 kernel tool providers only
     domain.yaml   Domain TBox — signal definitions, thresholds, rules
   api/
     main.py       FastAPI app factory + lifespan (bootstraps Container)
@@ -119,17 +113,23 @@ shell/
     error_handler.py Maps domain exceptions to HTTP error envelopes
   cli/
     main.py       Typer entry point (registers all command groups)
+    output.py     Structured JSON envelope helpers (success/error)
+    client.py     HTTP client mode — proxies to API when REMI_API_URL is set
 ```
 
 ---
 
-## Agent modes
+## Agent interface — CLI-first
 
-REMI supports two agent execution models:
+Agents interact with the REMI platform through three layers:
 
-### Conversational agents (in-process)
+| Layer | What | Where |
+|-------|------|-------|
+| **Tool** | Kernel primitive exposed via LLM function calling | `agent/tools/` — `bash`, `python`, `delegate_to_agent`, `memory_store`, `memory_recall` |
+| **Command** | `remi` CLI subcommand that queries or mutates domain data (JSON output) | `application/{slice}/cli.py` — e.g. `remi portfolio managers`, `remi operations delinquency` |
+| **Skill** | Markdown playbook that teaches an agent what to look for and which commands to run | `.remi/skills/{name}/SKILL.md` — loaded at session start |
 
-Run inside the REMI process. They call application services through `application/tools/` and are registered in the tool registry. The director, researcher, and specialist sub-agents are all conversational agents.
+### How it works
 
 ```
 HTTP POST /api/v1/agents/{name}/ask
@@ -137,14 +137,22 @@ HTTP POST /api/v1/agents/{name}/ask
           ▼
   AgentRuntime.ask() (agent/runtime/)
           │
-          ├── tool_registry → application/tools/
-          │   (actions, documents, search, workflows, memory, vectors)
+          ├── 5 kernel tools (function calling)
+          │   bash, python, delegate_to_agent, memory_store, memory_recall
           │
-          └── sandbox → exec_python / exec_shell
-              (researcher agent uses Python for statistical analysis)
+          ├── bash → remi portfolio managers (JSON output)
+          │   bash → remi operations delinquency --manager-id jake
+          │   bash → remi intelligence search "delinquent tenants"
+          │
+          └── python → computation on CLI-retrieved data
+              (DataFrames, statistics, trend analysis)
 ```
 
-Streaming response: NDJSON events over the HTTP response body (`delta`, `tool_call`, `tool_result`, `done`).
+When `REMI_API_URL` is set (inside the sandbox), CLI commands proxy to the running API server for fast execution — no container cold start. See `shell/cli/client.py`.
+
+### Streaming response
+
+NDJSON events over the HTTP response body: `delta`, `tool_call`, `tool_running`, `tool_result`, `phase`, `done`, `error`.
 
 ### Agents as workflow steps
 
@@ -155,12 +163,12 @@ A workflow can compose agents with LLM steps, transforms, gates, and fan-out:
 kind: Workflow
 steps:
   - id: classify
-    kind: agent          # full agent loop (think-act-observe)
+    kind: agent
     agent_name: director
     mode: ask
 
   - id: needs_research
-    kind: gate           # branch on the agent's output
+    kind: gate
     condition: "'research' in steps.classify"
     depends_on: [classify]
 
@@ -169,25 +177,6 @@ steps:
     agent_name: researcher
     depends_on: [needs_research]
 ```
-
-The workflow engine handles scheduling, concurrency, retries, and wire
-routing between steps. `AgentRuntime.ask()` is the executor behind
-every `kind: agent` step — the engine calls it via the `AgentStepExecutor`
-protocol, wired at startup in `container.py`.
-
-### Code-first agents (sandbox-isolated)
-
-Run inside `agent/sandbox/` as isolated subprocesses (or containers). They call REMI through the HTTP bridge. Their tool registry IS the REST API — they import `remi.py` (the SDK) which makes HTTP calls back to `REMI_API_URL`.
-
-```
-sandbox session
-  └── exec_python(code)
-        └── import remi
-              └── remi.get_properties() → HTTP GET /api/v1/properties
-              └── remi.create_action()  → HTTP POST /api/v1/actions
-```
-
-The SDK file (`application/sdk.py`) is injected into every new sandbox session's working directory by the container at startup.
 
 ---
 
@@ -230,20 +219,22 @@ POST /api/v1/agents/director/ask  { "message": "...", "session_id": "..." }
         ▼
 AgentRuntime.ask()
         │
+        ├── SkillDiscovery → load skill catalog into system prompt
+        ├── MemoryRecallService → inject relevant memories
         ├── ContextBuilder.build()
-        │   Pulls: domain TBox signals, world model summary,
-        │           recent memory entries, relevant vector results
+        │   Pulls: domain TBox signals, world model summary
         │
         ├── LLMProvider.complete()   (streaming)
         │
         └── ToolDispatcher.dispatch(tool_call)
               │
-              ├── http_request      → GET /api/v1/...  (read-only)
-              ├── exec_python       → LocalSandbox / DockerSandbox
-              ├── search            → VectorStore + full-text
-              ├── memory_*          → MemoryStore
-              ├── create_action     → PropertyStore (write)
-              └── delegate          → TaskSupervisor.spawn_and_wait()
+              ├── bash             → remi CLI commands (JSON output)
+              │                      e.g. remi portfolio managers
+              │                      e.g. remi operations delinquency
+              ├── python           → computation on retrieved data
+              ├── memory_store     → MemoryStore.write()
+              ├── memory_recall    → MemoryStore.search()
+              └── delegate_to_agent → TaskSupervisor.spawn_and_wait()
                     │
                     ├── TaskSpec (objective, constraints, parent_run_id)
                     ├── TaskPool (bounded concurrency, backpressure)
@@ -254,25 +245,6 @@ AgentRuntime.ask()
         │
         ▼
 NDJSON stream: delta / tool_call / tool_result / done
-
-Data flow: workflow with agent routing
-
-Workflows can use agents as routing decisions — the agent's output
-feeds into gates that branch the DAG:
-
-AgentRuntime.ask("director", question)
-        │
-        ▼
-kind: agent → "classify this as research|operations|simple"
-        │
-        ├── kind: gate (needs_research)
-        │         └── kind: agent (researcher) → deep analysis
-        │
-        └── kind: gate (needs_operations)
-                  └── kind: agent (ops_analyst) → operational review
-        │
-        ▼
-WorkflowResult (aggregated outputs from all activated branches)
 ```
 
 ---
@@ -315,14 +287,15 @@ In a single-process deployment all internal calls are loopback (`127.0.0.1`). In
     │
     ├── spawns → [remi-sandbox container]
     │                │
-    │                └── HTTP GET/POST → REMI_API_URL (e.g. http://api:8000)
+    │                └── remi CLI → REMI_API_URL (e.g. http://api:8000)
+    │                    (client mode: shell/cli/client.py proxies to API)
     │                           │
     │            [Docker bridge network: remi_internal]
     │                           │
     └───────────────────────────┘
 ```
 
-Set `REMI_API__INTERNAL_API_URL=http://api:8000` (or whatever your service hostname is) so the sandbox SDK resolves to the correct address.
+Set `REMI_API__INTERNAL_API_URL=http://api:8000` so CLI commands inside the sandbox resolve to the correct API address.
 
 ---
 

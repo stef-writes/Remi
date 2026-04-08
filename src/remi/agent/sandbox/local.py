@@ -26,7 +26,12 @@ from typing import Any
 
 import structlog
 
-from remi.agent.sandbox.policy import build_subprocess_env, is_dangerous_command, resolve_python_bin
+from remi.agent.sandbox.policy import (
+    build_subprocess_env,
+    has_blocked_imports,
+    is_dangerous_command,
+    resolve_python_bin,
+)
 from remi.agent.sandbox.types import ExecResult, ExecStatus, Sandbox, SandboxSession
 
 _log = structlog.get_logger(__name__)
@@ -36,7 +41,59 @@ _SANDBOX_ROOT = Path(tempfile.gettempdir()) / "remi-sandbox"
 _SENTINEL = "__REMI_EXEC_DONE__"
 
 _EXEC_WRAPPER = f'''\
-import sys, io, traceback
+import sys, io, os, traceback
+from pathlib import PurePosixPath as _PurePath
+
+# ── Sandbox hardening preamble ──────────────────────────────────────
+# Runs once at interpreter startup. Restricts filesystem access to the
+# session working directory and /tmp, and removes dangerous os/subprocess
+# functions. Bypassable via ctypes — defense-in-depth, not a security
+# boundary. The Docker backend is the real wall.
+
+_remi_allowed_roots = set()
+
+def _remi_init_sandbox():
+    _cwd = os.getcwd()
+    _remi_allowed_roots.add(os.path.realpath(_cwd))
+    _remi_allowed_roots.add("/tmp")
+    _remi_allowed_roots.add(os.path.realpath("/tmp"))
+
+    _original_open = open
+
+    def _restricted_open(file, mode="r", *args, **kwargs):
+        path_str = str(file)
+        if not path_str.startswith(("<", "http")):
+            real = os.path.realpath(path_str)
+            if not any(real.startswith(root) for root in _remi_allowed_roots):
+                raise PermissionError(
+                    f"Sandbox: access denied to '{{path_str}}'. "
+                    f"Files must be in the session directory or /tmp."
+                )
+        return _original_open(file, mode, *args, **kwargs)
+
+    import builtins
+    builtins.open = _restricted_open
+
+    for attr in ("system", "popen", "execl", "execle", "execlp",
+                 "execlpe", "execv", "execve", "execvp", "execvpe",
+                 "spawnl", "spawnle", "spawnlp", "spawnlpe",
+                 "spawnv", "spawnve", "spawnvp", "spawnvpe"):
+        if hasattr(os, attr):
+            delattr(os, attr)
+
+    try:
+        import subprocess as _sp
+        for attr in ("run", "call", "check_call", "check_output",
+                     "Popen", "getoutput", "getstatusoutput"):
+            if hasattr(_sp, attr):
+                delattr(_sp, attr)
+    except ImportError:
+        pass
+
+_remi_init_sandbox()
+del _remi_init_sandbox
+
+# ── Execution loop ──────────────────────────────────────────────────
 
 _remi_sentinel = "{_SENTINEL}"
 
@@ -297,6 +354,17 @@ class LocalSandbox(Sandbox):
         session = self._sessions.get(session_id)
         if session is None:
             return ExecResult(status=ExecStatus.ERROR, error=f"Session '{session_id}' not found")
+
+        blocked = has_blocked_imports(code)
+        if blocked:
+            names = ", ".join(sorted(set(blocked)))
+            return ExecResult(
+                status=ExecStatus.ERROR,
+                error=(
+                    f"Blocked network import(s): {names}. "
+                    "Use `import remi` to access platform data."
+                ),
+            )
 
         work_dir = Path(session.working_dir)
         interp = self._get_interpreter(session_id)

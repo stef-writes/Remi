@@ -38,10 +38,9 @@ class DomainProfile:
     """The primary scoping entity label (e.g. 'Organization')."""
 
     tool_hints: dict[str, str] = field(default_factory=dict)
-    """Tool-name → supplemental description text appended to the generic description."""
+    """Tool-name → supplemental description text.  Currently unused (CLI-first
+    architecture removed function-calling domain tools).  Retained for forward
+    compat if kernel tools gain domain overlays."""
 
     api_path_examples: str = ""
-    """Example API paths appended to the http_request tool description."""
-
-    sdk_hint: str = ""
-    """Supplemental description for the ``remi`` SDK available in the sandbox."""
+    """Unused.  Previously provided example API paths for the HTTP tool."""

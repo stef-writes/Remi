@@ -1,8 +1,8 @@
 """Ingestion — document and data ingestion pipeline.
 
 Two-tier pipeline: rule-based deterministic extraction first,
-LLM fallback for unknown formats. The YAML workflow + agent tools
-(agent/tools/ingestion.py) own all entity work.
+LLM fallback for unknown formats. The YAML workflow + tool registration
+(application/tools/ingestion.py) own all entity work.
 
 Files:
     models.py         All types: LLM output schemas, pipeline results, API responses

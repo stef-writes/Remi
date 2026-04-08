@@ -111,7 +111,7 @@ class ToolExecutor:
 
 def _build_context_values(context: RuntimeContext) -> dict[str, Any]:
     """Build the flat context-value dict available for ToolRef.inject."""
-    values: dict[str, Any] = {}
+    values: dict[str, Any] = {"workspace_id": context.workspace_id}
     sid = context.params.sandbox_session_id or context.extras.get("sandbox_session_id")
     if sid:
         values["sandbox_session_id"] = sid

@@ -8,9 +8,11 @@ An AI agent operating system for property management. REMI gives a director-leve
 
 - **Document ingestion** — upload AppFolio CSV/Excel report exports; REMI classifies and parses them with a rule-based pipeline (LLM fallback for unknown formats)
 - **Knowledge graph** — property managers, properties, units, leases, tenants, and maintenance requests stored as a connected graph
+- **CLI-first agent interface** — agents interact with the platform through `remi` CLI commands (JSON output), not function-calling tools. Five kernel primitives (`bash`, `python`, `delegate_to_agent`, `memory_store`, `memory_recall`) plus a rich CLI command surface
 - **Conversational agents** — director agent (fast Q&A), researcher agent (deep statistical analysis with Python sandbox), and specialist sub-agents (document ingestion, manager review, action planning)
+- **Skills** — markdown playbooks that teach agents domain knowledge and CLI command patterns
 - **REST API + WebSocket** — all data queryable over HTTP; lifecycle events broadcast via WebSocket
-- **CLI + TUI** — full Typer CLI for seeding, benchmarks, ontology operations, and a Textual dashboard
+- **CLI** — full Typer CLI for portfolio queries, operations, intelligence, ingestion, and administration
 
 ---
 
@@ -140,15 +142,43 @@ YAML configs live in `config/`. The active config is selected by `REMI_CONFIG_EN
 ```bash
 uv run remi --help
 
-# Common commands
+# Server
 uv run remi serve                    # Start API server
+
+# Portfolio
+uv run remi portfolio managers       # List managers with metrics (JSON)
+uv run remi portfolio properties     # List properties
+uv run remi portfolio rent-roll <id> # Rent roll for a property
+uv run remi portfolio manager-review <id>  # Full manager review
+uv run remi portfolio rankings       # Rank managers by metric
+
+# Operations
+uv run remi operations leases        # List leases
+uv run remi operations maintenance   # Maintenance requests
+uv run remi operations delinquency   # Delinquency board
+uv run remi operations expiring-leases     # Leases expiring within N days
+uv run remi operations create-action --title "..." --manager-id "..."
+uv run remi operations create-note   --content "..." --entity-type "..." --entity-id "..."
+
+# Intelligence
+uv run remi intelligence dashboard   # Portfolio overview
+uv run remi intelligence search "delinquent"  # Semantic search
+uv run remi intelligence vacancies   # Vacancy tracker
+uv run remi intelligence trends delinquency   # Time-series trends
+uv run remi intelligence assert-fact --entity-type "..." --properties '{...}'
+uv run remi intelligence add-context --entity-type "..." --entity-id "..." --context "..."
+
+# Ingestion
+uv run remi ingestion upload report.csv      # Ingest a document
+uv run remi ingestion documents              # List ingested documents
+uv run remi ingestion document-search "query"  # Search document content
+
+# System
 uv run remi seed reports/            # Ingest a folder of AppFolio CSVs
-uv run remi dashboard                # Textual TUI dashboard
-uv run remi search "delinquent"      # Semantic search
-uv run remi ontology signals         # List domain signal definitions
-uv run remi db reset                 # Drop and recreate all tables (dev only)
-uv run remi bench run                # Run agent benchmark suite
+uv run remi db reset                 # Drop and recreate tables (dev only)
 ```
+
+All commands output structured JSON by default (see `shell/cli/output.py` for the envelope format). Pass `--table` for human-readable output where supported.
 
 ---
 
@@ -232,35 +262,40 @@ Neither backend provides OS-level namespacing equivalent to gVisor/Firecracker. 
 ```
 src/remi/
   types/          Shared vocabulary — IDs, config shapes, error types
-  agent/          AI OS kernel
+  agent/          AI OS kernel (domain-agnostic)
     llm/          LLM provider adapters (Anthropic, OpenAI, Gemini)
     vectors/      Embedding adapters + vector store
     sandbox/      Code execution (local subprocess / Docker)
-    graph/        Knowledge graph types, memory store, retriever
+    graph/        Knowledge graph types, bridge, retriever
+    memory/       Agent memory — store, extraction, recall, importance-ranked
+    events/       Typed event bus — OS-level pub-sub
     documents/    Document types, stores, parsers
     db/           Async SQLAlchemy engine + agent-owned tables
-    runtime/      Agent loop, tool dispatch, streaming, session compression
-    context/      Perception, context builder, intent extraction
-    pipeline/      YAML-driven multi-stage LLM pipeline executor
+    runtime/      Agent loop, tool dispatch, streaming, multi-stage compaction
+    tasks/        Supervised multi-agent delegation (TaskSpec, Supervisor, Pool)
+    skills/       Skill discovery — filesystem-based markdown playbooks
+    pipeline/     YAML-driven multi-stage LLM pipeline executor
     workflow/     YAML-driven multi-step workflow engine
-    tools/        Domain-agnostic tools (HTTP, sandbox, memory, vectors)
+    tools/        Kernel tool primitives only (bash, python, delegate, memory)
     sessions/     Chat session persistence
     observe/      Structured logging, tracing, LLM usage ledger
     workspace/    Agent working memory (Markdown scratchpad)
   application/    Real estate product (hexagonal)
     core/         Domain models, protocols, business rules, events
     views/        Read models — computed views over the domain
-    services/     Orchestration: ingestion, search, auto-assign, embedding
-    stores/       Port implementations — Postgres/in-memory stores, world model, indexer
-    tools/        Agent tool registrations (RE-domain tools)
-    agents/       Agent YAML manifests
-    api/          HTTP delivery — vertical slices (portfolio, operations, …)
-    cli/          CLI delivery — vertical slices
-    realtime/     WebSocket event broadcasting
+    portfolio/    Portfolio slice — managers, properties, units (API + CLI)
+    operations/   Operations slice — leases, maintenance, actions (API + CLI)
+    intelligence/ Intelligence slice — dashboard, search, trends (API + CLI)
+    ingestion/    Document ingestion pipeline (API + CLI)
+    events/       Event feed projections — HTTP poll + WebSocket push
+    stores/       Port implementations — Postgres/in-memory, world model, indexer
+    tools/        Ingestion tool setup; assertion service functions
+    agents/       Agent YAML manifests (director, researcher, …)
+    profile.py    Domain profile builder
   shell/          Composition root
     config/       DI container, settings loader, domain.yaml
     api/          FastAPI app factory, middleware, error handler
-    cli/          Typer entry point
+    cli/          Typer entry, JSON envelope helpers, HTTP client mode
 ```
 
 ---

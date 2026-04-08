@@ -28,6 +28,7 @@ dependencies = [
     "python-docx>=1.1",
     "rapidfuzz>=3.14.3",
     "pydantic-ai>=1.77.0",
+    "aiodocker>=0.26.0",
 ]
 
 [project.optional-dependencies]
@@ -44,13 +45,16 @@ analytics = [
     "scikit-learn>=1.5,<2",
     "statsmodels>=0.14,<1",
 ]
+sandbox-docker = [
+    "aiodocker>=0.23",
+]
 postgres = [
     "sqlmodel>=0.0.22",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.30",
 ]
 dev = [
-    "remi[postgres,analytics,all-providers]",
+    "remi[postgres,analytics,all-providers,sandbox-docker]",
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.24,<1",
     "pytest-cov>=6.0,<7",

@@ -1,9 +1,9 @@
 """Analysis tools — ``python`` and ``bash`` for agent code execution.
 
-Two tools give the agent a complete analytical environment:
+Two kernel tools give the agent a complete analytical environment:
 
-- ``python`` — persistent Python session (variables survive between calls)
-- ``bash`` — one-shot shell commands
+- ``bash`` — one-shot shell commands; primary interface to ``remi`` CLI
+- ``python`` — persistent Python session for computation on CLI-retrieved data
 """
 
 from __future__ import annotations
@@ -25,9 +25,8 @@ async def _ensure_session(sandbox: Sandbox, session_id: str) -> None:
 class AnalysisToolProvider(ToolProvider):
     """Registers ``python`` and ``bash`` tools backed by a sandbox."""
 
-    def __init__(self, sandbox: Sandbox, *, sdk_hint: str = "") -> None:
+    def __init__(self, sandbox: Sandbox) -> None:
         self._sandbox = sandbox
-        self._sdk_hint = sdk_hint
 
     def register(self, registry: ToolRegistry) -> None:
         sandbox = self._sandbox
@@ -38,11 +37,7 @@ class AnalysisToolProvider(ToolProvider):
             "Execute Python code in a persistent session. "
             "Variables, imports, and DataFrames survive between calls. "
             "pandas, numpy, scipy, matplotlib, statsmodels, and scikit-learn "
-            "are available. "
-        )
-        if self._sdk_hint:
-            python_desc += self._sdk_hint + " "
-        python_desc += (
+            "are available. Use for computation on data retrieved via CLI. "
             "Print results to stdout. "
             "Use open() for file I/O — no separate file tools needed."
         )

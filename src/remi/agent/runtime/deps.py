@@ -72,10 +72,17 @@ class RuntimeContext:
     ``params`` carries typed per-request parameters.
     ``scope`` carries domain-supplied focus context (typed).
     ``extras`` remains as a narrow escape hatch for dynamic/experimental data.
+
+    ``workspace_id`` is a forward-compatible field for multi-tenancy.
+    Currently all runs use ``"default"``. When multi-workspace support
+    arrives, this field will scope memory, store access, and CLI commands
+    to a specific tenant. It is threaded through now so the runtime
+    signature does not change later.
     """
 
     app_id: str = "remi"
     run_id: str = ""
+    workspace_id: str = "default"
     environment: str = "development"
     deps: RunDeps = field(default_factory=RunDeps)
     params: RunParams = field(default_factory=RunParams)
@@ -87,6 +94,7 @@ class RuntimeContext:
         return RuntimeContext(
             app_id=self.app_id,
             run_id=self.run_id,
+            workspace_id=self.workspace_id,
             environment=self.environment,
             deps=self.deps,
             params=self.params,

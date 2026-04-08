@@ -2,9 +2,9 @@
 
 ``PropertyStore`` is the single storage port for all domain entities.
 
-Infrastructure ports (TextIndexer, VectorSearch) decouple
-``application/services/`` from ``agent/`` primitives.  Implementations
-live in ``application/infra/``.
+Infrastructure ports (TextIndexer, VectorSearch) decouple the
+application layer from ``agent/`` primitives.  Implementations
+live in ``application/stores/``.
 """
 
 from __future__ import annotations

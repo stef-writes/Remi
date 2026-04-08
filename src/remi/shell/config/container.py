@@ -1,7 +1,10 @@
 """REMI dependency injection container — pure wiring only.
 
 Calls factory functions from the modules that own the things being built.
-No backend selection logic, no LLM adapter registration, no closures.
+Only three kernel tool providers are registered: ``AnalysisToolProvider``
+(python, bash), ``MemoryToolProvider`` (memory_store, memory_recall),
+and ``DelegationToolProvider`` (delegate_to_agent). All domain data
+access goes through the ``remi`` CLI.
 
 Only attributes read outside this module are stored as ``self.*``.
 Internal intermediaries are local variables.
@@ -12,7 +15,7 @@ from __future__ import annotations
 from remi.agent.context import build_context_builder
 from remi.agent.documents import ContentStore
 from remi.agent.events import DomainEvent, EventBuffer, EventBus, build_event_bus
-from remi.agent.graph import build_entity_store
+from remi.agent.graph import WorldModel
 from remi.agent.llm import LLMProviderFactory, build_provider_factory
 from remi.agent.memory import MemoryStore, build_memory_store
 from remi.agent.memory.recall import MemoryRecallService
@@ -31,19 +34,10 @@ from remi.agent.tasks import TaskSupervisor, build_task_pool
 from remi.agent.tools import (
     AnalysisToolProvider,
     DelegationToolProvider,
-    GraphToolProvider,
-    HttpToolProvider,
     InMemoryToolCatalog,
     MemoryToolProvider,
-    TraceToolProvider,
-    VectorToolProvider,
 )
-from remi.agent.tools.actions import ActionToolProvider
-from remi.agent.tools.assertions import AssertionToolProvider
-from remi.agent.tools.documents import DocumentToolProvider
-from remi.agent.tools.search import SearchToolProvider
-from remi.agent.tools.workflows import WorkflowToolProvider
-from remi.agent.types import ChatSessionStore, ToolArg, ToolProvider, ToolRegistry
+from remi.agent.types import ChatSessionStore, ToolProvider, ToolRegistry
 from remi.agent.vectors import Embedder, VectorStore, build_embedder, build_vector_store
 from remi.agent.workflow import WorkflowRunner
 from remi.agent.workforce import Workforce
@@ -72,15 +66,6 @@ from remi.application.stores import (
 from remi.application.stores.indexer import AgentVectorSearch
 from remi.application.stores.world import build_re_world_model
 from remi.shell.config.settings import RemiSettings
-
-
-def _build_scope_filter_args(profile: DomainProfile) -> list[ToolArg]:
-    args: list[ToolArg] = []
-    for key in ("manager_id", "property_id"):
-        hint_key = f"semantic_search:{key}"
-        desc = profile.tool_hints.get(hint_key, f"Filter results by {key}")
-        args.append(ToolArg(name=key, description=desc))
-    return args
 
 
 class Container:
@@ -179,40 +164,15 @@ class Container:
             section_labels=profile.section_labels,
         )
 
-        # -- World model + entity store -----------------------------------------
-        from remi.agent.graph.stores import WorldModel
-
+        # -- World model --------------------------------------------------------
         self.world_model: WorldModel = build_re_world_model(self.property_store)
-        entity_store = build_entity_store()
 
-        # -- Tool providers (phase 1 — before chat_agent exists) ---------------
-        _api_base = self.settings.api.resolved_internal_url()
-        p = profile
-        scope_args = _build_scope_filter_args(p) if p.scope_entity_type else []
-
-        phase1_providers: list[ToolProvider] = [
-            AnalysisToolProvider(self.sandbox, sdk_hint=p.sdk_hint),
-            HttpToolProvider(api_base_url=_api_base, api_path_examples=p.api_path_examples),
+        # -- Tool providers (kernel primitives only) ----------------------------
+        kernel_providers: list[ToolProvider] = [
+            AnalysisToolProvider(self.sandbox),
             MemoryToolProvider(memory_store),
-            VectorToolProvider(
-                self.vector_store,
-                self.embedder,
-                search_hint=p.tool_hints.get("semantic_search", ""),
-                entity_type_hint=p.tool_hints.get("semantic_search:entity_type", ""),
-                scope_filter_args=scope_args,
-            ),
-            TraceToolProvider(self.trace_store),
-            GraphToolProvider(entity_store, self.world_model),
-            DocumentToolProvider(
-                self.content_store,
-                self.property_store,
-                document_ingest=self.document_ingest,
-                vector_search=vector_search,
-            ),
-            ActionToolProvider(self.property_store),
-            SearchToolProvider(self.search_service),
         ]
-        for provider in phase1_providers:
+        for provider in kernel_providers:
             provider.register(self.tool_registry)
 
         # -- Chat agent --------------------------------------------------------
@@ -257,26 +217,11 @@ class Container:
         # -- Workforce (agent topology from manifests) -------------------------
         self.workforce = Workforce.from_registry()
 
-        # -- Tool providers (phase 2 — after chat_agent exists) ----------------
-        phase2_providers: list[ToolProvider] = [
-            WorkflowToolProvider(
-                self.property_store,
-                self.manager_resolver,
-                self.dashboard_resolver,
-                supervisor=self.task_supervisor,
-            ),
-            DelegationToolProvider(
-                self.task_supervisor,
-                workforce=self.workforce,
-            ),
-            AssertionToolProvider(
-                self.property_store,
-                event_store=self.event_store,
-                event_bus=self.event_bus,
-            ),
-        ]
-        for provider in phase2_providers:
-            provider.register(self.tool_registry)
+        # -- Delegation tool (requires chat_agent → task_supervisor → workforce)
+        DelegationToolProvider(
+            self.task_supervisor,
+            workforce=self.workforce,
+        ).register(self.tool_registry)
 
     async def ensure_bootstrapped(self) -> None:
         if self._bootstrap_pending:

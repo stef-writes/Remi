@@ -18,21 +18,22 @@
 # -----
 #   docker build -t remi-sandbox:latest ./sandbox
 #
-# The API container spawns sessions via:
-#   docker run --rm --network remi_internal \
-#              -e REMI_API_URL=http://api:8000 \
-#              remi-sandbox:latest python /session/code.py
+# The API container spawns sessions via DockerSandbox, which starts
+# each container with `sleep infinity` and uses `docker exec` for code
+# execution.  Network is restricted to the remi_sandbox internal bridge.
 
 FROM python:3.13-slim
 
-# Install only packages the agent SDK and analytics tooling need.
+# Analytics packages only — NO networking libraries (httpx, requests,
+# aiohttp, urllib3).  The only way to reach outside the sandbox is via
+# the injected ``remi`` module, which uses stdlib urllib against the
+# internal REMI_API_URL.
 RUN pip install --no-cache-dir \
         pandas \
         numpy \
         scipy \
         scikit-learn \
-        statsmodels \
-        requests
+        statsmodels
 
 # Non-root execution — agents should not be able to install packages
 # or modify the image layer even if they escape the exec() boundary.
@@ -45,5 +46,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HOME=/tmp
 
-# Entry point is intentionally left unset; the DockerSandbox backend
-# overrides CMD when spawning each session container.
+HEALTHCHECK --interval=30s --timeout=5s --retries=2 \
+    CMD ["python", "-c", "print('ok')"]
+
+# Entry point is intentionally left unset; DockerSandbox starts
+# containers with `sleep infinity` and execs code into them.

@@ -1,32 +1,21 @@
-"""agent/tools — domain-agnostic tool implementations for the LLM runtime.
+"""agent/tools — kernel tool primitives for the LLM runtime.
 
-Sandbox, HTTP, memory, vectors, graph, delegation, trace, and the tool
-catalog are generic capabilities that could power any domain. They live
-here, not in ``application/tools/`` (which holds domain-specific agent
-capabilities).
+Only five tools are registered in the CLI-first architecture:
+``bash``, ``python``, ``delegate_to_agent``, ``memory_store``,
+``memory_recall``.  These are provided by three ToolProvider classes.
 
-Public API::
-
-    from remi.agent.tools import InMemoryToolCatalog, GraphToolProvider, ...
+The ToolCatalog/Registry implementations also live here.
 """
 
 from remi.agent.tools.delegation import DelegationToolProvider
-from remi.agent.tools.graph import GraphToolProvider
-from remi.agent.tools.http import HttpToolProvider
 from remi.agent.tools.memory import MemoryToolProvider
 from remi.agent.tools.registry import InMemoryToolCatalog, InMemoryToolRegistry
 from remi.agent.tools.sandbox import AnalysisToolProvider
-from remi.agent.tools.trace import TraceToolProvider
-from remi.agent.tools.vectors import VectorToolProvider
 
 __all__ = [
     "AnalysisToolProvider",
     "DelegationToolProvider",
-    "GraphToolProvider",
-    "HttpToolProvider",
     "InMemoryToolCatalog",
     "InMemoryToolRegistry",
     "MemoryToolProvider",
-    "TraceToolProvider",
-    "VectorToolProvider",
 ]

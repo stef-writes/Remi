@@ -14,7 +14,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src/ src/
 
-RUN uv pip install --system ".[all-providers,postgres,analytics]"
+RUN uv pip install --system ".[all-providers,postgres,analytics,sandbox-docker]"
 
 # ---------- runtime stage ----------
 FROM python:3.13-slim

@@ -1,18 +1,20 @@
-"""Ingestion CLI — document upload and status."""
+"""Ingestion CLI — document upload, listing, and search."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import typer
 
+from remi.shell.cli.output import emit_error, emit_success
+
 cli_group = typer.Typer(name="ingestion", help="Document ingestion commands.")
 
 
-def _container():
+def _container():  # noqa: ANN202
     from remi.shell.config.container import Container
+
     return Container()
 
 
@@ -25,8 +27,11 @@ def upload(
 ) -> None:
     """Upload and ingest a document."""
     if not file.exists():
-        typer.echo(f"File not found: {file}", err=True)
-        raise typer.Exit(code=1)
+        emit_error(
+            "FILE_NOT_FOUND",
+            f"File not found: {file}",
+            command="remi ingestion upload",
+        )
 
     content = file.read_bytes()
     content_type = _guess_content_type(file)
@@ -42,21 +47,42 @@ def upload(
             document_type=document_type,
         )
     )
-    typer.echo(json.dumps(result.model_dump(mode="json"), indent=2, default=str))
+    emit_success(result.model_dump(mode="json"), command="remi ingestion upload")
 
 
 @cli_group.command()
 def documents(
-    output: str = typer.Option("json", help="Output format: json"),
+    manager_id: str | None = typer.Option(None, help="Filter by manager ID"),
+    property_id: str | None = typer.Option(None, help="Filter by property ID"),
 ) -> None:
     """List ingested documents."""
     c = _container()
-    docs = asyncio.run(c.content_store.list_documents())
+    if manager_id or property_id:
+        docs = asyncio.run(c.property_store.list_documents(
+            manager_id=manager_id, property_id=property_id,
+        ))
+    else:
+        docs = asyncio.run(c.content_store.list_documents())
 
-    if not docs:
-        typer.echo("No documents found.")
-        return
-    typer.echo(json.dumps([d.model_dump(mode="json") for d in docs], indent=2, default=str))
+    emit_success(
+        [d.model_dump(mode="json") for d in docs] if docs else [],
+        command="remi ingestion documents",
+    )
+
+
+@cli_group.command(name="document-search")
+def document_search(
+    query: str = typer.Argument(help="Search query"),
+    property_id: str | None = typer.Option(None, help="Filter by property"),
+    limit: int = typer.Option(10, help="Max results"),
+) -> None:
+    """Semantic search across document content."""
+    c = _container()
+    results = asyncio.run(c.search_service.search(query))
+    emit_success(
+        [r.model_dump(mode="json") for r in results],
+        command="remi ingestion document-search",
+    )
 
 
 def _guess_content_type(path: Path) -> str:

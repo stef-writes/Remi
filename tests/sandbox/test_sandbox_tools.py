@@ -18,11 +18,7 @@ from remi.agent.tools.sandbox import AnalysisToolProvider
 
 @pytest.fixture
 def sandbox(tmp_path: Path) -> LocalSandbox:
-    from remi.application.sdk import __file__ as sdk_path
-
-    sb = LocalSandbox(root=tmp_path / "sandbox")
-    sb.set_session_files({"remi.py": Path(sdk_path).read_text("utf-8")})
-    return sb
+    return LocalSandbox(root=tmp_path / "sandbox")
 
 
 @pytest.fixture
@@ -152,17 +148,6 @@ async def test_list_files_via_bash(
 
 
 # -- SDK auto-written -----------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_session_has_sdk(sandbox: LocalSandbox) -> None:
-    session = await sandbox.create_session("s5")
-    sdk_path = Path(session.working_dir) / "remi.py"
-    assert sdk_path.exists(), "remi.py should be auto-written on session create"
-    source = sdk_path.read_text()
-    assert "def properties(" in source
-    assert "def rent_roll(" in source
-    assert "def managers(" in source
 
 
 # -- session_id injection -------------------------------------------------------

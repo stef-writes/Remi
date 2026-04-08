@@ -166,6 +166,9 @@ class AgentConfig(BaseModel):
     # Phase-gated execution (researcher)
     phases: list[PhaseConfig] = Field(default_factory=list)
 
+    # Skills — filesystem paths to discover playbook SKILL.md files
+    skills_paths: list[str] = Field(default_factory=list)
+
     # Output
     output_contract: str = "conversation"
 
@@ -264,6 +267,7 @@ class AgentConfig(BaseModel):
             delegates_to=delegates,
             memory=memory,
             phases=phases,
+            skills_paths=data.get("skills_paths", []),
             max_iterations=data.get("max_iterations", 10),
             ask_max_iterations=data.get("ask_max_iterations"),
             agent_max_iterations=data.get("agent_max_iterations"),

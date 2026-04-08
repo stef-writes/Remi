@@ -1,13 +1,17 @@
 """Sandbox execution policy — subprocess environment and command screening.
 
-Provides ``build_subprocess_env`` (safe environment for sandbox subprocesses)
-and ``is_dangerous_command`` (shell command blocklist).  Used by
-``LocalSandbox`` as defense-in-depth.
+Provides ``build_subprocess_env`` (safe environment for sandbox subprocesses),
+``is_dangerous_command`` (shell command blocklist), and
+``has_blocked_imports`` (network library import detection).
+
+Used by ``LocalSandbox`` as defense-in-depth.
 """
 
 from __future__ import annotations
 
+import ast
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -25,7 +29,48 @@ _BLOCKED_COMMANDS = [
     "kill ",
     "pkill ",
     "killall ",
+    "pip install",
+    "pip3 install",
+    "uv add",
+    "uv pip install",
+    "curl ",
+    "wget ",
 ]
+
+# Libraries that must not be importable inside the sandbox.
+# Network libraries: the only outbound channel is the injected ``remi``
+# bridge module, which uses stdlib ``urllib.request`` against the
+# internal REMI API URL.
+# Process-spawning libraries: blocked because the exec wrapper neuters
+# subprocess/os.system at runtime, and allowing the import would let
+# agent code re-import a fresh copy.
+BLOCKED_IMPORTS: frozenset[str] = frozenset({
+    # Network
+    "httpx",
+    "requests",
+    "aiohttp",
+    "urllib3",
+    "httplib2",
+    "pycurl",
+    "grpc",
+    "grpcio",
+    "websockets",
+    "websocket",
+    "socket",
+    "paramiko",
+    "fabric",
+    "ftplib",
+    "smtplib",
+    "imaplib",
+    "poplib",
+    "telnetlib",
+    "xmlrpc",
+    # Process spawning
+    "subprocess",
+    "multiprocessing",
+    "pty",
+    "ctypes",
+})
 
 
 def build_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -90,3 +135,43 @@ def is_dangerous_command(cmd: str) -> bool:
     """Block shell commands that could escape the sandbox."""
     cmd_lower = cmd.lower().strip()
     return any(b in cmd_lower for b in _BLOCKED_COMMANDS)
+
+
+def has_blocked_imports(code: str) -> list[str]:
+    """Return network libraries that the code attempts to import.
+
+    Uses AST analysis first (reliable for ``import X`` / ``from X import …``),
+    then falls back to a regex scan for dynamic ``__import__("X")`` calls.
+    Returns an empty list when no blocked imports are found.
+    """
+    found: list[str] = []
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        # Unparseable code — fall through to regex only.
+        tree = None
+
+    if tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top = alias.name.split(".")[0]
+                    if top in BLOCKED_IMPORTS:
+                        found.append(top)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    top = node.module.split(".")[0]
+                    if top in BLOCKED_IMPORTS:
+                        found.append(top)
+
+    # Catch dynamic imports: __import__("httpx"), importlib.import_module("httpx")
+    for match in re.finditer(
+        r"""(?:__import__|import_module)\s*\(\s*['"]([a-zA-Z_]\w*)['"]""",
+        code,
+    ):
+        mod = match.group(1)
+        if mod in BLOCKED_IMPORTS and mod not in found:
+            found.append(mod)
+
+    return found

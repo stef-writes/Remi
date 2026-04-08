@@ -2,11 +2,11 @@
 
 A ``ChangeSet`` is produced whenever new information enters REMI (file upload,
 API mutation, AI correction, chat assertion).  Downstream consumers — the
-PropertyStore, knowledge graph, signal engine, embedding pipeline — subscribe
-to ChangeSets rather than being called directly by ingestion code.
+PropertyStore, knowledge graph, and embedding pipeline — subscribe to
+ChangeSets rather than being called directly by ingestion code.
 
 ``EventStore`` is the persistence protocol.  Implementations live in
-``application/infra/stores/``.
+``application/stores/``.
 """
 
 from __future__ import annotations

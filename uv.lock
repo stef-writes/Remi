@@ -21,6 +21,18 @@ wheels = [
 ]
 
 [[package]]
+name = "aiodocker"
+version = "0.26.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/96/64/3b724f650cedc6d5c1cad7fdae3dd3b53c976d075547ff5268e2f1e56db5/aiodocker-0.26.0.tar.gz", hash = "sha256:7e4ee40c6f98e6d1cf95d712f15aef3853087c0475bc7ea5ec499c2d485ba7ec", size = 162018 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/0d/e8f4164cbd950195900dd77aad23136f9ddc7feb0fb478d71839d1fda573/aiodocker-0.26.0-py3-none-any.whl", hash = "sha256:f450acf0b402a03c6a6f1517d06bdff739c404e62578b332182ca272fde6e986", size = 47825 },
+]
+
+[[package]]
 name = "aiofile"
 version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3520,6 +3532,7 @@ name = "remi"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiodocker" },
     { name = "aiohttp" },
     { name = "anthropic" },
     { name = "fastapi" },
@@ -3551,6 +3564,7 @@ analytics = [
     { name = "statsmodels" },
 ]
 dev = [
+    { name = "aiodocker" },
     { name = "asyncpg" },
     { name = "google-generativeai" },
     { name = "httpx" },
@@ -3579,9 +3593,14 @@ postgres = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sqlmodel" },
 ]
+sandbox-docker = [
+    { name = "aiodocker" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "aiodocker", specifier = ">=0.26.0" },
+    { name = "aiodocker", marker = "extra == 'sandbox-docker'", specifier = ">=0.23" },
     { name = "aiohttp", specifier = ">=3.13.5" },
     { name = "anthropic", specifier = ">=0.86.0" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30" },
@@ -3605,7 +3624,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "rapidfuzz", specifier = ">=3.14.3" },
-    { name = "remi", extras = ["postgres", "analytics", "all-providers"], marker = "extra == 'dev'" },
+    { name = "remi", extras = ["postgres", "analytics", "all-providers", "sandbox-docker"], marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1" },
     { name = "scikit-learn", marker = "extra == 'analytics'", specifier = ">=1.5,<2" },
     { name = "scipy", marker = "extra == 'analytics'", specifier = ">=1.14,<2" },
@@ -3618,7 +3637,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.15,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]
-provides-extras = ["openai", "gemini", "all-providers", "analytics", "postgres", "dev"]
+provides-extras = ["openai", "gemini", "all-providers", "analytics", "sandbox-docker", "postgres", "dev"]
 
 [[package]]
 name = "requests"

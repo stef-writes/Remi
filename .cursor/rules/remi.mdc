@@ -246,12 +246,25 @@ and snapshot system have been deleted. Do not create or import from
 **Dependency direction:** `application/` imports from `agent/` — never
 the reverse. `shell/` imports from both. `types/` imports nothing.
 
-**Two agent modes:**
-- *Code-first agents* run inside `agent/sandbox/` as isolated subprocesses.
-  They call REMI through the HTTP bridge. Their tool registry IS the API.
-- *Conversational agents* run inside the REMI process. They call application
-  services through `application/tools/`. Their tool registry is
-  `application/tools/__init__.py`.
+**CLI-first agent interface:**
+
+All agents access the platform through the `remi` CLI via `bash`.
+The sandbox has `REMI_API_URL` set, so `remi` commands proxy to the
+running API server (zero cold start). Three clean concepts:
+
+- **Tool** = kernel primitive exposed via LLM function calling:
+  `bash`, `python`, `delegate_to_agent`, `memory_store`, `memory_recall`.
+  Five tools. That's it.
+- **Command** = a `remi` CLI subcommand returning structured JSON.
+  This is how agents (and humans) access the platform.
+  Every command returns `{"status": "success"|"error", "data": ..., "metadata": {...}}`.
+- **Skill** = a markdown playbook (`SKILL.md`) with domain knowledge
+  + example CLI commands. Discovered at startup, injected into the
+  system prompt.
+
+The agent does NOT `import remi` in Python. There is no bridge.py.
+There is no `application/tools/workflows.py`. Python is for computation
+on data already retrieved via CLI.
 
 ## Task System — Supervised Multi-Agent Delegation
 
@@ -638,25 +651,39 @@ The container reads both and wires the right combination.
 The YAML manifest is the intermediate representation for a visual
 canvas. Three concepts compose into agent networks:
 
-### Tools as per-agent capabilities
+### Tools — kernel primitives only
 
-Tools are registered globally in the `ToolRegistry`, but each agent
-scopes and configures them independently via `tools:` in YAML:
+Only five tools exist in the function-calling registry:
+
+| Tool | What it does |
+|------|-------------|
+| `bash` | Run shell commands (primary: `remi` CLI for data access) |
+| `python` | Persistent Python session for computation |
+| `delegate_to_agent` | Supervised delegation to another agent |
+| `memory_store` | Write to agent memory |
+| `memory_recall` | Read from agent memory |
+
+Each agent declares which tools it uses in YAML:
 
 ```yaml
 tools:
   - name: python
     config:
-      timeout_seconds: 60
-      max_output_bytes: 200000
-  - name: semantic_search
-    config:
-      default_limit: 20
+      timeout: 120
+    inject:
+      session_id: sandbox_session_id
+  - name: bash
+    inject:
+      session_id: sandbox_session_id
+  - name: delegate_to_agent
+  - name: memory_store
+  - name: memory_recall
 ```
 
-`config:` is merged into tool arguments at call time. Same tool name,
-different behavior per agent. This is how the researcher's `python`
-gets more timeout than the director's.
+All domain data access goes through the `remi` CLI via `bash`.
+There are no domain-specific function-calling tools (no `manager_review`,
+no `entity_search`, no `portfolio_health`). Those were replaced by
+CLI commands.
 
 ### Declarative delegation graph
 
@@ -727,12 +754,110 @@ individual manifests.
 - **Every app.yaml should have a `runtime:` stanza.** Even if all values
   are defaults. It makes the execution topology self-documenting.
 
+## CLI Commands — The Platform Surface
+
+The `remi` CLI is the agent's single data access interface. Every
+command returns a structured JSON envelope:
+
+```json
+{"status": "success", "data": ..., "metadata": {"command": "...", "timestamp": "...", "_schema_version": "1.0"}}
+```
+
+Envelope helpers live in `shell/cli/output.py`. All four CLI modules
+(portfolio, operations, intelligence, ingestion) use them.
+
+When `REMI_API_URL` is set (always true inside the sandbox), CLI
+commands proxy to the running API via HTTP (`shell/cli/client.py`).
+No container bootstrap, no cold start.
+
+### Available commands
+
+| Group | Command | What it does |
+|-------|---------|-------------|
+| portfolio | `managers` | List managers with metrics |
+| portfolio | `properties [--manager-id X]` | List properties |
+| portfolio | `rent-roll <property-id>` | Rent roll |
+| portfolio | `manager-review <manager-id>` | Full composite review |
+| portfolio | `rankings [--sort-by X]` | Rank managers |
+| operations | `leases [--manager-id X]` | List leases |
+| operations | `maintenance [--manager-id X]` | List maintenance |
+| operations | `delinquency [--manager-id X]` | Delinquent tenants |
+| operations | `expiring-leases [--days N]` | Expiring leases |
+| operations | `create-action --title ... --manager-id X` | Create action item |
+| operations | `create-note --content ... --entity-type X --entity-id X` | Create note |
+| intelligence | `dashboard` | Portfolio overview |
+| intelligence | `search "<query>"` | Entity search |
+| intelligence | `vacancies [--manager-id X]` | Vacant units |
+| intelligence | `trends <metric> [--manager-id X]` | Time-series trends |
+| intelligence | `assert-fact --entity-type X --properties '{...}'` | Assert fact |
+| intelligence | `add-context --entity-type X --entity-id X --context "..."` | Add context |
+| ingestion | `upload <file>` | Ingest a document |
+| ingestion | `documents` | List documents |
+| ingestion | `document-search "<query>"` | Search document content |
+
+### Adding new commands
+
+1. Add a `@cli_group.command()` in the appropriate CLI module
+2. Check `_is_remote()` first — proxy via `shell/cli/client.py` if set
+3. Fall back to container-direct for local mode
+4. Always wrap output in `emit_success()` / `emit_error()`
+5. Use `--json/--table` flag defaulting to JSON
+
+## Skills — Domain Knowledge for Agents
+
+Skills live in `.remi/skills/<name>/SKILL.md`. Each has:
+
+- **YAML frontmatter** — name, description, tags, scope, trigger,
+  required_capabilities
+- **Knowledge section** — what to look for, red flags, interpretation
+- **Commands section** — example `remi` CLI invocations
+
+Skills are discovered by `FilesystemSkillDiscovery` at agent startup
+and injected into the system prompt. Agents use `skills_paths:` in
+their YAML manifest to declare which skill directories to scan.
+
+### What NOT to do with skills
+
+- Do not put Python code in skills. Skills teach CLI commands.
+- Do not put `import remi` examples. The bridge is deleted.
+- Do not create complex multi-file skill packages. One SKILL.md per
+  skill, in its own directory.
+
+## Application Structure — Product Surface, Not Integration
+
+`application/` is organized by **product surface** — what the user
+sees and what business capability it serves:
+
+- `portfolio/` — managers, properties, units, rent rolls, rankings
+- `operations/` — leases, maintenance, delinquency, actions, notes
+- `intelligence/` — dashboard, search, trends, assertions, knowledge
+- `ingestion/` — document upload, extraction pipeline
+
+This is NOT organized by data source. When ServiceM8, Xero, or Gmail
+data flows in, it feeds into existing surfaces (maintenance data from
+ServiceM8 enriches `operations/`, financials from Xero enrich
+`portfolio/`). New integrations add **data adapters**, not new
+top-level packages.
+
+### Future integrations
+
+Auth, connections, and external service adapters will live in a
+dedicated integration layer when needed. The current architecture
+prepares for this via:
+
+- `workspace_id` on `RuntimeContext` (forward-compatible field)
+- Protocol-based stores (swap implementations per data source)
+- CLI client mode (agents don't know how data is stored)
+
+Do not force integration infrastructure into the current `application/`
+packages prematurely.
+
 ## Key Constraints
 
 - `shell/config/domain.yaml` is the source of truth for signal definitions,
   thresholds, and rules — do not hardcode these values in Python
-- The agent reasons over data via tools — there is no precomputed signal
-  engine. The TBox defines the vocabulary; the agent queries on demand.
+- The agent reasons over data via CLI commands — there is no precomputed
+  signal engine. The TBox defines the vocabulary; the agent queries on demand.
 - `types/` is for cross-cutting primitives only — no business logic
 - Prefer small focused modules over accumulating logic in an existing file
 - When a file is growing beyond a single clear responsibility, flag it
@@ -741,6 +866,12 @@ individual manifests.
 
 These systems were removed as compensatory complexity. Do not recreate them:
 
+- **Python bridge** (`application/platform/bridge.py`) — `import remi` SDK
+  injected into the sandbox. Replaced by CLI-first architecture. The agent
+  uses `remi` CLI commands via `bash`, not Python imports.
+- **Domain function-calling tools** (`WorkflowToolProvider`, `ActionToolProvider`,
+  `SearchToolProvider`) — `manager_review`, `entity_search`, `portfolio_health`
+  etc. Replaced by CLI commands.
 - **Entailment engine** (`application/services/detection/signals/`) — 7 evaluators
   + engine + pipeline that precomputed signals. The agent queries data directly now.
 - **Snapshot/rollup system** (`SnapshotService`, `RollupStore`) — point-in-time

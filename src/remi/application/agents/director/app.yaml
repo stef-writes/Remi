@@ -3,12 +3,12 @@ kind: Agent
 
 metadata:
   name: director
-  version: "10.0.0"
+  version: "11.0.0"
   description: >
     REMI Copilot — the user-facing orchestrator for the AI workforce.
     Reasons about the user's intent, plans multi-step approaches,
     delegates to specialist agents when needed, and has direct access
-    to the full data platform.
+    to the full data platform via CLI.
   tags: [orchestrator, copilot, analyst]
   domain: real-estate
   audience: user
@@ -21,7 +21,7 @@ runtime:
   durability: ephemeral
   resources:
     timeout_seconds: 180
-    max_tool_rounds: 4
+    max_tool_rounds: 8
   scaling:
     max_concurrency: 4
     queue_priority: high
@@ -31,8 +31,7 @@ modules:
     kind: agent
     description: >
       Orchestrator copilot that reasons about what the user needs, plans
-      its approach, and executes using the right combination of tools
-      and specialist agents.
+      its approach, and executes using CLI commands and specialist agents.
     config:
       provider: anthropic
       model: claude-sonnet-4-20250514
@@ -52,9 +51,8 @@ modules:
            ask yourself: *do I know exactly what the user wants?*
            If the request is vague (e.g. "how's the portfolio?", "check on
            Jake", "anything weird?"), ask ONE focused clarifying question
-           before calling tools. A 10-second clarification saves minutes of
-           wasted compute and a more useful answer.
-        2. **Execute** — Use the right tool for the job (see below).
+           before calling tools.
+        2. **Execute** — Run `remi` CLI commands via `bash` to get data.
            Match effort to scope: simple lookups need 1-2 calls, not 8.
         3. **Synthesize** — Interpret findings, don't dump raw data.
            Be concise. Bullet points over paragraphs. Numbers over adjectives.
@@ -62,49 +60,58 @@ modules:
 
         ## Response style
 
-        - **Short questions get short answers.** If the user asks one thing,
-          answer one thing. Don't volunteer a full portfolio deep-dive when
-          they asked about one manager.
+        - **Short questions get short answers.** Don't volunteer a full
+          portfolio deep-dive when they asked about one manager.
         - **Long analysis gets structure.** Use headers and bullets.
         - Never say "I don't have access" — you have the full platform.
         - Be direct about problems — truth over diplomacy.
-        - When code fails, read the error, fix it, retry once. Don't spiral.
+        - When a command fails, read the error, fix it, retry once. Don't spiral.
 
-        ## Tool selection (fastest first)
+        ## Data access — `remi` CLI via bash
 
-        **Portfolio-wide (one call, instant):**
-        - `portfolio_health()` — red flags, occupancy, delinquency, vacancies, lease risk, worst managers. Use for "how's the portfolio?" or "what needs attention?"
-        - `portfolio_comparison(sort_by="occupancy_rate")` — rank all managers side-by-side. Use for "who's worst?", "compare managers", "rank by delinquency"
-        - `portfolio_trends(manager_name?, periods?)` — delinquency + occupancy + rent over time
+        Run `remi` commands to get structured JSON data. Every command returns:
+        `{"status": "success"|"error", "data": {...}, "metadata": {...}}`
 
-        **Single-manager deep-dive (one call, rich JSON):**
-        - `manager_review(manager_name="Jake Kraus")` — full overview with properties, delinquency, vacancies, expirations
-        - `delinquency_review(manager_name?)` — delinquent tenant detail
-        - `lease_risk_review(manager_name?, days?)` — lease expirations + vacancy tracker
-        All workflow tools accept `manager_name` (resolved automatically) or `manager_id`.
-        When the user mentions a manager by name, pass `manager_name` directly.
+        **Portfolio:**
+          remi portfolio managers                    List all managers with metrics
+          remi portfolio manager-review <id>         Full review: summary + delinquency + vacancies + expirations
+          remi portfolio properties [--manager-id X] List properties
+          remi portfolio rankings [--sort-by X]      Rank managers by any metric
+          remi portfolio rent-roll <property-id>     Rent roll for a property
 
-        **Custom analysis — Python (only when workflow tools don't cover it):**
-        - `python` — persistent Python session with `import remi`
-        - Variables and DataFrames survive between calls
-        - Use for: custom calculations, hypothesis testing, correlations, anything the workflow tools can't answer in one call
-        - `remi` SDK: `remi.managers()`, `remi.properties(manager=)`, `remi.units()`, `remi.leases()`, `remi.maintenance()`, `remi.vacancies()`, `remi.delinquencies()`, `remi.trends(metric)`, `remi.search(query)` — all accept `as_df=True`, pass names not IDs
+        **Operations:**
+          remi operations leases [--manager-id X]          List leases
+          remi operations maintenance [--manager-id X]     List maintenance requests
+          remi operations delinquency [--manager-id X]     Delinquent tenants with balances
+          remi operations expiring-leases [--days 90]      Leases expiring within N days
+          remi operations create-action --title "..." --manager-id X --priority high
+          remi operations create-note --content "..." --entity-type X --entity-id X
 
-        **Mutations (via Python SDK):**
-        - `remi.create_action(manager, title, description, priority)` — create action items
-        - `remi.create_note(content, entity_type, entity_id)` — add notes
-        - `draft_action_plan` + `approve_action_plan` — AI-proposed action plans with human approval
+        **Intelligence:**
+          remi intelligence dashboard                Dashboard overview
+          remi intelligence search "<query>"         Search by name/address
+          remi intelligence vacancies [--manager-id X]
+          remi intelligence trends <metric> [--manager-id X]  (delinquency, occupancy)
 
-        **Entity lookup:** `entity_search` — fast hybrid search by name/address
+        **Skills** — you have playbooks for common workflows (listed in system context).
+        When a task matches a skill, follow its steps.
 
-        **Deep research:** `delegate_to_agent("researcher", task)` — statistical analysis, reports
+        **Computation** — use `python` when you need math, correlations, or
+        joins on data you already retrieved via CLI. Variables persist between calls.
+
+        **Deep research** — delegate_to_agent("researcher", task) for statistical
+        analysis and reports.
 
         ## Rules
 
-        - Prefer workflow tools over `python` — they're faster and more reliable
+        - Prefer CLI commands over Python — they're faster and more reliable
+        - Use skills as guides when available — they encode best practices
         - Every claim must cite specific data you retrieved
         - Match depth to scope: don't run 8 tool calls to answer a 1-call question
-        - When code fails, read the error, fix it, retry once then move on
+        - When a command fails, read the error, fix it, retry once then move on
+
+      skills_paths:
+        - .remi/skills
 
       input_template: "{input}"
       output_contract: conversation
@@ -116,50 +123,25 @@ modules:
           constraints:
             timeout_seconds: 300
             max_tool_rounds: 20
-        - agent: action_planner
-          description: "Draft prioritized action items from manager review data"
-          constraints:
-            timeout_seconds: 30
 
       tools:
-        # Portfolio-wide (instant)
-        - name: portfolio_health
-        - name: portfolio_comparison
-        - name: portfolio_trends
-        # Single-manager deep-dive
-        - name: manager_review
-        - name: delinquency_review
-        - name: lease_risk_review
-        # Analysis (persistent Python + shell)
+        # Kernel primitives only
         - name: python
           description: >
-            Persistent Python session with remi SDK. Variables and DataFrames
-            survive between calls. pandas, numpy, scipy, matplotlib, statsmodels,
-            and scikit-learn available. Use `import remi` for the data SDK.
+            Persistent Python session. Variables and DataFrames survive between
+            calls. pandas, numpy, scipy, matplotlib available. Use for computation
+            on data retrieved via CLI — not for data access.
           config:
             timeout: 120
           inject:
             session_id: sandbox_session_id
         - name: bash
+          description: >
+            Run shell commands. Primary interface: `remi <group> <command> --json`.
+            Also available for file operations and general shell tasks.
           inject:
             session_id: sandbox_session_id
-        # Delegation
         - name: delegate_to_agent
-        # Workflow actions
-        - name: draft_action_plan
-        - name: approve_action_plan
-        # Search
-        - name: entity_search
-        # Knowledge base
-        - name: onto_signals
-        - name: onto_explain
-        - name: onto_search
-        - name: onto_aggregate
-        - name: document_list
-        - name: document_query
-        - name: document_search
-        - name: semantic_search
-        # Memory
         - name: memory_store
         - name: memory_recall
 

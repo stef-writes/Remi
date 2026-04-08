@@ -77,9 +77,14 @@ class SandboxSettings(BaseModel):
     backend: str = "local"
     default_timeout: int = 30
     max_output_bytes: int = 100_000
-    # Sessions idle longer than this are reaped automatically (seconds).
-    # 0 disables TTL-based cleanup (manual destroy only).
     session_ttl_seconds: int = 3600
+
+    # Docker backend settings (ignored when backend=local)
+    image: str = "remi-sandbox:latest"
+    network: str = "remi_sandbox"
+    memory_limit: str = "512m"
+    cpu_quota: int = 50_000
+    pids_limit: int = 64
 
 
 class EmbeddingsSettings(BaseModel):
