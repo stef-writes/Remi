@@ -8,26 +8,30 @@ REMI is an **agent operating system for real estate** — a layered runtime that
 
 ## Four-Ring Dependency Model
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  shell/                                                         │
-│  Composition root — DI container, settings, FastAPI, Typer CLI │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  application/                                             │  │
-│  │  Real estate product — models, views, services, API, CLI  │  │
-│  │                                                           │  │
-│  │  ┌─────────────────────────────────────────────────────┐  │  │
-│  │  │  agent/                                             │  │  │
-│  │  │  AI OS kernel — LLM, sandbox, vectors, runtime      │  │  │
-│  │  │                                                     │  │  │
-│  │  │  ┌───────────────────────────────────────────────┐  │  │  │
-│  │  │  │  types/                                       │  │  │  │
-│  │  │  │  Shared primitives — IDs, config, errors      │  │  │  │
-│  │  │  └───────────────────────────────────────────────┘  │  │  │
-│  │  └─────────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph shell_ring [shell/]
+        shell["Composition root<br/>DI container, settings, FastAPI, Typer CLI"]
+    end
+
+    subgraph app_ring [application/]
+        app["Real estate product<br/>Models, views, services, vertical slices"]
+    end
+
+    subgraph agent_ring [agent/]
+        agent["AI OS kernel<br/>LLM, sandbox, vectors, graph, runtime"]
+    end
+
+    subgraph types_ring [types/]
+        types["Shared primitives<br/>IDs, config shapes, errors"]
+    end
+
+    shell --> app
+    shell --> agent
+    shell --> types
+    app --> agent
+    app --> types
+    agent --> types
 ```
 
 **Dependency arrows always point inward.** `application/` may import from `agent/` and `types/`. `agent/` may only import from `types/`. `types/` imports nothing. `shell/` imports everything and is the only place where the rings are wired together.
@@ -68,18 +72,16 @@ agent/
   workspace/    Agent working memory (Markdown scratchpad)
 ```
 
-Key types: `Sandbox`, `LLMProviderFactory`, `VectorStore`, `Embedder`, `AgentRuntime`, `AgentSessions`, `WorkflowRunner`, `AgentStepNode`, `TaskSupervisor`, `TaskSpec`, `TaskResult`, `MemoryStore`, `MemoryEntry`, `Importance`, `MemoryRecallService`, `extract_episode`, `SkillMetadata`, `SkillContent`, `FilesystemSkillDiscovery`.
-
 ### `application/` — Real estate product
 
 The RE domain expressed in hexagonal (ports and adapters) style. Depends on `agent/` for AI infrastructure but defines its own domain models, protocols, and read models. Organized as vertical feature slices — each slice owns its API routes, CLI commands, resolvers, and models.
 
 ```
 application/
-  core/         Domain models (Property, Lease, Tenant, …), protocols,
+  core/         Domain models (Property, Lease, Tenant, ...), protocols,
                 business rules, domain events
   views/        Read models — computed views over the domain graph
-                (DashboardResolver, RentRollResolver, LeaseResolver, …)
+                (DashboardResolver, RentRollResolver, LeaseResolver, ...)
   portfolio/    Portfolio slice — managers, properties, units (API + CLI)
   operations/   Operations slice — leases, maintenance, actions (API + CLI)
   intelligence/ Intelligence slice — dashboard, search, trends (API + CLI)
@@ -92,20 +94,20 @@ application/
     indexer.py  AgentVectorSearch, AgentTextIndexer adapters
     events.py   InMemoryEventStore
     factory.py  build_store_suite (Postgres vs in-memory)
-  tools/        Ingestion tool setup; assertion service functions
-  agents/       Agent YAML manifests (director, researcher, …)
+  tools/        Domain tool providers (QueryToolProvider, DocumentToolProvider)
+  agents/       Agent YAML manifests (director, researcher, ...)
   profile.py    Domain profile builder
 ```
 
 ### `shell/` — Composition root
 
-Wires all rings together. Contains no business logic. Registers only kernel tool providers (sandbox, memory, delegation).
+Wires all rings together. Contains no business logic. Registers kernel tool providers (sandbox, memory, delegation) and domain tool providers (query, documents).
 
 ```
 shell/
   config/
-    settings.py   Loads YAML + .env + env-var interpolation → RemiSettings
-    container.py  DI wiring — 3 kernel tool providers only
+    settings.py   Loads YAML + .env + env-var interpolation -> RemiSettings
+    container.py  DI wiring — kernel + domain tool providers
     domain.yaml   Domain schema — entity types, relationships, processes
   api/
     main.py       FastAPI app factory + lifespan (bootstraps Container)
@@ -119,165 +121,202 @@ shell/
 
 ---
 
-## Agent interface — dual mode
+## Tool Architecture
 
-Agents operate in two modes, selected per-request:
+Every agent has a single tool surface declared in its YAML manifest. The LLM decides which tool to call — there is no mode-based router or classifier.
 
-### Ask mode (default) — fast conversational Q&A
+```mermaid
+graph LR
+    LLM["LLM<br/>(think-act-observe)"]
 
-In-process tools call resolvers directly. No sandbox, no subprocess.
-Sub-second data access for simple lookups and conversational questions.
+    subgraph fast ["In-process (sub-10ms)"]
+        query["query tool<br/>12 operations"]
+        doclist["document_list"]
+        docquery["document_query"]
+    end
 
-| Tool | What it does |
-|------|-------------|
-| `query` | Universal data access — one tool, many operations (managers, properties, delinquency, trends, etc.) |
-| `search` | Semantic search across entities and documents |
-| `delegate_to_agent` | Escalate to researcher for deep analysis |
-| `memory_store` / `memory_recall` | Agent long-term memory |
+    subgraph kernel ["Kernel primitives"]
+        bash["bash<br/>(remi CLI)"]
+        python["python<br/>(persistent session)"]
+        delegate["delegate_to_agent"]
+        memwrite["memory_write"]
+        memread["memory_read"]
+    end
 
-The `query` tool accepts an `operation` parameter that dispatches to
-the appropriate resolver in-process (~300 tokens vs ~4000 for separate tools).
+    subgraph resolvers ["Resolvers (application/)"]
+        dashboard["DashboardResolver"]
+        manager["ManagerResolver"]
+        property["PropertyResolver"]
+        lease["LeaseResolver"]
+        maint["MaintenanceResolver"]
+        search["SearchService"]
+    end
 
-### Agent mode — deep research with sandbox
+    LLM --> query
+    LLM --> doclist
+    LLM --> docquery
+    LLM --> bash
+    LLM --> python
+    LLM --> delegate
+    LLM --> memwrite
+    LLM --> memread
 
-Full `bash` + `python` + CLI commands. Sandbox spawned on demand.
-For complex analysis, scripting, data joins, regressions.
-
-| Tool | What it does |
-|------|-------------|
-| `bash` | Shell commands + `remi` CLI for data access |
-| `python` | Persistent Python session for computation |
-| `delegate_to_agent` | Supervised delegation |
-| `memory_store` / `memory_recall` | Agent long-term memory |
-
+    query --> dashboard
+    query --> manager
+    query --> property
+    query --> lease
+    query --> maint
+    query --> search
 ```
-HTTP POST /api/v1/agents/{name}/ask  { mode: "ask" | "agent" }
-          │
-          ▼
-  AgentRuntime.ask() (agent/runtime/)
-          │
-          ├── ask mode: query → resolvers (in-process, sub-second)
-          │                search → vector index (in-process)
-          │
-          └── agent mode: bash → remi portfolio managers (JSON output)
-                          python → computation on CLI-retrieved data
+
+### Tool inventory
+
+| Tool | Provider | What it does |
+|------|----------|-------------|
+| `query` | `QueryToolProvider` | In-process resolver dispatch — 12 operations covering dashboard, managers, properties, rent roll, rankings, delinquency, expiring leases, vacancies, leases, maintenance, and search |
+| `document_list` | `DocumentToolProvider` | List documents with metadata, filter by manager/property |
+| `document_query` | `DocumentToolProvider` | Search within document content by ID or text query |
+| `bash` | `AnalysisToolProvider` | Shell commands + `remi` CLI for write operations and commands not in the query tool |
+| `python` | `AnalysisToolProvider` | Persistent Python session — variables survive between calls. pandas, numpy, scipy available |
+| `delegate_to_agent` | `DelegationToolProvider` | Supervised delegation to specialist agents via TaskSupervisor |
+| `memory_write` | `MemoryToolProvider` | Write to agent long-term memory (keyed, namespaced, tagged) |
+| `memory_read` | `MemoryToolProvider` | Query agent memory by text, entity, or tag |
+
+### The `query` tool
+
+`QueryToolProvider` (`application/tools/query.py`) is a single tool with an `operation` parameter that dispatches to the appropriate resolver in-process. One schema covers all read operations (~300 tokens vs ~4000 for separate tools). The LLM sends:
+
+```json
+{"operation": "delinquency", "manager_id": "jake-smith"}
 ```
 
-When `REMI_API_URL` is set (inside the sandbox in agent mode), CLI commands
-proxy to the running API server — no container cold start. See `shell/cli/client.py`.
+The tool calls `DashboardResolver.delinquency_board(manager_id="jake-smith")` and returns structured JSON. No subprocess, no sandbox, sub-10ms latency.
+
+Available operations: `dashboard`, `managers`, `manager_review`, `properties`, `rent_roll`, `rankings`, `delinquency`, `expiring_leases`, `vacancies`, `leases`, `maintenance`, `search`.
 
 ### Concepts
 
 | Layer | What | Where |
 |-------|------|-------|
-| **Tool** | Kernel primitive exposed via LLM function calling | `agent/tools/` + `application/tools/query.py` |
-| **Command** | `remi` CLI subcommand (JSON output) — agent mode | `application/{slice}/cli.py` |
-| **Skill** | Markdown playbook with domain knowledge | `.remi/skills/{name}/SKILL.md` |
-
-### Streaming response
-
-NDJSON events over the HTTP response body: `delta`, `tool_call`, `tool_running`, `tool_result`, `phase`, `done`, `error`.
-
-### Agents as workflow steps
-
-Agent loops are first-class step types in the workflow engine (`kind: agent`).
-A workflow can compose agents with LLM steps, transforms, gates, and fan-out:
-
-```yaml
-kind: Workflow
-steps:
-  - id: classify
-    kind: agent
-    agent_name: director
-    mode: ask
-
-  - id: needs_research
-    kind: gate
-    condition: "'research' in steps.classify"
-    depends_on: [classify]
-
-  - id: research
-    kind: agent
-    agent_name: researcher
-    depends_on: [needs_research]
-```
+| **Tool** | Kernel or domain primitive exposed via LLM function calling | `agent/tools/` + `application/tools/` |
+| **Command** | `remi` CLI subcommand returning structured JSON | `application/{slice}/cli.py` |
+| **Skill** | Markdown playbook with domain knowledge + CLI examples | `.remi/skills/{name}/SKILL.md` |
 
 ---
 
-## Data flow: document ingestion
+## Data Flow: Agent Conversation
 
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as FastAPI
+    participant RT as AgentRuntime
+    participant Node as AgentNode
+    participant LLM as LLMProvider
+    participant Tools as ToolDispatcher
+    participant Resolvers as Resolvers
+    participant Sandbox as Sandbox
+
+    Client->>API: POST /api/v1/agents/director/ask
+    API->>RT: ask(message, session_id)
+
+    RT->>RT: Load skills, recall memories, build context
+    RT->>Node: run(thread, tools, context)
+
+    loop Think-Act-Observe
+        Node->>LLM: stream(messages, tools)
+        LLM-->>Client: NDJSON delta events
+
+        alt query / document_list / document_query
+            LLM->>Tools: tool_call(query, ...)
+            Tools->>Resolvers: in-process call
+            Resolvers-->>Tools: structured JSON
+        else bash / python
+            LLM->>Tools: tool_call(bash, ...)
+            Tools->>Sandbox: execute in sandbox
+            Sandbox-->>Tools: stdout/stderr
+        else delegate_to_agent
+            LLM->>Tools: tool_call(delegate, ...)
+            Tools->>RT: TaskSupervisor.spawn_and_wait()
+            RT-->>Tools: TaskResult
+        end
+
+        Tools-->>Client: NDJSON tool_result event
+        Tools-->>Node: result for next iteration
+    end
+
+    Node-->>Client: NDJSON done event
 ```
-User uploads CSV/XLSX
-        │
-        ▼
-POST /api/v1/documents/upload
-        │
-        ▼
-DocumentIngestService.ingest_document()
-        │
-        ├─ Rule engine (ingestion/rules.py)
-        │   Deterministic column detection + mapping for known report types
-        │   (Property Directory, Rent Roll, Delinquency, Lease Expiration)
-        │
-        └─ LLM fallback (ingestion/pipeline.py)
-            Three-stage YAML pipeline: classify → extract → enrich
-            Only used for unknown report formats
-        │
-        ▼
-resolve_and_persist()
-        │
-        ├── PropertyStore.upsert_*()   (writes domain entities)
-        └── ContentStore.put()         (stores raw document bytes + metadata)
-        │
-        ▼
-EventBus.publish("ingestion.complete") → feed/ws + GET /feed
-```
+
+The streaming response is NDJSON over the HTTP body. Event types: `delta` (text), `tool_call`, `tool_running`, `tool_result`, `phase`, `done`, `error`.
 
 ---
 
-## Data flow: agent conversation
+## Data Flow: Document Ingestion
 
+```mermaid
+flowchart TD
+    upload["User uploads CSV/XLSX"]
+    api["POST /api/v1/documents/upload"]
+    ingest["DocumentIngestService.ingest_document()"]
+
+    subgraph pipeline ["Ingestion Pipeline"]
+        rules["Rule engine<br/>(ingestion/rules.py)<br/>Deterministic column detection"]
+        llm_fb["LLM fallback<br/>(ingestion/pipeline.py)<br/>classify -> extract -> enrich"]
+        rules --> resolve
+        llm_fb --> resolve
+    end
+
+    resolve["resolve_and_persist()"]
+    store_w["PropertyStore.upsert_*()"]
+    store_c["ContentStore.put()"]
+    event["EventBus.publish<br/>(ingestion.complete)"]
+    feed["Feed: HTTP poll + WebSocket push"]
+
+    upload --> api --> ingest
+    ingest -->|known format| rules
+    ingest -->|unknown format| llm_fb
+    resolve --> store_w
+    resolve --> store_c
+    resolve --> event --> feed
 ```
-POST /api/v1/agents/director/ask  { "message": "...", "session_id": "..." }
-        │
-        ▼
-AgentRuntime.ask()
-        │
-        ├── SkillDiscovery → load skill catalog into system prompt
-        ├── MemoryRecallService → inject relevant memories
-        ├── ContextBuilder.build()
-        │   Pulls: domain schema, world model summary
-        │
-        ├── LLMProvider.complete()   (streaming)
-        │
-        └── ToolDispatcher.dispatch(tool_call)
-              │
-              ├── bash             → remi CLI commands (JSON output)
-              │                      e.g. remi portfolio managers
-              │                      e.g. remi operations delinquency
-              ├── python           → computation on retrieved data
-              ├── memory_store     → MemoryStore.write()
-              ├── memory_recall    → MemoryStore.search()
-              └── delegate_to_agent → TaskSupervisor.spawn_and_wait()
-                    │
-                    ├── TaskSpec (objective, constraints, parent_run_id)
-                    ├── TaskPool (bounded concurrency, backpressure)
-                    ├── AgentRuntime.ask() (specialist agent)
-                    └── TaskResult (structured output, usage, trace)
-                    │
-                    EventBus: task.spawned / task.completed / task.failed
-        │
-        ▼
-NDJSON stream: delta / tool_call / tool_result / done
-```
+
+The rule engine handles all known AppFolio report types (Property Directory, Rent Roll, Delinquency, Lease Expiration) with zero API calls. The LLM pipeline is invoked only for genuinely unknown formats, running a multi-step YAML workflow: classify the report, extract column mappings, optionally inspect sample rows for correction, then map and persist.
 
 ---
 
-## Storage backends
+## Multi-Agent Delegation
+
+```mermaid
+flowchart LR
+    director["Director agent"]
+    tool["delegate_to_agent tool"]
+    supervisor["TaskSupervisor"]
+    pool["TaskPool<br/>(bounded concurrency)"]
+    specialist["Specialist agent<br/>(researcher, etc.)"]
+    bus["EventBus"]
+
+    director -->|"TaskSpec"| tool
+    tool --> supervisor
+    supervisor --> pool
+    pool -->|"AgentRuntime.ask()"| specialist
+    specialist -->|"TaskResult"| pool
+    pool --> supervisor
+    supervisor --> tool
+    tool -->|"result"| director
+
+    supervisor -.->|"task.spawned<br/>task.completed<br/>task.failed"| bus
+```
+
+Delegation edges are declared in YAML (`delegates_to:`), not in Python. The `Workforce` model assembles the complete agent topology from manifests at startup and enforces per-parent scoping.
+
+---
+
+## Storage Backends
 
 | Layer | In-memory (dev) | Postgres (prod) |
 |-------|-----------------|-----------------|
-| Domain (properties, leases, …) | `InMemoryPropertyStore` | `PostgresPropertyStore` |
+| Domain (properties, leases, ...) | `InMemoryPropertyStore` | `PostgresPropertyStore` |
 | Document content | `InMemoryContentStore` | `PostgresContentStore` |
 | Vector embeddings | `InMemoryVectorStore` | `PostgresVectorStore` (JSON today; pgvector planned) |
 | Agent memory (4 namespaces) | `InMemoryMemoryStore` | `PostgresMemoryStore` |
@@ -289,7 +328,7 @@ Backend selection is controlled by `state_store.backend` (domain + content) and 
 
 ---
 
-## Sandbox backends
+## Sandbox Backends
 
 | Backend | Mechanism | Isolation | Use case |
 |---------|-----------|-----------|----------|
@@ -308,22 +347,92 @@ In a single-process deployment all internal calls are loopback (`127.0.0.1`). In
 
 ```
 [remi-api container]
-    │
-    ├── spawns → [remi-sandbox container]
-    │                │
-    │                └── remi CLI → REMI_API_URL (e.g. http://api:8000)
-    │                    (client mode: shell/cli/client.py proxies to API)
-    │                           │
-    │            [Docker bridge network: remi_internal]
-    │                           │
-    └───────────────────────────┘
+    |
+    +-- spawns -> [remi-sandbox container]
+    |                |
+    |                +-- remi CLI -> REMI_API_URL (e.g. http://api:8000)
+    |                    (client mode: shell/cli/client.py proxies to API)
+    |                           |
+    |            [Docker bridge network: remi_internal]
+    |                           |
+    +---------------------------+
 ```
 
 Set `REMI_API__INTERNAL_API_URL=http://api:8000` so CLI commands inside the sandbox resolve to the correct API address.
 
 ---
 
-## Settings resolution order
+## LLM Provider Infrastructure
+
+```mermaid
+flowchart LR
+    factory["LLMProviderFactory"]
+
+    subgraph adapters ["Provider Adapters"]
+        anthropic["AnthropicProvider"]
+        openai["OpenAIProvider"]
+        gemini["GeminiProvider"]
+    end
+
+    subgraph apis ["External APIs"]
+        claude["Anthropic API"]
+        oai_api["OpenAI API"]
+        gem_api["Google AI API"]
+        compat["Any OpenAI-compatible<br/>(Ollama, vLLM, Together,<br/>Groq, OpenRouter)"]
+    end
+
+    factory --> anthropic --> claude
+    factory --> openai --> oai_api
+    factory --> openai -->|"base_url override"| compat
+    factory --> gemini --> gem_api
+```
+
+All providers implement the `LLMProvider` ABC: `complete()`, `stream()`, `count_tokens()`, `model_capabilities()`. The factory resolves API keys from `SecretsSettings` and creates provider instances by name. The `openai_compatible` adapter reuses `OpenAIProvider` with a custom `base_url`, supporting any OpenAI-compatible endpoint.
+
+Per-agent provider and model selection is declared in YAML manifests:
+
+```yaml
+config:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  tool_routing_provider: anthropic
+  tool_routing_model: claude-haiku-4-5-20251001
+```
+
+Resolution order: request overrides > YAML config > global defaults from `RemiSettings.llm`.
+
+---
+
+## Agent Memory
+
+Three-layer system in `agent/memory/`:
+
+1. **Explicit tools** — `memory_write` and `memory_read` let the agent store and retrieve findings, corrections, and reference facts.
+2. **Post-run extraction** — `extract_episode` distills completed conversations into structured observations classified by namespace and importance.
+3. **Ranked recall** — `MemoryRecallService` searches all namespaces, ranks by importance and recency, and injects relevant memories into the system prompt before each run.
+
+Four namespaces: `episodic` (session observations), `feedback` (user corrections), `reference` (curated facts), `plan` (working objectives). Three importance levels: routine (14d TTL), notable (90d), critical (permanent).
+
+---
+
+## Workflow Engine
+
+The `WorkflowRunner` (`agent/workflow/engine.py`) is the single DAG scheduler for all multi-step execution:
+
+| Kind | What it does |
+|------|-------------|
+| `llm` | Single LLM call with template interpolation |
+| `llm_tools` | LLM call with tool access (multi-round) |
+| `transform` | Deterministic tool call — no LLM |
+| `for_each` | Fan-out: run a tool over each item in a list |
+| `gate` | Conditional branch — enables/disables downstream steps |
+| `agent` | Full agent loop — runs a named agent via `AgentRuntime.ask()` |
+
+Workflows are declared in YAML. Steps declare `depends_on` for explicit DAG edges and `wires` for data routing between steps. The engine runs steps concurrently where dependencies allow.
+
+---
+
+## Settings Resolution Order
 
 For each setting, later sources win:
 
@@ -335,7 +444,7 @@ For each setting, later sources win:
 
 ---
 
-## Key invariants
+## Key Invariants
 
 - `types/` imports nothing from `agent/`, `application/`, or `shell/`
 - `agent/` never imports from `application/` or `shell/`
@@ -343,4 +452,5 @@ For each setting, later sources win:
 - `container.py` is pure wiring — no business logic, no factory decisions
 - Factory functions live in the module that owns the thing being built
 - Domain schema (entity types, relationships, processes) lives in `shell/config/domain.yaml`
-- The agent discovers patterns and calculates significance from actual data — no predefined rules or thresholds
+- All tools are available to every request — the LLM picks what to use
+- No mode-scoped tool sets, no request router, no intent classifier
