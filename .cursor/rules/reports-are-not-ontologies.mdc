@@ -1,42 +1,26 @@
 ---
-description: Reports are observations into the ABox, not definitions of the ontology. The domain schema (domain.yaml + core models) provides structural vocabulary. The agent is the reasoner.
+description: Reports are observations into the ABox, not definitions of the ontology.
 alwaysApply: true
 ---
 
-# Reports Are Not Ontologies or Sources of Truth
-
-## The core distinction
+# Reports Are Not Ontologies
 
 | Layer | What it contains | Defined by |
 |---|---|---|
-| **TBox** (schema) | Entity types, relationships, structural vocabulary | `domain.yaml` + `application/core/models/` |
+| **TBox** (schema) | Entity types, relationships, vocabulary | `domain.yaml` + `application/core/models/` |
 | **ABox** (assertions) | Specific entities and their property values | Reports, ingestion pipeline |
 | **Reasoning** | Patterns, significance, recommendations | The LLM agent, at query time |
 
-Reports populate the ABox. The domain schema provides the TBox vocabulary. The agent is the reasoner.
+Reports populate the ABox. The domain schema provides the TBox. The agent is the reasoner.
 
-## What this means in practice
+## Authority rules
 
-**Reports are point-in-time observations.** A delinquency report is a snapshot of who owed money on a specific date. It does not define what "delinquency" means, what threshold is alarming, or what the causal relationship is to manager performance. Those interpretations belong to the agent.
+- `REPORT_CAN_CREATE` in `application/ingestion/rules.py` — which entity types each report type may create
+- `REPORT_FIELD_AUTHORITY` in `application/ingestion/rules.py` — which fields each report type owns (overwrites vs fills gaps)
+- `_PROPERTY_AUTHORITATIVE_TYPES` in `application/ingestion/operations.py` — which report types may create new Properties
 
-**`domain.yaml` provides vocabulary, not logic.** It defines that `PropertyManager`, `Property`, `Unit`, `Lease`, `Tenant`, `BalanceObservation`, `MaintenanceRequest` exist and how they relate. It does not define what makes a manager "good", what vacancy rate is concerning, or what a delinquency implies about a manager.
+A delinquency report cannot create properties. A rent roll is authoritative for `occupancy_status`. A lease expiration report only enriches empty fields.
 
-**AppFolio's data model ≠ the domain model.** `"Site Manager Name"` is an AppFolio UI label. `"Tags"` is an AppFolio grouping feature. `"Revenue"` means different things in different AppFolio reports. The ingestion pipeline's job is to translate AppFolio's representation into the canonical domain model — not to let AppFolio's structure drive the ontology.
+## Do not recreate
 
-## Authority and confidence
-
-Not every report is authoritative for every entity or field:
-
-- `REPORT_CAN_CREATE` in `rules.py` — which entity types each report type may create
-- `REPORT_FIELD_AUTHORITY` in `rules.py` — which fields each report type "owns" (overwrites vs. fills gaps)
-- `_PROPERTY_AUTHORITATIVE_TYPES` in `operations.py` — which report types may create new Property records
-
-A delinquency report cannot create new properties. A rent roll is authoritative for `occupancy_status` but a lease expiration report only enriches empty fields. This is what makes the graph trustworthy across multiple ingested documents.
-
-## What was deleted and why
-
-The **entailment engine** (7 precomputed signal evaluators that emitted `HIGH_DELINQUENCY`, `VACANCY_RISK`, etc.) was deleted because it encoded business judgment as code — wrong thresholds, no context, no way to challenge them. Do not recreate it.
-
-**Signal definitions, policies, and causal chains** were removed from `domain.yaml`. The agent discovers patterns from actual data; the schema provides structural vocabulary only.
-
-**The agent does not pre-classify.** There is no pre-LLM router, no tier system, no regex classifier. The LLM sees raw facts from the graph and draws its own conclusions.
+The **entailment engine** (precomputed signal evaluators) was deleted — it encoded business judgment as code. The agent discovers patterns from data.

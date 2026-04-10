@@ -17,967 +17,149 @@ alwaysApply: true
 Every exception must either **propagate** or be **logged at warning+ with
 `exc_info=True`**. There are no other options.
 
-**Banned patterns** (will be rejected in review):
+**Banned patterns:**
 - `except Exception: pass`
 - `except Exception: continue`
 - `except SomeError: return None` without a log line
 - `except Exception as e: return {"error": str(e)}` without logging
 - Bare `except:` (always name the exception type)
 
-**Acceptable patterns:**
-- `except ImportError` for optional-dependency guards — must `raise RuntimeError` with install instructions or be an explicit feature-flag check
-- `except (KeyboardInterrupt, EOFError)` in CLI interactive loops
-- `except Exception` that logs at `warning`/`error` with `exc_info=True` **and** the caller can see the failure (via return type, error list, or re-raise)
-
-**Rules for catch-and-continue (pipelines, producers, batch loops):**
-- Log at `warning` with `exc_info=True`
-- Track the failure in a result object (`errors` count, `failed_items` list, `pipeline_warnings`)
-- The caller must be able to distinguish "nothing happened" from "it crashed"
-
 **Use `structlog`** for all logging:
 ```python
 import structlog
 logger = structlog.get_logger(__name__)
 ```
-Do not use `print()` or the stdlib `logging` module directly.
 
 ## Type Safety — No `Any`, No `dict`
 
-**Banned in new code:**
-- `dict[str, Any]` as a return type or function parameter — define a Pydantic model or TypedDict
-- `-> Any` as a return type — be specific
-- `list[dict]` or `list[dict[str, Any]]` — define a model for the items
-- `Optional[X]` where `None` means "something went wrong" — raise instead
-
-**Acceptable uses of `Any`:**
-- `**kwargs: Any` in delegation/adapter boundaries
-- JSON deserialization intermediaries (`json.loads` result) before immediate validation
-- Third-party library interop where the upstream type is genuinely untyped
-
-**When touching existing code** that uses `dict[str, Any]` or `Any`, narrow
-the type if you can do so without a large refactor. At minimum, don't make
-it worse.
+- `dict[str, Any]` as return type or parameter → define a Pydantic model or TypedDict
+- `-> Any` as return type → be specific
+- `Optional[X]` where `None` means "something went wrong" → raise instead
+- Acceptable: `**kwargs: Any`, JSON intermediaries before validation, untyped third-party interop
 
 ## Import Hygiene
 
-- Never use `typing.TYPE_CHECKING`. If you need it, the dependency is
-  in the wrong place — fix the design, not the import.
-- Keep imports direct and honest. If module A uses a type from module B
-  at runtime, import it at the top of the file.
-
-### Barrel Exports (`__init__.py` as Public API)
-
-Every package with external consumers must define its public API in
-`__init__.py` with explicit re-exports and `__all__`.
-
-**Rules:**
-- **Import from the package, not the module.** Write
-  `from remi.agent.graph import WorldModel`, not
-  `from remi.agent.graph.stores import WorldModel`.
-- **Factories belong on the barrel.** If a package has a `factory.py`,
-  re-export its public functions from `__init__.py`.
-- **`__all__` is required** on every barrel — it defines the contract.
-- **Internal modules stay private.** `mem.py`, `pg.py`, adapter
-  implementations — these are imported by the barrel, never by consumers.
-- **Three-segment depth max for cross-layer imports.** `shell/` and
-  `application/` should not import deeper than
-  `remi.agent.<package>` or `remi.application.<package>`.
-  Deeper paths are acceptable only within the same layer.
-
-**Exceptions:**
-- Capability slices under `application/` importing their own internal modules
-  (`delinquency-review/resolver.py` importing `delinquency-review/views.py`) — fine.
-- Test files may import internal modules for setup/mocking.
-- Each capability barrel (`delinquency-review/__init__.py`, etc.) is the
-  public entry point for that capability — deep paths within a capability are fine.
+- Never use `typing.TYPE_CHECKING` — fix the design instead.
+- Import from the package barrel, not the internal module.
+- `__all__` is required on every `__init__.py` barrel.
 
 ## Tests
 
 - Only write tests for meaningful behavior — not implementation details
-- Tests should verify real failure modes and edge cases
-- Do not write tests that just confirm a function returns without crashing
 - Ask before writing tests if the value isn't obvious
 
-## Structural Design Principles
+## Architecture
 
-Three rules govern every file and folder decision:
-
-### Screaming Architecture
-The directory tree IS the documentation. A new developer reading
-`ls src/remi/application/` should immediately know this is a real
-estate operations platform — not a generic web app. Folders are named
-for what the system **does**, not what technical role they play.
-
-- **Good:** `delinquency-review/`, `document-ingestion/`, `lease-risk/`, `manager-review/`
-- **Bad:** `controllers/`, `helpers/`, `utils/`, `services/`
-
-### Vertical Slicing (Package by Capability)
-The `application/` layer is **sliced by capability**. Each capability
-is a self-contained directory owning every layer of its implementation:
-
-- `delinquency-review/` contains SKILL.md + resolver + views + api + cli
-- `document-ingestion/` contains SKILL.md + pipeline + scripts/app.yaml
-- `deep-research/` contains SKILL.md + scripts/app.yaml
-
-Every file related to a capability lives in that capability's directory.
-No horizontal grouping by technical role (resolvers together, apis together, etc.).
-
-### Clean Architecture Boundaries
-The four packages enforce strict dependency rings:
-
-- **Core** (`types/`, `application/core/`) — pure models, protocols.
-  No dependencies on frameworks, databases, or external services.
-- **Agent kernel** (`agent/`) — AI infrastructure. Depends only on `types/`.
-- **Application** (`application/`) — RE product. Depends on `agent/` + `types/`.
-- **Shell** (`shell/`) — composition root. Depends on everything.
-
-A module in an inner ring must never import from an outer ring.
-If it needs something from an outer ring, define a protocol in the
-inner ring and implement it in the outer ring.
-
-### When Creating New Files or Folders
-
-1. **State the intended package** before creating a new file.
-2. **Name it for what it does**, not for what pattern it uses.
-   `delinquency.py` not `delinquency_evaluator.py`.
-   `bridge.py` not `knowledge_graph_adapter.py`.
-3. **One clear responsibility per module.** If a file is growing
-   beyond ~300 lines or serving two distinct concerns, split it.
-4. **New folders need a reason.** Don't create a folder for one file.
-   A folder implies a boundary — it should contain a cohesive set
-   of modules that change together and are consumed as a unit.
-5. **Principle of Least Astonishment.** If a new developer would be
-   surprised to find a file where you put it, the path is wrong.
-
-## Architecture: An Agent Operating System
-
-REMI is an agent operating system — the runtime that lets an AI agent
-reason over a property management book of business. Four packages; the
-directory tree is the documentation.
+Four packages; strict dependency rings:
 
 ```
 types/ ← agent/ ← application/ ← shell/
 ```
 
 - `types/` imports nothing
-- `agent/` imports `types/` only — never `application/` or `shell/`
-- `application/` imports `agent/` and `types/` — never `shell/`
+- `agent/` imports `types/` only
+- `application/` imports `agent/` and `types/`
 - `shell/` imports everything (composition root)
+
+### Actual layout on disk
 
 ```
 src/remi/
+  agent/                # AI OS kernel
+    runtime/            Execution loop, agent node, sessions
+    tasks/              Supervised multi-agent delegation
+    memory/             Agent memory (read/write, extraction, recall)
+    workflow/           YAML-driven pipeline/workflow engine
+    llm/                LLM provider ports + adapters
+    vectors/            Embedding ports + adapters
+    sandbox/            Code execution ports + adapters
+    events/             Typed event bus (pub-sub)
+    context/            Perception, context builder
+    graph/              Knowledge graph types, world model bridge
+    documents/          Document types, stores, parsers
+    tools/              Domain-agnostic tool implementations
+    serve/              Kernel boot
 
-  agent/              # AI OS kernel — all AI infrastructure
-    llm/              LLM provider ports + adapters
-    vectors/          Embedding ports + adapters
-    sandbox/          Code execution ports + adapters
-    events/           Typed event bus — the OS-level pub-sub nervous system
-    memory/           First-class agent memory — read/write with namespaces
-    observe/          Structured logging, tracing
-    signals/          Domain schema: entity types, relationships, processes
-    graph/            Knowledge graph types, bridge, retriever
-    documents/        Document types, stores, parsers
-    db/               Database engine + tables
-    runtime/          Execution loop, tool dispatch, streaming
-      runner.py       AgentRuntime — ask(), chat(), run_chat_agent()
-      sessions.py     AgentSessions — session CRUD (create, get, list, delete)
-      node.py         AgentNode — the think-act-observe loop
-      conversation/   Thread management, compression (internal)
-    tasks/            Supervised multi-agent delegation:
-      spec.py         TaskSpec — typed work order with constraints
-      task.py         Task — lifecycle state machine (pending→running→done)
-      result.py       TaskResult — structured output from delegation
-      supervisor.py   TaskSupervisor — schedules, enforces, publishes
-      pool.py         TaskPool — bounded concurrency + cancellation
-    context/          Perception, context builder, intent
-    pipeline/         Generic YAML-driven LLM pipeline executor
-    sessions/         Chat session persistence + in-memory adapter
-    tools/            Domain-agnostic tool implementations
-    workspace/        Agent working memory (Markdown scratchpad)
+  application/          # Real estate product
+    core/               Pure models, protocols, rules
+      models/           Domain entities (PropertyManager, Property, Unit, Lease, etc.)
+      protocols.py      PropertyStore port interface
+      rules.py          Occupancy helpers, name normalization
+    stores/             Port implementations: mem, pg, world model, indexer
+    tools/              Agent tool providers: query, documents, mutations
+    events/             Event feed: HTTP poll + WebSocket push
+    portfolio/          Manager aggregation, property detail, rent roll, rankings
+    operations/         Leases, delinquency, maintenance, vacancies, tenants
+    intelligence/       Dashboard, search, trends, knowledge assertions
+    ingestion/          Report parsing, vocab matching, entity persistence
+    agents/             Agent YAML manifests (director, researcher, ingester, brief_writer)
+    context/            Entity view enricher
 
-  application/              # Real estate product — sliced by capability
-    core/                   Pure models, protocols, rules — no framework deps
-    stores/                 Port implementations: mem, pg, world model, indexer
-    tools/                  Agent tool providers: query, documents, mutations
-    events/                 Event feed projections: HTTP poll + WebSocket push
-
-    # ── Capability slices ── each owns SKILL.md + code + manifest ──────────
-    delinquency-review/     SKILL.md, resolver, views, api, cli
-    lease-risk/             SKILL.md, resolver, views, api, cli
-    rent-roll/              SKILL.md, resolver, views, api, cli
-    manager-review/         SKILL.md, resolver, views, api, cli
-    portfolio-health/       SKILL.md, dashboard, api, cli
-    entity-search/          SKILL.md, search service, api, cli
-    entity-annotation/      SKILL.md, mutations, api          [planned]
-    maintenance-review/     SKILL.md, resolver, api, cli      [planned]
-    document-ingestion/     SKILL.md, pipeline, scripts/app.yaml
-    director-copilot/       scripts/app.yaml (primary chat agent, inline)
-    deep-research/          SKILL.md, scripts/app.yaml
-    manager-meeting-prep/   SKILL.md, scripts/app.yaml
-
-  types/              # Shared vocabulary — ids, clock, errors, enums
-
-  shell/              # Composition root — DI container, settings, API, CLI
-    config/           container, settings, domain.yaml
-    api/              FastAPI app factory, error handlers, middleware, DI
-    cli/              Typer CLI entry point (registers all command groups)
+  types/                # Shared vocabulary — ids, clock, errors, enums
+  shell/                # Composition root
+    config/             container.py, settings.py, capabilities.py, domain.yaml
+    api/                FastAPI app factory, error handlers, middleware
+    cli/                Typer CLI, HTTP client for sandbox proxy
 ```
 
-**State the intended package before creating a new file.**
+### Packages that do NOT exist — do not create or import from
 
-**There is no `domain/` package.** Do not create `src/remi/domain/`
-or import from `remi.domain`. The real estate domain lives in `application/`.
+- `src/remi/domain/`
+- `src/remi/application/services/`
+- `src/remi/application/realtime/`
 
-**There is no `detection/` package.** The precomputed entailment engine
-and snapshot system have been deleted. Do not create or import from
-`remi.application.services.detection`.
+### File creation rules
 
-**There is no `portfolio/`, `operations/`, or `intelligence/` package.**
-These old horizontal slices are replaced by capability-named vertical slices.
-Do not create `src/remi/application/portfolio/`, `operations/`, or `intelligence/`.
-New capabilities go in `src/remi/application/<capability-name>/`.
+1. State the intended package before creating a new file.
+2. Name it for what it does, not what pattern it uses.
+3. One clear responsibility per module (~300 line max).
+4. New folders need a reason — don't create a folder for one file.
 
-**Dependency direction:** `application/` imports from `agent/` — never
-the reverse. `shell/` imports from both. `types/` imports nothing.
+## Agent Architecture — Single Path, LLM Decides
 
-**Single-path agent architecture:**
+Every request goes through the agent loop. No pre-LLM routing.
 
-Every request goes through the agent loop. There is no pre-LLM
-routing, no tier classification, no regex-based dispatch. The LLM
-decides how to handle the question using its tool surface.
-
-The director has a unified tool set — fast in-process tools for
-data access, sandbox tools for computation, and delegation for
-deep work:
+The director has a unified tool set:
 
 | Tool | Speed | What it does |
 |------|-------|-------------|
-| `query` | ~10ms | In-process resolver dispatch — single tool, 12 operations |
+| `query` | ~10ms | In-process resolver dispatch — single tool, 20 operations |
 | `document_list` | ~10ms | List uploaded documents with metadata |
 | `document_query` | ~10ms | Search within document content (rows, chunks) |
-| `bash` | ~1-5s | Shell commands + `remi` CLI for write operations |
-| `python` | ~1-5s | Persistent Python session for computation |
+| `document_search` | ~10ms | Semantic search over document content (when vector backend exists) |
+| `assert_fact` | ~10ms | Assert a fact into the knowledge graph |
+| `add_context` | ~10ms | Add context annotation to an entity |
 | `delegate_to_agent` | 2-30s | Supervised delegation to specialist agents |
 | `memory_write` | ~10ms | Write to persistent agent memory |
 | `memory_read` | ~10ms | Read from persistent agent memory |
-
-Three clean concepts:
-
-- **Tool** = capability exposed via LLM function calling. In-process
-  tools (`query`, `document_*`, `memory_*`) are sub-10ms. Sandbox
-  tools (`bash`, `python`) require a subprocess.
-- **Command** = a `remi` CLI subcommand returning structured JSON.
-  Returns `{"status": "success"|"error", "data": ..., "metadata": {...}}`.
-  Used via `bash` for write operations and commands not in the `query` tool.
-- **Skill** = a capability slice in `application/`. Each skill owns its
-  cognitive layer (`SKILL.md` — injected into agent context at startup),
-  analytical scripts (`scripts/`), reference docs (`references/`), and
-  Python implementation (resolver, views, api, cli). Skills ship inside
-  the Python package — they are the application, not metadata about it.
-
-The `QueryToolProvider` (`application/tools/query.py`) provides a single
-`query` tool with an `operation` parameter that dispatches to the
-appropriate resolver in-process. One tool schema covers all read
-operations (~300 tokens vs ~4000 for 13 separate tools).
-
-The `DocumentToolProvider` (`application/tools/documents.py`) provides
-`document_list` and `document_query` for document discovery and
-content search. Documents are stored as parsed content (rows, chunks)
-in `ContentStore` + metadata in `PropertyStore`. Raw file bytes are
-not retained. Document content is NOT embedded in the vector store —
-the extracted entities (managers, properties, units) are the
-searchable representation.
-
-The agent does NOT `import remi` in Python. There is no bridge.py.
-Python is for computation on data already retrieved via tools.
-
-## Task System — Supervised Multi-Agent Delegation
-
-`agent/tasks/` is the kernel primitive for multi-agent coordination.
-A **task** is a unit of delegated work with a lifecycle, managed by a
-**supervisor** that schedules into a bounded **pool**.
-
-### How it works
-
-1. Parent agent calls `delegate_to_agent` tool.
-2. Tool creates a `TaskSpec` (agent name, objective, constraints,
-   parent_run_id) and submits it to `TaskSupervisor.spawn_and_wait()`.
-3. Supervisor creates a `Task` (pending), submits to `TaskPool`.
-4. Pool acquires a concurrency slot, runs the agent via `AgentExecutor.ask()`.
-5. Task transitions: `pending → running → done|failed|cancelled`.
-6. Supervisor publishes lifecycle events: `task.spawned`, `task.completed`,
-   `task.failed`, `task.cancelled` to the `EventBus`.
-7. `TaskResult` (structured output, usage, run_id) is returned to the
-   parent agent.
-
-### Key types
-
-- `TaskSpec` — work order: agent_name, objective, input_data, constraints
-- `TaskConstraints` — budget: timeout_seconds, max_tool_rounds, max_tokens
-- `Task` — state machine with lifecycle tracking
-- `TaskResult` — structured output with ok/error/data/usage
-- `TaskSupervisor` — scheduler: spawn, cancel, list, shutdown
-- `TaskPool` — bounded concurrency with backpressure
-- `AgentExecutor` — protocol for running a named agent (implemented by
-  `AgentRuntime`)
-
-### Rules
-
-- **Always delegate via TaskSupervisor** — never call `AgentRuntime.ask()`
-  directly from a tool. The supervisor provides lifecycle tracking, budget
-  enforcement, and event publication.
-- **TaskSpec, not strings** — pass structured `input_data` to specialists,
-  not raw context strings concatenated to the prompt.
-- **Tasks are always parent-spawned** — no autonomous agent spawning.
-  The supervisor pattern, not swarm.
-- **Tasks are in-memory** — same as EventBus. Protocol-first; swap for
-  Redis/Postgres later without changing consumers.
-
-## Workflow Engine — Unified Execution
-
-The `WorkflowRunner` (`agent/workflow/engine.py`) is the single DAG
-scheduler for all multi-step execution. It supports these step kinds:
-
-| Kind | What it does |
-|------|-------------|
-| `llm` | Single LLM call with template interpolation |
-| `llm_tools` | LLM call with tool access (multi-round) |
-| `transform` | Deterministic tool call — no LLM |
-| `for_each` | Fan-out: run a tool over each item in a list |
-| `gate` | Conditional branch — enables/disables downstream steps |
-| `agent` | **Full agent loop** — runs a named agent via `AgentRuntime.ask()` |
-
-### `kind: agent` — agents as workflow steps
-
-An `AgentStepNode` runs a complete think-act-observe agent loop as a
-single step in a workflow DAG. This is how agents compose with each
-other and with non-agent steps:
-
-- **Agent as router**: an agent step classifies input, its output feeds
-  a `gate` that branches the DAG.
-- **Agent as specialist**: a workflow fans out to multiple agent steps
-  (via `for_each` or parallel `depends_on`) and aggregates results.
-- **Agent + LLM hybrid**: some steps are cheap LLM calls, some are
-  full agent loops with tool access.
-
-The `AgentStepExecutor` protocol (implemented by `AgentRuntime`) is
-injected into the workflow engine at startup via `set_agent_executor()`.
-
-### Rules
-
-- **`_run_graph` is dead** — do not recreate in-process module chains.
-  All multi-step orchestration goes through `WorkflowRunner`.
-- **Workflows are declarative** — defined in YAML (`kind: Workflow` or
-  `kind: Pipeline`), not assembled in Python.
-- **Agent steps are just steps** — they participate in the DAG like
-  any other node: dependencies, wires, gates, retries all apply.
-
-## Repository Protocols
-
-Port interfaces for storage live in `application/core/protocols.py` as
-**narrow, per-entity protocols** (e.g. `LeaseRepository`, `UnitRepository`).
-
-- **New code must depend on the narrowest protocol** that covers its needs.
-- Mutating methods return `WriteResult[Entity]` with a `WriteOutcome`
-  discriminator (`CREATED`, `UPDATED`, `NOOP`).
-
-## Boundary Model Discipline
-
-- **`application/views/` owns read-models** (`RentRollResult`, etc.).
-- **`api/schemas.py`** imports only types used as field types in envelope
-  classes. Routes import read-models directly from `views`.
-- **CLI delegates** to views and renders the result — no inline store queries.
-- **No `SomeApiType(**service_result.model_dump())`** between identical types.
-
-**There is no `services/queries/` package.** Computed views live in
-`application/views/`. Do not create or import from
-`remi.application.services.queries`.
-
-## Container Discipline
-
-`shell/config/container.py` is pure wiring — no business logic, no factory decisions.
-
-- Only attributes read **outside** `container.py` may be `self.*`.
-- Before adding a new `self.*` attribute, verify it will be read externally.
-- Factory functions belong in the module that owns the thing being built.
-
-## Factory Pattern
-
-Each module owns the factory for the thing it defines:
-
-- `application/stores/world.py` -> `build_re_world_model()`
-- `agent/context/builder.py` -> `build_context_builder()`
-- `application/stores/factory.py` -> `build_store_suite()`
-- `agent/llm/factory.py` -> `build_provider_factory()`
-- `agent/vectors/embedder.py` -> `build_embedder()`
-- `agent/sandbox/factory.py` -> `build_sandbox()`
-
-`container.py` calls these — it does not inline assembly.
+| `bash` | ~1-5s | Shell commands + `remi` CLI (researcher only) |
+| `python` | ~1-5s | Persistent Python session (researcher only) |
 
 ## Ingestion — Rules First, LLM Fallback
 
-Data ingestion uses a **two-tier pipeline**:
+Ingestion code lives at `application/ingestion/`.
 
-1. **Rule-based** (`application/services/ingestion/rules.py`): deterministic
-   column-header detection, static column mapping, junk filtering, address
-   normalization. Zero API calls. Handles all known AppFolio report types.
-2. **LLM fallback** (`application/services/ingestion/service.py`): three-stage
-   YAML pipeline (classify → extract → enrich). Used only when rule engine
-   can't match.
+1. **Rule-based** (`ingestion/vocab.py` + `ingestion/rules.py` + `ingestion/operations.py`):
+   deterministic column-header detection, static column mapping, junk filtering,
+   address normalization. Zero API calls.
+2. **LLM fallback** (`ingestion/upload.py` dispatches to ingester workflow):
+   used only when vocab matching fails (`should_proceed=False`).
 
-Both tiers converge at `resolve_and_persist` for the same persistence path.
+Report authority rules:
+- `REPORT_CAN_CREATE` in `ingestion/rules.py` — which entity types each report type may create
+- `REPORT_FIELD_AUTHORITY` in `ingestion/rules.py` — which fields each report type owns
+- `_PROPERTY_AUTHORITATIVE_TYPES` in `ingestion/operations.py` — which report types may create Properties
 
-**Rules:**
-- **Add new report types to `rules.py` first.** Only use the LLM path
-  for genuinely unknown formats.
-- **Property Directory is always seeded first** — it establishes the manager
-  and property source of truth.
-- **Never treat lease tags as manager names.** The `Tags` column in
-  delinquency reports maps to `_lease_tags` (dropped), not `tags`.
-- **Filter junk rows** — AppFolio internal entries ("1234 ADMIN",
-  "Auto Loan", etc.) are not properties.
-- **Normalize addresses** — strip "DO NOT USE" prefixes before slugifying.
+**Property Directory is always seeded first** — it creates managers and properties.
 
-## Event Architecture — Three Distinct Channels
+## Container & Factory Discipline
 
-The system has three event channels. Do not conflate them.
-
-### 1. Domain Events (world-state transitions)
-
-- **EventBus** (`agent/events/`) is the OS-level typed pub-sub primitive.
-  A protocol (`EventBus` ABC) with an in-memory implementation —
-  swappable for Redis pub/sub or NATS without changing application code.
-- Producers publish `DomainEvent` envelopes with dot-namespaced topics
-  (e.g. `ingestion.complete`, `assertion.created`, `entity.updated`).
-- Subscribers register with exact or glob patterns (`"ingestion.*"`).
-- **EventBuffer** (`agent/events/buffer.py`) is a bounded ring buffer
-  subscribed to the bus. Provides cursor-based reads for the HTTP
-  polling endpoint. Swappable for Redis Streams.
-- **No single-process assumptions.** `EventBus` and `EventBuffer` are
-  protocols. Swap implementations in `container.py`, nothing else changes.
-
-### 2. Domain Event Projections (delivery to frontends)
-
-- **HTTP polling** — `GET /api/v1/feed?after={cursor}&types=ingestion.*`
-  returns domain events since the cursor. For programmatic consumers,
-  CLI, webhooks, or any client that prefers pull.
-- **WebSocket push** — `WS /api/v1/feed/ws?types=ingestion.*` pushes
-  domain events in real time. Each connection subscribes to the bus for
-  its lifetime. Used by the frontend for query invalidation.
-- Both live in `application/events/` (`api.py` + `ws.py`).
-- **Frontend** receives typed `FeedEvent` payloads on the WebSocket and
-  invalidates TanStack Query caches via a topic→queryKey map in `Shell.tsx`.
-
-### 3. Agent Chat Telemetry (ephemeral per-session)
-
-- `POST /api/v1/agents/{name}/ask` returns an NDJSON `StreamingResponse`.
-- Events: `delta`, `tool_call`, `tool_running`, `tool_result`, `phase`,
-  `done`, `error`.
-- These are execution trace events — they describe what the agent is
-  doing right now during a specific run. Ephemeral, per-session, only
-  consumed by the active chat UI.
-- **This does NOT flow through the EventBus.** It uses an `asyncio.Queue`
-  piped into the streaming response.
-
-### What NOT to do
-
-- Do not publish agent telemetry (`delta`, `tool_call`) to the EventBus.
-- Do not create module-level singletons for WebSocket management.
-- Do not create `application/realtime/` — it was deleted. The event
-  feed lives in `application/events/`.
-
-## Agent Memory — Three-Layer System
-
-Memory is a first-class OS primitive in `agent/memory/`.  Three
-layers work together: explicit tools for agent-driven read/write,
-automatic post-run extraction, and ranked recall at session start.
-
-### Two tools (agent-driven)
-
-- **`memory_write`** — the agent stores a finding, correction, plan, or
-  reference fact.  Entries are keyed, namespaced, and optionally tagged
-  with `entity_ids` for retrieval filtering.
-- **`memory_read`** — the agent queries for relevant memories by text,
-  entity, or tag.  It decides *when* to recall and *what* to ask for.
-
-### Post-run episode extraction (automatic)
-
-When an agent run completes, `extract_episode` (`memory/extraction.py`)
-uses a cheap LLM call to distill the conversation into structured
-observations.  Each observation is classified into a namespace, assigned
-an importance level (routine/notable/critical), and written to the store.
-This replaces the old "dump last assistant message" auto-save.
-
-### Ranked recall at session start (automatic)
-
-`MemoryRecallService` (`memory/recall.py`) searches across all namespaces,
-ranks results by importance and recency, and renders them into a system
-message injected before the user's question.  Replaces the naive
-"list first 10 keys" pattern.
-
-### Four namespaces
-
-| Namespace | What it holds | Lifecycle |
-|-----------|--------------|-----------|
-| `episodic` | Session observations, findings | Routine: 14d, Notable: 90d, Critical: permanent |
-| `feedback` | User corrections, mistakes to avoid | Long-lived (notable/critical) |
-| `reference` | Curated knowledge, stable facts | Stable (reference/critical) |
-| `plan` | Current objectives and approach | Working memory |
-
-### Importance levels
-
-| Level | Value | Default TTL | Use |
-|-------|-------|-------------|-----|
-| ROUTINE | 1 | 14 days | Session records, routine observations |
-| NOTABLE | 2 | 90 days | Useful findings, patterns worth recalling |
-| CRITICAL | 3 | No expiry | User corrections, critical learnings |
-
-### Architecture
-
-- **`MemoryStore`** is a protocol in `agent/memory/store.py` — backends
-  are `InMemoryMemoryStore` (dev) and `PostgresMemoryStore` (prod).
-- **`MemoryRecallService`** wraps `MemoryStore` with cross-namespace
-  retrieval, ranking, and token budgeting.  Injected via `RunDeps`.
-- **`extract_episode`** is called fire-and-forget after agent runs.
-  It does not block the response path.
-- The `agent/workspace/` layer (PLAN.md, CONTEXT.md in the sandbox)
-  remains for flush-before-trim and sandbox file access — it is the
-  working scratchpad, not the long-term memory.
-- Memory does **not** live in `agent/graph/`.  The graph package owns
-  `WorldModel` and `EntityStore` — memory is a separate concern.
-
-### What NOT to do
-
-- Do not store raw conversation transcripts as memory.  The extraction
-  step distills conversations into structured observations.
-- Do not put `MemoryStore` back in `agent/graph/` — it was moved out
-  deliberately to establish memory as its own primitive.
-- Do not bypass the `MemoryRecallService` — use it for all pre-run
-  memory injection rather than querying `MemoryStore` directly.
-
-## Context Compression — Multi-Stage Compaction
-
-Long agent sessions are managed by a three-stage compaction system
-in `agent/runtime/conversation/compaction.py`:
-
-1. **Tool result compression** (`compression.py`) — per-tool-call,
-   large results are summarized and optionally offloaded to memory.
-2. **Exchange summarization** — when the thread reaches 70% of the
-   context budget, old exchanges are batched and summarized by a
-   cheap LLM call.  Recent exchanges are preserved intact.
-3. **Aggressive compaction** — at 88% of the budget, everything
-   except the system prefix and last 3 exchanges is collapsed
-   into a single session briefing.
-
-The loop calls `should_compact(thread, context_budget)` before each
-LLM call.  `context_budget` is derived from the provider's
-`model_capabilities(model).context_window`.
-
-## Runtime Configuration — Topology Is Settings, Not Architecture
-
-The agent kernel is **deployment-topology-agnostic**. The same agent
-code runs as a single process (dev), API + workers (medium scale),
-or per-agent containers (enterprise) — controlled entirely by
-configuration.
-
-### Two configuration surfaces
-
-1. **Global settings** (`config/*.yaml`, env vars) — select backends
-   for infrastructure primitives:
-   - `event_bus.backend: memory | redis` — how events flow
-   - `task_queue.backend: local | redis` — where tasks execute
-   - `sandbox.backend: local | docker` — how code runs
-
-2. **Per-agent/workflow runtime** (`app.yaml` `runtime:` section) —
-   declare how each agent runs:
-   ```yaml
-   runtime:
-     placement: inline | worker | container
-     isolation: none | sandbox | container
-     durability: ephemeral | checkpoint | durable
-     resources:
-       timeout_seconds: 120
-       max_memory_mb: 2048
-       max_tool_rounds: 20
-       max_tokens: 200000
-     scaling:
-       max_concurrency: 2
-       queue_priority: normal | high | critical
-   ```
-
-### Placement rules
-
-- **`inline`** — same process as the API. Required for streaming chat
-  (director) where delta events pipe directly into the NDJSON response.
-- **`worker`** — dispatched to a task queue, executed by `remi worker`.
-  Use for background agents (researcher, ingestion) that don't stream
-  to the user.
-- **`container`** — each run gets its own isolated container. Use when
-  you need hard resource limits or full network isolation.
-
-### What YAML controls vs what settings control
-
-**YAML** (`app.yaml` `runtime:`) says *what this agent needs* —
-resource budgets, isolation, durability. These travel with the agent
-definition and are portable across deployments.
-
-**Settings** (`config/*.yaml`) say *what backends are available* —
-Redis URL, task queue config, sandbox engine. These are environment-
-specific and change per deployment.
-
-The container reads both and wires the right combination.
-
-### Key types
-
-- `RuntimeConfig` (`agent/runtime/config.py`) — Pydantic model for
-  the `runtime:` YAML section. Parsed from manifests, consumed by
-  the supervisor and container.
-- `TaskPool` (`agent/tasks/pool.py`) — ABC for task execution backends.
-  `LocalTaskPool` (asyncio) is the default. Protocol-ready for Redis.
-- `EventBus` (`agent/events/bus.py`) — ABC for event pub/sub.
-  `InMemoryEventBus` is the default. Protocol-ready for Redis/NATS.
-- `AgentExecutor` (`agent/tasks/supervisor.py`) — protocol for running
-  a named agent. `AgentRuntime` is the local impl. Protocol-ready for
-  a future `RemoteAgentExecutor` HTTP client.
-
-### How runtime config flows
-
-1. **Parsing**: `load_manifest_runtime(name)` in `agent/workflow/loader.py`
-   reads the `runtime:` block from any registered manifest and returns
-   a `RuntimeConfig`. Both agent and workflow loading paths use it.
-2. **Workflows**: `load_workflow()` attaches the parsed `RuntimeConfig`
-   to `WorkflowDef.runtime`. The engine can read resource budgets.
-3. **Agents**: `AgentRuntime._load_agent_config()` returns both the
-   module config dict and the `RuntimeConfig`. `get_runtime_config(name)`
-   exposes it publicly.
-4. **Delegation**: When `delegate_to_agent` creates a `TaskSpec`, it
-   resolves the caller's `delegates_to` edges via `Workforce.get_delegates()`
-   and reads `DelegateRef.constraints` for the target agent. Caller-provided
-   timeout overrides the YAML-declared value. The caller agent name is
-   injected as `caller_agent` in the tool's merged args by the tool executor.
-5. **`to_task_constraints()`** bridges `RuntimeConfig.resources` to
-   `TaskConstraints` fields (`timeout_seconds`, `max_tool_rounds`,
-   `max_tokens`).
-
-### Rules
-
-- **Never hardcode topology in Python.** If you're writing
-  `asyncio.create_task` in a new module, you're probably bypassing the
-  pool. Use `TaskSupervisor` or `TaskPool` instead.
-- **Defaults are always single-process.** Omitting `runtime:` from a
-  YAML gives you `inline` placement, `sandbox` isolation, `ephemeral`
-  durability. Dev works with zero configuration.
-- **Settings override YAML when they conflict.** If `task_queue.backend`
-  is `local`, all agents run inline regardless of their `placement`
-  setting. The backend constrains what's possible.
-
-## Agent Composition Model — Workforce, Tools, and Delegation
-
-The YAML manifest is the intermediate representation for a visual
-canvas. Three concepts compose into agent networks:
-
-### Tools — unified set
-
-All agents declare a single `tools:` list. No mode-scoped sets.
-The LLM picks which tools to use based on the question.
-
-| Tool | Registered by | What it does |
-|------|--------------|-------------|
-| `query` | `QueryToolProvider` | In-process resolver dispatch — 12 operations |
-| `document_list` | `DocumentToolProvider` | List documents with metadata |
-| `document_query` | `DocumentToolProvider` | Search within document content |
-| `bash` | `AnalysisToolProvider` | Shell commands + `remi` CLI |
-| `python` | `AnalysisToolProvider` | Persistent Python session |
-| `delegate_to_agent` | `DelegationToolProvider` | Supervised delegation |
-| `memory_write` | `MemoryToolProvider` | Write to persistent memory |
-| `memory_read` | `MemoryToolProvider` | Read from persistent memory |
-
-```yaml
-tools:
-  - name: query
-  - name: document_list
-  - name: document_query
-  - name: python
-    config:
-      timeout: 120
-    inject:
-      session_id: sandbox_session_id
-  - name: bash
-    inject:
-      session_id: sandbox_session_id
-  - name: delegate_to_agent
-  - name: memory_write
-  - name: memory_read
-```
-
-The LLM chooses `query` for fast lookups, `bash`/`python` for
-computation, and `delegate_to_agent` for deep research. No pre-LLM
-routing decides this — the model sees all tools and picks the right one.
-
-### Declarative delegation graph
-
-Each agent declares who it can delegate to via `delegates_to:`:
-
-```yaml
-delegates_to:
-  - agent: researcher
-    description: "Deep statistical analysis"
-    constraints:
-      timeout_seconds: 300
-      max_tool_rounds: 20
-  - agent: action_planner
-    description: "Draft action items"
-    constraints:
-      timeout_seconds: 30
-```
-
-`delegates_to:` in YAML is the **single source of truth** for delegation
-edges. There is no `DomainProfile.available_agents` — that was deleted.
-At runtime `DelegationToolProvider` receives the `Workforce` and calls
-`workforce.get_delegates(caller_agent)` to enforce per-parent scoping.
-`DelegateRef.constraints` supplies the task budget; no re-reading of
-the manifest is needed. The canvas renders these edges as connections
-between agent nodes.
-
-### Workforce — the network read model
-
-`Workforce` (`agent/workforce.py`) assembles the complete agent
-topology from individual manifests at startup via
-`Workforce.from_registry()` (reads all manifests registered by
-`capabilities.py`):
-
-- `workforce.delegation_graph` — adjacency list of who delegates to whom
-- `workforce.tool_surface` — which tools each agent has
-- `workforce.get_delegates(name)` — `{child: description}` for one parent
-- `workforce.get_delegate_ref(parent, child)` — the full `DelegateRef`
-  with constraints
-
-The workforce is a **read model**, not a store. It is computed from
-YAML manifests and consumed by the delegation tool, observability
-dashboards, and (eventually) the canvas UI.
-
-### Manifest kinds
-
-| `kind` | What it describes | Declared in |
-|--------|------------------|-------------|
-| `Agent` | Think-act-observe loop with tools, intents, memory | `app.yaml` under `modules:` |
-| `Workflow` | DAG of steps with explicit `depends_on` | `app.yaml` under `steps:` + `wires:` |
-| `Pipeline` | Sequential steps (implicit deps) | `app.yaml` under `steps:` |
-
-A future `kind: Workforce` manifest will declare an entire network
-in one file — multiple agents, their edges, shared tool configs, and
-global runtime defaults. Today the workforce is assembled from
-individual manifests.
-
-### What NOT to do
-
-- Do not hardcode delegation edges in Python. Declare them in YAML
-  via `delegates_to:`.
-- Do not add `available_agents` to `DomainProfile`. It was deleted —
-  the Workforce model is the authority for agent topology.
-- Do not create per-agent `ToolRegistry` instances. Use the global
-  registry with per-agent `config:` overrides in YAML.
-- Do not put agent composition logic in `container.py`. The container
-  wires infrastructure; the workforce assembles agent topology from
-  manifests.
-- **Every app.yaml should have a `runtime:` stanza.** Even if all values
-  are defaults. It makes the execution topology self-documenting.
-
-## CLI Commands — The Platform Surface
-
-The `remi` CLI is the agent's single data access interface. Every
-command returns a structured JSON envelope:
-
-```json
-{"status": "success", "data": ..., "metadata": {"command": "...", "timestamp": "...", "_schema_version": "1.0"}}
-```
-
-Envelope helpers live in `shell/cli/output.py`. All four CLI modules
-(portfolio, operations, intelligence, ingestion) use them.
-
-When `REMI_API_URL` is set (always true inside the sandbox), CLI
-commands proxy to the running API via HTTP (`shell/cli/client.py`).
-No container bootstrap, no cold start.
-
-### Available commands
-
-| Group | Command | What it does |
-|-------|---------|-------------|
-| portfolio | `managers` | List managers with metrics |
-| portfolio | `properties [--manager-id X]` | List properties |
-| portfolio | `rent-roll <property-id>` | Rent roll |
-| portfolio | `manager-review <manager-id>` | Full composite review |
-| portfolio | `rankings [--sort-by X]` | Rank managers |
-| operations | `leases [--manager-id X]` | List leases |
-| operations | `maintenance [--manager-id X]` | List maintenance |
-| operations | `delinquency [--manager-id X]` | Delinquent tenants |
-| operations | `expiring-leases [--days N]` | Expiring leases |
-| operations | `create-action --title ... --manager-id X` | Create action item |
-| operations | `create-note --content ... --entity-type X --entity-id X` | Create note |
-| intelligence | `dashboard` | Portfolio overview |
-| intelligence | `search "<query>"` | Entity search |
-| intelligence | `vacancies [--manager-id X]` | Vacant units |
-| intelligence | `trends <metric> [--manager-id X]` | Time-series trends |
-| intelligence | `assert-fact --entity-type X --properties '{...}'` | Assert fact |
-| intelligence | `add-context --entity-type X --entity-id X --context "..."` | Add context |
-| ingestion | `upload <file>` | Ingest a document |
-| ingestion | `documents` | List documents |
-| ingestion | `document-search "<query>"` | Search document content |
-
-### Adding new commands
-
-1. Add a `@cli_group.command()` in the appropriate CLI module
-2. Check `_is_remote()` first — proxy via `shell/cli/client.py` if set
-3. Fall back to container-direct for local mode
-4. Always wrap output in `emit_success()` / `emit_error()`
-5. Use `--json/--table` flag defaulting to JSON
-
-## Skills — Capability Slices in `application/`
-
-Skills live in `src/remi/application/<capability-name>/`. Each is a
-complete vertical slice with three cognitive loading levels:
-
-| Level | Content | Token cost |
-|-------|---------|------------|
-| Metadata | YAML frontmatter in `SKILL.md` — always loaded at startup | ~100 tokens |
-| Instructions | `SKILL.md` body — loaded when skill triggers | <5k tokens |
-| Resources | `references/`, `scripts/`, `assets/` — loaded on demand | Unlimited |
-
-**`SKILL.md`** — cognitive entrypoint: when to activate, how to reason,
-which tool calls to make, what to surface. Keep under 500 lines.
-
-**`references/`** — on-demand knowledge: `IMPL.md` (resolver → API → frontend
-map), `DATA.md` (field schema, null semantics). Zero token cost until referenced.
-
-**`scripts/`** — executable code the agent runs via bash/python. Includes
-`app.yaml` for agent/workflow manifests. Only output enters the context window.
-
-**`assets/`** — static lookup tables, templates, canonical reference data.
-
-Skills are discovered by `FilesystemSkillDiscovery` scanning `application/`
-recursively for `SKILL.md` files. Agent manifests (`app.yaml` in `scripts/`)
-are discovered by `_discover_manifests()` scanning `application/**/scripts/app.yaml`.
-
-Agents declare which directories to scan via `skills_paths:` in their manifest.
-
-### What NOT to do with skills
-
-- Do not put skills in `.remi/skills/` — they belong in `application/<capability>/`
-- Do not create skills outside `application/` — they won't ship with the package
-- Do not leave `SKILL.md` siblings unreferenced — unreferenced files provide zero value
-- Do not nest skills inside subdirectories — the standard is flat: `application/<name>/SKILL.md`
-
-## Application Structure — Sliced by Capability
-
-`application/` is organized by **capability** — one directory per thing
-the system knows how to do. Each capability owns its full stack:
-cognitive layer (SKILL.md), analytical scripts, reference docs, and
-Python implementation (resolver, views, HTTP routes, CLI commands).
-
-**Shared infrastructure** (not capability-specific) lives flat in `application/`:
-- `core/` — pure models, protocols, rules (no framework deps)
-- `stores/` — persistence port implementations
-- `tools/` — agent tool providers (query, documents, mutations)
-- `events/` — event feed HTTP/WS delivery
-
-**When adding a new data source** (ServiceM8, Xero, Gmail): it produces
-data that enriches existing capabilities. Add a data adapter within the
-relevant capability slice — not a new top-level package. Maintenance data
-from ServiceM8 enriches `maintenance-review/`. Financial data from Xero
-enriches `portfolio-health/` and `delinquency-review/`.
-
-### Future integrations
-
-Auth, connections, and external service adapters will live in a
-dedicated integration layer when needed. The current architecture
-prepares for this via:
-
-- `workspace_id` on `RuntimeContext` (forward-compatible field)
-- Protocol-based stores (swap implementations per data source)
-- CLI client mode (agents don't know how data is stored)
-
-Do not force integration infrastructure into capability slices prematurely.
+`shell/config/container.py` is pure wiring — no business logic.
+Each module owns its own factory function. `container.py` calls them.
 
 ## Key Constraints
 
 - `shell/config/domain.yaml` is the source of truth for the domain schema
-  — entity types, relationships, and business processes
-- The agent discovers patterns and calculates significance from actual data.
-  `domain.yaml` provides structural vocabulary, not predefined rules or thresholds.
-- `types/` is for cross-cutting primitives only — no business logic
-- Prefer small focused modules over accumulating logic in an existing file
-- When a file is growing beyond a single clear responsibility, flag it
-
-## Request Flow — Single Path, LLM Decides
-
-Every request goes through the agent loop. There is no pre-LLM
-router, no tier classification. `AgentRuntime.ask()` builds the
-context, runs `AgentNode`, and the LLM picks tools.
-
-```
-POST /api/v1/agents/{name}/ask
-  → AgentRuntime.ask()
-      → session_id? → _ask_session() (multi-turn)
-      → else        → _ask_agent()  (single-shot)
-          → AgentNode.run()
-              → LLM sees tools: query, document_*, bash, python, delegate, memory
-              → Simple question? → query(operation="dashboard") → done in 1 tool call
-              → Document question? → document_list() + document_query() → done
-              → Complex analysis? → bash/python/delegate → multi-round loop
-```
-
-### Rules
-
-- **No pre-LLM routing.** The `RequestRouter`, `RERouter`, `Tier` enum,
-  `DataResolver`, `QueryDispatcher`, and `query_path.py` are deleted.
-  Do not recreate them.
-- **The LLM decides the tool.** The `query` tool is fast enough (~10ms)
-  that letting the LLM call it costs one tool round but gains
-  flexibility — no more regex misclassifications.
-- **No `mode` on AskRequest.** The API accepts `question`, `session_id`,
-  `manager_id`. The LLM handles both simple and complex questions.
-
-### Adding new query operations
-
-1. Add a handler method in `application/tools/query.py` (`QueryToolProvider`)
-2. Add it to the dispatch table in `_build_dispatch()`
-3. Update the `_OPERATIONS` string constant
-
-No changes to the kernel. No YAML changes needed (unless adding
-a whole new tool).
-
-## What Was Deleted (Do Not Recreate)
-
-These systems were removed as compensatory complexity. Do not recreate them:
-
-- **Python bridge** (`application/platform/bridge.py`) — `import remi` SDK
-  injected into the sandbox. Replaced by CLI-first architecture. The agent
-  uses `remi` CLI commands via `bash`, not Python imports.
-- **Domain function-calling tools** (`WorkflowToolProvider`, `ActionToolProvider`,
-  `SearchToolProvider`) — `manager_review`, `entity_search`, `portfolio_health`
-  etc. as separate tools. Replaced by the single `query` tool with an
-  `operation` parameter.
-- **Request router** (`RERouter`, `QueryDispatcher`, `DataResolver`,
-  `RequestRouter` protocol, `Tier` enum, `query_path.py`) — pre-LLM
-  regex classifier that bypassed the agent loop. Replaced by the
-  single-path architecture where the LLM uses in-process tools directly.
-  Do not recreate tiered routing or regex classifiers.
-- **Mode-scoped tool sets** (`ask_tools`, `agent_tools`) — different
-  tool surfaces per mode. Replaced by a single `tools:` list. All
-  tools are available to every request; the LLM picks what to use.
-- **Entailment engine** (`application/services/detection/signals/`) — 7 evaluators
-  + engine + pipeline that precomputed signals. The agent discovers patterns directly.
-- **Signal definitions, policies, causal chains** — pre-declared rules in
-  `domain.yaml` (TBox). Replaced by agent-driven discovery. `domain.yaml` now
-  holds only structural vocabulary (entity types, relationships, processes).
-- **Snapshot/rollup system** (`SnapshotService`, `RollupStore`) — point-in-time
-  metric captures. Replaced by the event system (`core/events.py`).
-- **Synthetic data generation** (`seeding/synthetic.py`, `_backfill_history`) —
-  fake data to populate snapshots.
-- **Dev cache** (`StoreBundle`, `dump_state`/`load_state`) — JSON snapshots of
-  in-memory stores for faster development cycles.
-- **Timeline recorder** (`TimelineRecorder`, `KnowledgeGraphTimelineRecorder`) —
-  dead abstraction that was never properly wired.
-- **Realtime module** (`application/realtime/`) — hand-rolled WebSocket
-  `ConnectionManager` singleton with custom ping/pong. Replaced by
-  `application/events/ws.py` which subscribes to the `EventBus` properly.
+- The agent discovers patterns from data — `domain.yaml` provides vocabulary only
+- `types/` is for cross-cutting primitives only
+- Prefer small focused modules over accumulating logic in existing files

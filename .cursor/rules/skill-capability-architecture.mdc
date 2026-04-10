@@ -1,134 +1,71 @@
 ---
-description: Canonical architecture for skills, capabilities, and agentic workflows in REMI. Defines the folder structure, cognitive loading levels, and where YAML manifests belong.
+description: Future vision for migrating application/ to capability-named vertical slices with SKILL.md cognitive layers.
 alwaysApply: false
 ---
 
-# Skill and Capability Architecture
+# Capability Slice Architecture — Future Vision
 
-## Where skills live
+**This document describes the target architecture, NOT the current state.**
+The current layout uses `portfolio/`, `operations/`, `intelligence/`, `ingestion/`.
+This migration has not started.
 
-Skills are capability slices in `src/remi/application/<capability-name>/`.
-They ship inside the Python package — they are the application, not metadata about it.
+## Target structure
+
+Each capability becomes a self-contained directory owning its full stack:
 
 ```
 src/remi/application/
   <capability>/
-    SKILL.md          ← required cognitive entrypoint
-    references/       ← on-demand docs, loaded when SKILL.md references them
+    SKILL.md          ← cognitive entrypoint for the agent
+    references/       ← on-demand docs (IMPL.md, DATA.md)
     scripts/          ← executable code + app.yaml manifests
-    assets/           ← templates, schemas, static lookup data
+    assets/           ← templates, schemas, static data
+    resolver.py       ← business logic
+    views.py          ← read models
+    api.py            ← HTTP routes
+    cli.py            ← CLI commands
 ```
 
-**Do not put skills in `.remi/skills/`.** That directory is for project-level
-developer config (cursor rules, sample data). Skills belong in `application/`
-so they ship with the package and are present in every deployment.
+## Planned capability slices
+
+| Current location | Future capability | SKILL.md | Manifest |
+|---|---|---|---|
+| `operations/delinquency.py` | `delinquency-review/` | ✓ | — |
+| `operations/leases.py` | `lease-risk/` | ✓ | — |
+| `portfolio/managers.py` | `manager-review/` | ✓ | — |
+| `portfolio/dashboard.py` | `portfolio-health/` | ✓ | — |
+| `portfolio/properties.py` | `rent-roll/` | ✓ | — |
+| `intelligence/search.py` | `entity-search/` | ✓ | — |
+| `ingestion/` | `document-ingestion/` | planned | `ingester` workflow |
+| `agents/researcher/` | `deep-research/` | planned | `researcher` agent |
+| `agents/brief_writer/` | `manager-meeting-prep/` | planned | `brief_writer` pipeline |
+| `agents/director/` | `director-copilot/` | — | `director` agent |
 
 ## Three levels of cognitive loading
 
-| Level | When | Token cost | Content |
-|-------|------|------------|---------|
-| **1 — Metadata** | Always, at startup | ~100 tokens | YAML frontmatter only — the agent knows the skill exists and when to use it |
-| **2 — Instructions** | When skill triggers | <5k tokens | `SKILL.md` body — working memory: reasoning, thresholds, tool calls, what to flag |
-| **3 — Resources** | Only when referenced | Effectively unlimited | `references/`, `scripts/`, `assets/` — long-term memory loaded on demand |
+| Level | When loaded | Token cost | Content |
+|---|---|---|---|
+| Metadata | Always, at startup | ~100 tokens | YAML frontmatter — agent knows skill exists |
+| Instructions | When skill triggers | <5k tokens | SKILL.md body — reasoning, thresholds, tool calls |
+| Resources | Only when referenced | Unlimited | references/, scripts/, assets/ |
 
-Level 3 files cost **zero tokens** until `SKILL.md` explicitly points to them.
+## Shared infrastructure (unchanged by migration)
 
-## What each layer contains
+These stay flat in `application/` — they are NOT capability slices:
+- `core/` — pure models, protocols, rules
+- `stores/` — persistence implementations
+- `tools/` — agent tool providers
+- `events/` — event feed delivery
 
-**`SKILL.md`** — the cognitive entrypoint. Operational playbook: when to activate,
-how to reason, what thresholds matter, which tool calls to make, what to surface.
-Keep under 500 lines. Reference other files explicitly when the agent might need them.
+## Runtime skills today
 
-**`references/`** — on-demand knowledge:
-- `IMPL.md` — full stack map: query operation → Python resolver → API endpoint → frontend
-  component. Written for both the agent and the developer.
-- `DATA.md` — data contract: field names, types, what null means, example values.
+Currently, runtime skills for the director agent live in `.remi/skills/` and are
+discovered via `skills_paths:` in the director manifest. After migration, skills
+will live in `application/<capability>/SKILL.md` and ship with the package.
 
-**`scripts/`** — procedural execution. Code the agent runs via bash/python. Only the
-**output** enters the context window — far more efficient than generating equivalent
-code on the fly. **`app.yaml` manifests belong here** — they are the execution layer
-of an agentic capability.
+## Migration rules
 
-**`assets/`** — static knowledge. Templates, lookup tables, canonical reference data.
-
-## Agent manifests belong in `scripts/app.yaml`
-
-Each agentic capability owns its manifest. Discovery scans
-`application/**/scripts/app.yaml` and `application/**/app.yaml`.
-
-```
-src/remi/application/
-  document-ingestion/
-    SKILL.md                  ← cognitive: how to reason about report ingestion
-    references/
-      IMPL.md                 ← reference: pipeline architecture, entity authority rules
-      DATA.md                 ← reference: what the ingested data looks like
-    scripts/
-      app.yaml                ← execution: the ingester workflow definition
-
-  deep-research/
-    SKILL.md                  ← cognitive: when and how to run deep analysis
-    references/
-      IMPL.md                 ← reference: researcher agent architecture
-    scripts/
-      app.yaml                ← execution: the researcher agent definition
-
-  manager-meeting-prep/
-    SKILL.md                  ← cognitive: preparing for a PM review
-    scripts/
-      app.yaml                ← execution: the brief_writer pipeline
-
-  director-copilot/
-    scripts/
-      app.yaml                ← execution: the director agent (no SKILL.md — internal)
-```
-
-## The complete capability inventory
-
-### Currently implemented
-
-| Capability | SKILL.md | references/ | scripts/ | Python code |
-|---|---|---|---|---|
-| `delinquency-review` | ✓ | missing | — | in `operations/` (to migrate) |
-| `lease-risk` | ✓ | missing | — | in `operations/` (to migrate) |
-| `manager-review` | ✓ | missing | — | in `portfolio/` (to migrate) |
-| `portfolio-health` | ✓ | missing | — | in `portfolio/` (to migrate) |
-| `rent-roll` | ✓ | missing | — | in `portfolio/` (to migrate) |
-| `entity-search` | ✓ | missing | — | in `intelligence/` (to migrate) |
-| `document-ingestion` | missing | missing | missing | in `ingestion/` (to migrate) |
-| `deep-research` | missing | missing | missing | manifest in `agents/` (to migrate) |
-| `manager-meeting-prep` | missing | missing | missing | manifest in `agents/` (to migrate) |
-| `director-copilot` | — | — | missing | manifest in `agents/` (to migrate) |
-
-### Planned capabilities
-
-| Capability | What it covers |
-|---|---|
-| `entity-annotation` | assert_fact / add_context — recording observations and corrections |
-| `maintenance-review` | Maintenance query operations, property risk signals, vendor patterns |
-
-## Shared infrastructure (not capability slices)
-
-These live flat in `application/` and are NOT capability slices:
-
-- `core/` — pure models, protocols, rules (no framework deps, no SKILL.md)
-- `stores/` — persistence port implementations (mem, pg, world model)
-- `tools/` — agent tool providers (query, documents, mutations)
-- `events/` — event feed HTTP polling + WebSocket push
-
-## Relationship to `.cursor/skills/`
-
-`.cursor/skills/` is for **dev infrastructure skills** — how to build and extend
-the platform (add-agent, add-query-operation, ingestion-debugging, platform-orientation).
-These are for Cursor AI, not for REMI agents. No corresponding `application/<name>/` entry.
-
-`application/<capability>/references/IMPL.md` serves both audiences — the REMI agent
-asking "how do I access this?" and the developer asking "which files do I touch?".
-
-## What not to do
-
-- Do not put skills in `.remi/skills/` — they belong in `application/<capability>/`
-- Do not put `IMPL.md` or `DATA.md` as siblings of `SKILL.md` — they belong in `references/`
-- Do not create skill directories without referencing the supporting files in `SKILL.md`
-- Do not organize capabilities into subdirectories — flat: `application/<name>/SKILL.md`
-- Do not leave agent manifests in `src/remi/application/agents/` — migrate to `scripts/app.yaml`
+- Migrate one capability at a time — never big-bang.
+- Each migrated capability must pass existing tests before merge.
+- Agent manifests move from `agents/<name>/app.yaml` to `<capability>/scripts/app.yaml`.
+- Update `capabilities.py` shell wiring to point to new locations.

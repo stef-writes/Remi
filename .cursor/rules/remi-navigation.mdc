@@ -1,182 +1,111 @@
-# REMI Navigation & Operations
+---
+description: How to run, navigate, and extend the REMI codebase
+alwaysApply: false
+---
+
+# REMI Navigation
 
 ## How to Run
 
 ```bash
-# Start the API server (port 8000)
-uv run remi serve
-
-# Start with auto-reload
-uv run remi serve --reload
-
-# All CLI commands
-uv run remi <group> <command>
-# Groups: portfolio, operations, intelligence, ingestion
+uv run remi serve              # API on port 8000
+uv run remi serve --reload     # with auto-reload
+uv run remi <group> <command>  # CLI (groups: portfolio, operations, intelligence, ingestion)
 ```
 
 Entry points:
-- **API**: `src/remi/shell/api/main.py` → `create_app()` → `app` object
+- **API**: `src/remi/shell/api/main.py` → `create_app()` → `app`
 - **CLI**: `src/remi/shell/cli/main.py` → `cli` Typer app
-- **Module run**: `uv run python -m remi` (runs CLI)
-- **Script entry**: `pyproject.toml` defines `remi = "remi.shell.cli.main:app"`
+- **Script**: `pyproject.toml` → `remi = "remi.shell.cli.main:app"`
 
-## Config & Secrets
+## Config
 
-Config is loaded by `load_settings()` in `src/remi/shell/config/settings.py`.
-Order: `.env` file → `config/${REMI_CONFIG_ENV}.yaml` → env vars.
+`load_settings()` in `shell/config/settings.py`. Order: `.env` → `config/${REMI_CONFIG_ENV}.yaml` → env vars.
+Default is `base` (in-memory store, no DB required).
 
-```
-config/
-  base.yaml    # defaults: in_memory store, port 8000, no DB required
-  dev.yaml     # dev overrides (usually postgres DSN)
-  local.yaml   # personal overrides (gitignored)
-  prod.yaml    # production
-```
+Required env vars: at least one of `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`.
+Optional: `DATABASE_URL` (for postgres backend), `REMI_API_URL` (sandbox CLI proxy).
 
-Set `REMI_CONFIG_ENV=dev` to load `config/dev.yaml`. Default is `base` (in-memory, no DB).
+## REST API — Actual Routes
 
-Required env vars (at least one LLM key):
-```
-ANTHROPIC_API_KEY=       # required for director + ingester (claude-sonnet/haiku)
-OPENAI_API_KEY=          # optional
-GOOGLE_API_KEY=          # optional
-DATABASE_URL=            # optional — omit for in-memory dev mode
-REMI_API_URL=            # set inside sandbox so CLI proxies to running API
-```
+All routes are prefixed with `/api/v1`.
 
-Other env vars:
-```
-REMI_LLM_PROVIDER=       # override default LLM provider
-REMI_LLM_MODEL=          # override default model
-REMI_SANDBOX__BACKEND=   # local (default) or docker
-REMI_API__PORT=          # override port
-```
-
-The sandbox always sets `REMI_API_URL` so that `remi` CLI commands inside
-bash/python tool calls proxy to the running API (no cold start, no separate container).
-
-## File Navigation — Where Things Actually Live
-
-### The Dependency Ring
-```
-types/ ← agent/ ← application/ ← shell/
-```
-Never import outer from inner at module level.
-Exception: `application/*/cli.py` files do deferred lazy imports from `shell/`
-inside `_is_remote()` / `_container()` helper functions. This is intentional
-and the established pattern — do not refactor it away.
-
-### Finding Anything
-
-| What you want | Where it lives |
-|---|---|
-| DI container / wiring | `src/remi/shell/config/container.py` |
-| Settings & env vars | `src/remi/shell/config/settings.py` |
-| Capability registration | `src/remi/shell/config/capabilities.py` |
-| Domain entity types (vocab) | `src/remi/shell/config/domain.yaml` |
-| Agent manifests | `src/remi/application/agents/*/app.yaml` |
-| The unified query tool | `src/remi/application/tools/query.py` |
-| Group-by aggregators | `src/remi/application/tools/aggregators.py` |
-| 360° entity detail views | `src/remi/application/tools/detail.py` |
-| Document tools | `src/remi/application/tools/documents.py` |
-| Mutation tools (assert_fact, add_context) | `src/remi/application/tools/mutations.py` |
-| Ingestion pipeline tools | `src/remi/application/ingestion/tools.py` |
-| Ingestion vocab (column headers) | `src/remi/application/ingestion/vocab.py` |
-| Ingestion rules (junk, normalize) | `src/remi/application/ingestion/rules.py` |
-| Storage port (PropertyStore) | `src/remi/application/core/protocols.py` |
-| Domain models | `src/remi/application/core/models/` |
-| Portfolio resolvers | `src/remi/application/portfolio/managers.py` etc. |
-| Operations resolvers | `src/remi/application/operations/delinquency.py` etc. |
-| Intelligence resolvers | `src/remi/application/intelligence/trends.py` etc. |
-| Per-slice read models (views) | `src/remi/application/{portfolio,operations,intelligence}/views.py` |
-| Agent runtime loop | `src/remi/agent/runtime/loop.py` |
-| Agent node (YAML → execution) | `src/remi/agent/runtime/node.py` |
-| Kernel boot | `src/remi/agent/serve/kernel.py` |
-| Workflow engine | `src/remi/agent/workflow/engine.py` |
-| EventBus | `src/remi/agent/events/bus.py` |
-| Memory store | `src/remi/agent/memory/store.py` |
-| Task supervisor | `src/remi/agent/tasks/supervisor.py` |
-| FastAPI app factory | `src/remi/shell/api/main.py` |
-| CLI entrypoint | `src/remi/shell/cli/main.py` |
-| CLI HTTP client (sandbox proxy) | `src/remi/shell/cli/client.py` |
-| API routers | `src/remi/application/{portfolio,operations,intelligence,ingestion}/api.py` |
-| CLI commands | `src/remi/application/{portfolio,operations,intelligence,ingestion}/cli.py` |
-
-### Directory Structure Reality
-The docs describe `application/views/` and `application/cli/` as packages.
-They do not exist. The actual layout:
-- Views: `application/portfolio/views.py`, `application/operations/views.py`, `application/intelligence/views.py`
-- CLI: `application/portfolio/cli.py`, `application/operations/cli.py`, etc. — colocated with each slice
-
-## Dead Code — Do Not Touch or Reference
-
-These three files exist but are **not registered anywhere** and have no callers.
-The tools they define are never visible to the LLM.
-
-| File | Dead tool name | Status |
+| Group | Prefix | Key routes |
 |---|---|---|
-| `src/remi/application/portfolio/tools.py` | `portfolio_query` | Not wired in container |
-| `src/remi/application/operations/tools.py` | `operations_query` | Not wired in container |
-| `src/remi/application/intelligence/tools.py` | `intelligence_query` | Not wired in container |
+| Managers | `/managers` | `GET /managers`, `GET /managers/{id}/review`, `POST /managers`, `PATCH /managers/{id}`, `DELETE /managers/{id}`, `POST /managers/merge`, `POST /managers/{id}/assign` |
+| Properties | `/properties` | `GET /properties`, `GET /properties/{id}`, `GET /properties/{id}/units`, `GET /properties/{id}/rent-roll` |
+| Units | `/units` | `GET /units`, `POST /units`, `PATCH /units/{id}` |
+| Owners | `/owners` | `GET /owners` |
+| Leases | `/leases` | `GET /leases`, `GET /leases/expiring`, `POST /leases` |
+| Maintenance | `/maintenance` | `GET /maintenance`, `GET /maintenance/summary` |
+| Tenants | `/tenants` | `GET /tenants`, `GET /tenants/{id}` |
+| Actions | `/actions` | `GET /actions/items`, `POST /actions/items` |
+| Notes | `/notes` | `GET /notes`, `POST /notes`, `POST /notes/batch` |
+| Dashboard | `/dashboard` | `GET /dashboard/overview`, `GET /dashboard/delinquency`, `GET /dashboard/vacancies`, `GET /dashboard/leases/expiring`, `GET /dashboard/needs-manager`, `GET /dashboard/trends/*` |
+| Search | `/search` | `GET /search?q=...` |
+| Knowledge | `/knowledge` | `POST /knowledge/assert`, `POST /knowledge/context` |
+| Documents | `/documents` | `POST /documents/upload`, `GET /documents`, `GET /documents/{id}`, `GET /documents/{id}/rows` |
+| Feed | `/feed` | `GET /feed` (polling), `WS /feed/ws` (push) |
+| Agents | `/agents` | `POST /agents/{name}/ask` (NDJSON stream), session CRUD |
 
-The `assert_fact` and `add_context` in `intelligence/tools.py` are also dead —
-the live versions are in `application/tools/mutations.py` (wired via `MutationToolProvider`).
+## CLI Commands
 
-The group-by functions in `operations/tools.py` are dead —
-the live versions are in `application/tools/aggregators.py`.
+| Group | Commands |
+|---|---|
+| portfolio | `managers`, `properties`, `rent-roll`, `manager-review`, `rankings` |
+| operations | `leases`, `maintenance`, `delinquency`, `expiring-leases`, `create-action`, `create-note` |
+| intelligence | `dashboard`, `search`, `vacancies`, `trends`, `assert-fact`, `add-context` |
+| ingestion | `upload`, `documents`, `document-search` |
 
-## What's Actually Registered in the Container
+## Where Things Live
 
-Kernel (registers for ALL agents):
-- `bash`, `python` → `AnalysisToolProvider` (agents must declare in YAML tools list to use)
-- `memory_write`, `memory_read` → `MemoryToolProvider`
-- `delegate_to_agent` → `DelegationToolProvider`
-- `ask_human` → `HumanToolProvider` (no agent currently declares this)
+| What | Where |
+|---|---|
+| DI container | `shell/config/container.py` |
+| Settings | `shell/config/settings.py` |
+| Capability registration | `shell/config/capabilities.py` |
+| Domain schema | `shell/config/domain.yaml` |
+| Agent manifests | `application/agents/*/app.yaml` |
+| Unified query tool (20 ops) | `application/tools/query.py` |
+| Document tools | `application/tools/documents.py` |
+| Mutation tools | `application/tools/mutations.py` |
+| Ingestion vocab | `application/ingestion/vocab.py` |
+| Ingestion rules + authority | `application/ingestion/rules.py` |
+| Ingestion entity persistence | `application/ingestion/operations.py` |
+| Storage port | `application/core/protocols.py` |
+| Domain models | `application/core/models/` |
+| Portfolio resolvers + views | `application/portfolio/` |
+| Operations resolvers + views | `application/operations/` |
+| Intelligence resolvers + views | `application/intelligence/` |
+| API routers | `application/{portfolio,operations,intelligence,ingestion}/api.py` |
+| CLI commands | `application/{portfolio,operations,intelligence,ingestion}/cli.py` |
 
-Product (container.py registers these on top):
-- `query` → `QueryToolProvider` (all 20 operations in one tool)
-- `document_list`, `document_query`, `document_search` → `DocumentToolProvider`
-- `assert_fact`, `add_context` → `MutationToolProvider`
-- `ingest_analyze`, `ingest_format_lookup`, `ingest_resolve`, `ingest_run`,
-  `ingest_format_save`, `ingest_finalize` → `IngestionToolProvider`
+## Sample Reports (Alex Budavich)
 
-## Director's Actual Tool Surface
+Located in `data/sample_reports/Alex_Budavich_Reports/`:
 
-The director (`application/agents/director/app.yaml`) has:
-```
-query, document_list, document_query, assert_fact, add_context,
-delegate_to_agent, memory_write, memory_read
-```
-No `bash` or `python`. Director delegates computation to `researcher`.
+| File | Report type | Ingestion order |
+|---|---|---|
+| `property_directory-20260330.xlsx` | property_directory | 1st (creates managers + properties) |
+| `unit_directory-20260409.xlsx` | unit_directory | 2nd (creates units with physical data) |
+| `Rent Roll_Vacancy (1).xlsx` | rent_roll | 3rd (occupancy status, lease dates) |
+| `Lease Expiration Detail By Month.xlsx` | lease_expiration | 4th (tenant names, lease terms) |
+| `lease_expiration_detail_by_month-20260409.xlsx` | lease_expiration | 4th (newer Kraus-scoped version) |
+| `Delinquency.xlsx` | delinquency | 5th (balance observations) |
+| `report_builder-general_ledger-20260410.xlsx` | unknown (general ledger) | not ingested by rule engine |
 
-The researcher has `bash` and `python` (declared in researcher/app.yaml).
+Managers in this dataset: Jake Kraus, Aaron Smay, Ryan Steen, Nikki Smith, Denise Shoemaker, Zack Weston, Liam Martin, Mark Williams, Jade Dudley, Alayna Hardy, + smaller managers.
 
 ## Testing
 
 ```bash
 uv run pytest                    # all tests
-uv run pytest tests/ingestion/   # ingestion tests
 uv run pytest -x                 # stop on first failure
 uv run ruff check src/           # lint
 ```
 
-Tests live in `tests/` mirroring the src layout. `conftest.py` in `tests/` is the shared fixture root.
+## Demo Data Loading
 
-## Adding Things — Quick Reference
-
-**New query operation** (read-only, no LLM, ~10ms):
-→ See skill: `add-query-operation`
-→ File: `src/remi/application/tools/query.py`
-
-**New agent/workflow/pipeline**:
-→ See skill: `add-agent`
-→ Create: `src/remi/application/agents/<name>/app.yaml`
-→ Auto-discovered; only touch `capabilities.py` for API routes or CLI
-
-**New ingestion report type**:
-→ See skill: `ingestion-debugging`
-→ Start at: `src/remi/application/ingestion/vocab.py`
-
-**New API endpoint**:
-→ Add to the relevant `application/<slice>/api.py`
-→ Router auto-mounted via `capabilities.py` `_shell_wiring()` entry
+```bash
+scripts/load_demo_data.sh        # uploads all reports in correct order to running API
+```
