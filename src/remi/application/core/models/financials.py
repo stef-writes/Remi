@@ -30,6 +30,7 @@ class BalanceObservation(BaseModel, frozen=True):
     balance_total: Decimal = Decimal("0")
     balance_0_30: Decimal = Decimal("0")
     balance_30_plus: Decimal = Decimal("0")
+    subsidy_balance: Decimal = Decimal("0")
     last_payment_date: date | None = None
     source_document_id: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)

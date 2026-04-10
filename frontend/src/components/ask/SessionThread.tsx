@@ -5,34 +5,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Markdown } from "@/components/ui/Markdown";
 import { ToolResultCard } from "./ToolResultCard";
 import type { ChatMessage, ToolCall, UsageInfo } from "@/lib/types";
+import type { LivePhase } from "@/hooks/useSessions";
 
 const TOOL_LABELS: Record<string, string> = {
-  onto_signals: "Checking signals",
-  onto_explain: "Looking at evidence",
-  onto_search: "Searching data",
-  onto_get: "Looking up details",
-  onto_related: "Checking related data",
-  onto_aggregate: "Calculating",
-  onto_schema: "Checking structure",
-  onto_timeline: "Looking at history",
-  onto_codify_observation: "Saving observation",
-  onto_codify_policy: "Recording policy",
-  onto_codify_causal_link: "Recording link",
-  onto_define_type: "Defining category",
+  query: "Querying data",
+  bash: "Running command",
+  python: "Running analysis",
+  delegate_to_agent: "Delegating to specialist",
+  memory_write: "Saving to memory",
+  memory_read: "Recalling memory",
   document_list: "Checking reports",
   document_query: "Searching reports",
-  semantic_search: "Searching context",
-  vector_stats: "Checking index",
-  sandbox_exec_python: "Running analysis",
-  sandbox_exec_shell: "Running command",
-  sandbox_write_file: "Saving work",
-  sandbox_read_file: "Reading file",
-  sandbox_list_files: "Checking files",
-  trace_list: "Reviewing past work",
-  trace_show: "Inspecting details",
-  trace_spans: "Reviewing steps",
-  memory_store: "Remembering",
-  memory_recall: "Recalling",
 };
 
 function toolLabel(name: string): string {
@@ -58,7 +41,10 @@ function ToolCallRow({ tc, showDetails }: { tc: ToolCall; showDetails: boolean }
           </svg>
         )}
         <span className="text-xs text-fg-faint">{toolLabel(tc.tool)}</span>
-        {tc.duration != null && (
+        {tc.status === "calling" && tc.elapsed_s != null && (
+          <span className="text-[10px] text-fg-ghost tabular-nums">{tc.elapsed_s}s</span>
+        )}
+        {tc.status === "done" && tc.duration != null && (
           <span className="text-[10px] text-fg-ghost">{(tc.duration / 1000).toFixed(1)}s</span>
         )}
       </button>
@@ -175,6 +161,7 @@ export function SessionThread({
   messages,
   liveContent,
   liveTools,
+  livePhase,
   streaming,
   showWorkDetails,
   onRetry,
@@ -182,6 +169,7 @@ export function SessionThread({
   messages: ChatMessage[];
   liveContent: string;
   liveTools: ToolCall[];
+  livePhase?: LivePhase | null;
   streaming: boolean;
   showWorkDetails: boolean;
   onRetry?: () => void;
@@ -283,11 +271,23 @@ export function SessionThread({
         {streaming && liveTools.length > 0 && !liveContent && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
             <div className="max-w-[90%] space-y-1">
+              {livePhase && (
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-[9px] font-semibold text-amber-500 uppercase tracking-widest">
+                    {livePhase.name}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center gap-2 py-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-warn animate-pulse" />
                 <span className="text-[13px] text-fg-faint">
                   {toolLabel(liveTools[liveTools.length - 1].tool)}...
                 </span>
+                {liveTools[liveTools.length - 1].elapsed_s != null && (
+                  <span className="text-[10px] text-fg-ghost tabular-nums">
+                    {liveTools[liveTools.length - 1].elapsed_s}s
+                  </span>
+                )}
               </div>
               {showWorkDetails && (
                 <div className="pl-0.5 space-y-0">

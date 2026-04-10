@@ -14,6 +14,7 @@ import asyncio
 
 import structlog
 
+from remi.agent.context.enricher import EntityViewEnricher
 from remi.agent.context.frame import ContextFrame, WorldState
 from remi.agent.context.rendering import render_graph_context
 from remi.agent.graph.retrieval.retriever import GraphRetriever
@@ -49,6 +50,7 @@ class ContextBuilder:
         vector_store: VectorStore | None = None,
         token_budget: int = _DEFAULT_TOKEN_BUDGET,
         empty_state_label: str = "monitored entities",
+        enricher: EntityViewEnricher | None = None,
     ) -> None:
         self._domain = domain
         self._graph_retriever = graph_retriever
@@ -56,6 +58,7 @@ class ContextBuilder:
         self._vector_store = vector_store
         self._token_budget = token_budget
         self._empty_state_label = empty_state_label
+        self._enricher = enricher
 
     async def build(
         self,
@@ -127,7 +130,18 @@ class ContextBuilder:
             except Exception:
                 _log.warning("document_context_fetch_failed", exc_info=True)
 
+        async def _fetch_operational() -> None:
+            if self._enricher is None or not frame.entities:
+                return
+            try:
+                frame.operational_context = await self._enricher.enrich(frame.entities)
+            except Exception:
+                _log.warning("operational_context_fetch_failed", exc_info=True)
+
+        # Graph and document retrieval run first; operational enrichment depends
+        # on the entities resolved by _fetch_graph, so run sequentially.
         await asyncio.gather(_fetch_graph(), _fetch_documents())
+        await _fetch_operational()
 
         return frame
 
@@ -148,6 +162,24 @@ class ContextBuilder:
         remaining = self._token_budget - existing_tokens
 
         insert_idx = _find_tail_inject_point(thread)
+
+        # Operational context — highest priority, injected first so it sits
+        # closest to the user message where LLM attention is strongest.
+        if frame.operational_context and remaining > 200:
+            op_parts = list(frame.operational_context.values())
+            op_text = "\n\n".join(op_parts)
+            op_budget = min(remaining // 2, 6000)
+            op_cost = estimate_tokens(op_text)
+            if op_cost <= op_budget:
+                thread.insert(insert_idx, Message(role="system", content=op_text))
+                remaining -= op_cost
+                insert_idx += 1
+            else:
+                trimmed_op = truncate_to_tokens(op_text, op_budget)
+                if trimmed_op:
+                    thread.insert(insert_idx, Message(role="system", content=trimmed_op))
+                    remaining -= estimate_tokens(trimmed_op)
+                    insert_idx += 1
 
         if frame.document_context and remaining > 200:
             doc_budget = min(remaining // 3, 2000)
@@ -199,6 +231,7 @@ def build_context_builder(
     embedder: Embedder | None = None,
     name_fields: tuple[str, ...] | None = None,
     empty_state_label: str = "monitored entities",
+    enricher: EntityViewEnricher | None = None,
 ) -> ContextBuilder:
     """Factory: assembles a ContextBuilder with its GraphRetriever.
 
@@ -218,4 +251,5 @@ def build_context_builder(
         embedder=embedder,
         vector_store=vector_store,
         empty_state_label=empty_state_label,
+        enricher=enricher,
     )

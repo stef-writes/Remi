@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 
@@ -97,62 +99,6 @@ def _extract_artifacts(text: str) -> tuple[str, list[dict]]:
     return "\n".join(clean_lines), artifacts
 
 
-# ---------------------------------------------------------------------------
-# Result schema inference — labels tool results by remi CLI command
-# ---------------------------------------------------------------------------
-
-# Maps substrings in the bash arguments to a result_schema label.
-# The frontend uses these to pick which card component to render.
-_RESULT_SCHEMA_PATTERNS: list[tuple[str, str]] = [
-    ("portfolio managers", "managers_list"),
-    ("portfolio properties", "properties_list"),
-    ("portfolio rent-roll", "rent_roll"),
-    ("portfolio manager-review", "manager_review"),
-    ("portfolio rankings", "manager_rankings"),
-    ("operations delinquency", "delinquency"),
-    ("operations leases", "leases_list"),
-    ("operations maintenance", "maintenance_list"),
-    ("operations expiring-leases", "expiring_leases"),
-    ("intelligence dashboard", "dashboard_overview"),
-    ("intelligence vacancies", "vacancies"),
-    ("intelligence trends", "trends"),
-    ("intelligence search", "search_results"),
-]
-
-
-_QUERY_OPERATION_SCHEMAS: dict[str, str] = {
-    "dashboard": "dashboard_overview",
-    "managers": "managers_list",
-    "manager_review": "manager_review",
-    "properties": "properties_list",
-    "rent_roll": "rent_roll",
-    "rankings": "manager_rankings",
-    "delinquency": "delinquency",
-    "expiring_leases": "expiring_leases",
-    "vacancies": "vacancies",
-    "leases": "leases_list",
-    "maintenance": "maintenance_list",
-    "search": "search_results",
-}
-
-
-def _infer_result_schema(tool_name: str, arguments: dict) -> str | None:
-    """Infer a result_schema label from the tool name and arguments."""
-    if tool_name == "query":
-        operation = arguments.get("operation", "")
-        return _QUERY_OPERATION_SCHEMAS.get(operation)
-
-    if tool_name not in ("bash", "sandbox_exec_shell"):
-        return None
-    cmd = arguments.get("command", "") or arguments.get("cmd", "") or ""
-    if not isinstance(cmd, str):
-        return None
-    cmd_lower = cmd.lower()
-    for pattern, schema in _RESULT_SCHEMA_PATTERNS:
-        if pattern in cmd_lower:
-            return schema
-    return None
-
 
 async def _execute_tool_call(
     tc: ToolCallRequest,
@@ -161,9 +107,10 @@ async def _execute_tool_call(
     emit: OnEventCallback,
     memory: MemoryStore | None = None,
     memory_namespace: str = "",
+    infer_result_schema: Callable[[str, dict[str, Any]], str | None] | None = None,
 ) -> Message:
     """Execute a single tool call with event emission. Returns the tool Message."""
-    result_schema = _infer_result_schema(tc.name, tc.arguments)
+    result_schema = infer_result_schema(tc.name, tc.arguments) if infer_result_schema else None
 
     await emit(
         "tool_call",
@@ -270,10 +217,12 @@ async def run_agent_loop(
     max_tool_rounds: int | None = None,
     max_tokens: int | None = None,
     routing_provider: LLMProvider | None = None,
+    compaction_provider: LLMProvider | None = None,
     usage_ledger: LLMUsageLedger | None = None,
     memory: MemoryStore | None = None,
     memory_namespace: str = "",
     context_budget: int = 0,
+    infer_result_schema: Callable[[str, dict[str, Any]], str | None] | None = None,
 ) -> tuple[list[Message], TokenUsage]:
     """Execute the think-act-observe loop.
 
@@ -365,10 +314,17 @@ async def run_agent_loop(
 
         if context_budget > 0:
             level = should_compact(thread, context_budget)
-            if level == CompactionLevel.COMPACT:
-                thread = await compact_thread(thread, provider, context_budget, model=cfg.model)
-            elif level == CompactionLevel.SUMMARIZE:
-                thread = await summarize_old_exchanges(thread, provider, context_budget, model=cfg.model)
+            if level != CompactionLevel.NONE:
+                _compaction_provider = compaction_provider or provider
+                _compaction_model = cfg.compaction_model or cfg.model
+                if level == CompactionLevel.COMPACT:
+                    thread = await compact_thread(
+                        thread, _compaction_provider, context_budget, model=_compaction_model
+                    )
+                else:
+                    thread = await summarize_old_exchanges(
+                        thread, _compaction_provider, context_budget, model=_compaction_model
+                    )
 
         log.debug(
             "iteration_start",
@@ -469,6 +425,7 @@ async def run_agent_loop(
                     emit,
                     memory=memory,
                     memory_namespace=memory_namespace,
+                    infer_result_schema=infer_result_schema,
                 )
                 for tc in response.tool_calls
             ]

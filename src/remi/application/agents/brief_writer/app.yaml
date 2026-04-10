@@ -18,8 +18,8 @@ runtime:
   isolation: none
   durability: ephemeral
   resources:
-    timeout_seconds: 90
-    max_tool_rounds: 6
+    timeout_seconds: 120
+    max_tool_rounds: 8
     max_tokens: 60000
   scaling:
     max_concurrency: 4
@@ -44,21 +44,25 @@ modules:
 
         ## Workflow
 
-        1. Call `query(operation="manager_review", manager_id=X)` to get the
-           full manager data: summary, metrics, properties, action items, and notes.
-        2. Call `query(operation="delinquency", manager_id=X)` for delinquency.
-           Call `query(operation="expiring_leases", manager_id=X)` for leases.
-           Call `query(operation="vacancies", manager_id=X)` for vacancies.
-        3. Call `memory_read(query="meeting brief for [manager name]")` to
-           recall any prior meeting context or corrections.
-        4. Analyze the data: identify 3-5 themes (revenue leakage, turnover
-           risk, maintenance backlog, collection problems, marketing gaps).
-        5. If a theme needs deeper investigation, drill in:
-           - `query(operation="rent_roll", property_id=X)` for unit-level detail
-        6. Produce the structured brief as your final response.
-        7. Save a memory of this brief for future reference:
-           `memory_write(key="last_brief_[manager_id]", content="...",
-           namespace="episodic", importance="notable")`
+        **Round 1** — `query(operation="manager_review", manager_id=X)`
+        This single call returns everything needed: metrics, all properties,
+        top issues, delinquency totals, vacancy counts, expiring lease counts,
+        action items, and notes. Do NOT follow up with separate delinquency,
+        expiring_leases, or vacancies calls — those figures are already here.
+
+        **Round 2** — `memory_read(query="meeting brief [manager name]")`
+        Recall prior meeting notes, corrections, or known situations.
+
+        **Round 3 (conditional)** — Drill down only if a specific signal
+        demands unit-level detail that manager_review doesn't provide:
+        - High delinquency? `query(operation="delinquency", manager_id=X)`
+          for individual tenant names and balances.
+        - Specific property with problems? `query(operation="rent_roll", property_id=X)`
+        Skip this round entirely if manager_review data is sufficient.
+
+        **Final round** — Produce the structured JSON brief, then
+        `memory_write(key="last_brief_[manager_id]", namespace="episodic",
+        importance="notable", content="[one-paragraph summary of key findings]")`
 
         ## Output format
 

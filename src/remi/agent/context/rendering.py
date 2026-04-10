@@ -104,7 +104,17 @@ def render_graph_context(
             for link in links:
                 direction = "\u2192" if link.source_id == entity.entity_id else "\u2190"
                 other_id = link.target_id if link.source_id == entity.entity_id else link.source_id
-                entity_lines.append(f"  - {direction} {link.link_type} \u2192 `{other_id}`")
+                scalars = {
+                    k: v for k, v in link.properties.items()
+                    if k not in ("target_type",) and isinstance(v, (str, int, float, bool))
+                }
+                scalar_str = (
+                    " (" + ", ".join(f"{k}={v}" for k, v in list(scalars.items())[:4]) + ")"
+                    if scalars else ""
+                )
+                entity_lines.append(
+                    f"  - {direction} {link.link_type} \u2192 `{other_id}`{scalar_str}"
+                )
 
         entity_lines.append("")
 

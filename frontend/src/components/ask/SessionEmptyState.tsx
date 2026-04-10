@@ -19,6 +19,14 @@ const FALLBACK_SUGGESTIONS = [
   { text: "What should I be paying attention to?", icon: "🔍" },
 ];
 
+const RESEARCH_SUGGESTIONS = [
+  { text: "Write a full delinquency analysis across all managers", icon: "📊" },
+  { text: "Compare manager performance over the last 90 days", icon: "🏆" },
+  { text: "Generate a lease expiry risk report", icon: "📋" },
+  { text: "Identify maintenance patterns and surface any outliers", icon: "🔧" },
+  { text: "Which properties carry the highest vacancy risk?", icon: "🔍" },
+];
+
 function getGreeting(): string {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning.";
@@ -41,6 +49,32 @@ const PROCESS_ICONS: Record<string, string> = {
   turnover: "🔄",
   performance: "📈",
 };
+
+function buildResearchSuggestions(schema: DomainSchemaResponse): Array<{ text: string; icon: string }> {
+  const suggestions: Array<{ text: string; icon: string }> = [];
+
+  suggestions.push({ text: "Write a full delinquency analysis across all managers", icon: "📊" });
+
+  for (const proc of schema.processes.slice(0, 3)) {
+    if (proc.name === "collections") {
+      suggestions.push({ text: "Generate a delinquency risk report with trends", icon: "💰" });
+    } else if (proc.name === "leasing") {
+      suggestions.push({ text: "Generate a lease expiry risk report", icon: "📋" });
+    } else if (proc.name === "maintenance") {
+      suggestions.push({ text: "Identify maintenance patterns and surface any outliers", icon: "🔧" });
+    }
+  }
+
+  if (schema.entity_types.find(et => et.name === "PropertyManager")) {
+    suggestions.push({ text: "Compare manager performance over the last 90 days", icon: "🏆" });
+  }
+
+  if (suggestions.length < 5) {
+    suggestions.push({ text: "Which properties carry the highest vacancy risk?", icon: "🔍" });
+  }
+
+  return suggestions.slice(0, 5);
+}
 
 function buildSuggestions(schema: DomainSchemaResponse): Array<{ text: string; icon: string }> {
   const suggestions: Array<{ text: string; icon: string }> = [];
@@ -76,7 +110,25 @@ function buildSuggestions(schema: DomainSchemaResponse): Array<{ text: string; i
 function buildManagerSuggestions(
   managerName: string,
   schema: DomainSchemaResponse | null,
+  mode: "ask" | "research" = "ask",
 ): Array<{ text: string; icon: string }> {
+  if (mode === "research") {
+    const base = [
+      { text: `Write a full performance review for ${managerName}`, icon: "📊" },
+      { text: `Analyze delinquency trends across ${managerName}'s portfolio`, icon: "💰" },
+    ];
+    if (schema) {
+      if (schema.processes.some(p => p.name === "leasing")) {
+        base.push({ text: `Generate a lease expiry risk report for ${managerName}`, icon: "📋" });
+      }
+      if (schema.processes.some(p => p.name === "maintenance")) {
+        base.push({ text: `Identify maintenance outliers in ${managerName}'s properties`, icon: "🔧" });
+      }
+    }
+    base.push({ text: `Which of ${managerName}'s properties are underperforming?`, icon: "🔍" });
+    return base.slice(0, 5);
+  }
+
   const base = [
     { text: `How is ${managerName} doing overall?`, icon: "👤" },
     { text: `Any issues with ${managerName}'s properties?`, icon: "🏠" },
@@ -110,12 +162,13 @@ export function SessionEmptyState({
   onSend,
   connected,
   streaming,
+  mode = "ask",
   managerName,
 }: {
   onSend: (text: string) => void;
   connected: boolean;
   streaming: boolean;
-  mode?: string;
+  mode?: "ask" | "research";
   managerName?: string;
 }) {
   const [schema, setSchema] = useState<DomainSchemaResponse | null>(null);
@@ -126,14 +179,20 @@ export function SessionEmptyState({
   }, []);
 
   const suggestions = managerName
-    ? buildManagerSuggestions(managerName, schema)
-    : schema
-      ? buildSuggestions(schema)
-      : FALLBACK_SUGGESTIONS;
+    ? buildManagerSuggestions(managerName, schema, mode)
+    : mode === "research"
+      ? schema
+        ? buildResearchSuggestions(schema)
+        : RESEARCH_SUGGESTIONS
+      : schema
+        ? buildSuggestions(schema)
+        : FALLBACK_SUGGESTIONS;
 
-  const subtitle = schema
-    ? `${schema.entity_types.length} entity types, ${schema.processes.length} processes`
-    : "Ask me anything about your portfolio.";
+  const subtitle = mode === "research"
+    ? "Deep statistical analysis and multi-phase reports."
+    : schema
+      ? `${schema.entity_types.length} entity types, ${schema.processes.length} processes`
+      : "Ask me anything about your portfolio.";
 
   return (
     <div className="flex-1 flex items-center justify-center">

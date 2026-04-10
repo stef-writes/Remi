@@ -152,6 +152,9 @@ VOCAB: dict[str, str] = {
     "list rent":                 "market_rent",
     "asking rent":               "market_rent",
     "advertised rent":           "market_rent",
+    # Rent roll "Revenue" column = asking/market rate for vacant units;
+    # occupied rows leave it blank so it safely falls through to market_rent.
+    "revenue":                   "market_rent",
     "deposit":                   "deposit",
     "security deposit":          "deposit",
     "sec dep":                   "deposit",

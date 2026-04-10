@@ -27,6 +27,7 @@ from remi.agent.tasks import TaskSupervisor
 from remi.agent.types import ChatSessionStore, ToolProvider, ToolRegistry
 from remi.agent.vectors import Embedder, VectorStore
 from remi.agent.workforce import Workforce
+from remi.application.context import REEntityViewEnricher
 from remi.application.core import EventStore, PropertyStore
 from remi.application.ingestion import (
     DocumentIngestService,
@@ -57,6 +58,7 @@ from remi.application.stores.indexer import AgentVectorSearch
 from remi.application.stores.world import build_re_world_model
 from remi.application.ingestion.tools import IngestionToolProvider
 from remi.application.tools import DocumentToolProvider, MutationToolProvider, QueryToolProvider
+from remi.application.tools.schemas import infer_result_schema
 from remi.shell.config.settings import RemiSettings
 
 
@@ -164,7 +166,13 @@ class Container:
         # -- RE world model (domain → kernel graph bridge) ---------------------
         self.world_model: WorldModel = build_re_world_model(self.property_store)
 
-        # -- Upgrade kernel context builder with RE world model ----------------
+        # -- RE entity view enricher — pre-fetches live data for resolved entities
+        self._enricher = REEntityViewEnricher(
+            manager_resolver=self.manager_resolver,
+            property_resolver=self.property_resolver,
+        )
+
+        # -- Upgrade kernel context builder with RE world model + enricher -----
         self.chat_agent.set_context_builder(build_context_builder(
             domain=domain_schema,
             world_model=self.world_model,
@@ -172,7 +180,11 @@ class Container:
             embedder=self.embedder,
             name_fields=profile.name_fields,
             empty_state_label=profile.empty_state_label,
+            enricher=self._enricher,
         ))
+
+        # -- Inject result-schema inference (application → kernel boundary) ---
+        self.chat_agent.set_result_schema_fn(infer_result_schema)
 
         # -- RE tool providers -------------------------------------------------
         re_providers: list[ToolProvider] = [

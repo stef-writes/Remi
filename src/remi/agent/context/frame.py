@@ -65,11 +65,16 @@ class WorldState:
 class ContextFrame:
     """The agent's typed perception of its world.
 
-    Contains entities and graph neighborhood the agent needs to reason
-    without making tool calls.
+    Contains entities, graph neighborhood, pre-fetched operational views,
+    and document context assembled by the ContextBuilder each turn.
 
     ``world`` holds structured schema shape data.
     The schema itself lives in the agent's priming (system prompt).
+
+    ``operational_context`` is keyed by entity_id and populated by the
+    injected EntityViewEnricher (application layer). Each value is a
+    rendered, token-budgeted summary of that entity's live data — enough
+    for the LLM to answer most questions without tool calls.
     """
 
     world: WorldState = field(default_factory=WorldState)
@@ -77,5 +82,6 @@ class ContextFrame:
     entities: list[ResolvedEntity] = field(default_factory=list)
     neighborhood: dict[str, list[KnowledgeLink]] = field(default_factory=dict)
 
+    operational_context: dict[str, str] = field(default_factory=dict)
     document_context: str = ""
     question: str | None = None

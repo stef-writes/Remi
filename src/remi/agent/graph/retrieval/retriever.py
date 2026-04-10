@@ -7,6 +7,7 @@ through the WorldModel to pull in related context.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -105,7 +106,54 @@ class GraphRetriever:
                     exc_info=True,
                 )
 
+        await self._enrich_neighborhood(result)
+
         return result
+
+    async def _enrich_neighborhood(self, result: RetrievalResult) -> None:
+        """Fetch key scalars for each link target and store them in link.properties.
+
+        Converts bare ``→ HAS_LEASE → lease-abc`` references into
+        ``→ HAS_LEASE → lease-abc (end_date=2025-06-30, monthly_rent=2400)``
+        so the LLM can reason about neighbors without an extra tool call.
+        """
+        if self._world is None:
+            return
+
+        all_target_ids: set[str] = set()
+        for links in result.neighborhood.values():
+            for link in links:
+                all_target_ids.add(link.target_id)
+
+        seed_ids = {e.entity_id for e in result.entities}
+        fetch_ids = all_target_ids - seed_ids
+
+        if not fetch_ids:
+            return
+
+        objects = await asyncio.gather(
+            *[self._world.get_object(tid) for tid in fetch_ids],
+            return_exceptions=True,
+        )
+        scalars: dict[str, dict[str, object]] = {}
+        for obj in objects:
+            if isinstance(obj, Exception) or obj is None:
+                continue
+            scalars[obj.id] = _extract_key_scalars(obj.properties)
+
+        if not scalars:
+            return
+
+        for entity_id, links in result.neighborhood.items():
+            result.neighborhood[entity_id] = [
+                KnowledgeLink(
+                    source_id=lk.source_id,
+                    link_type=lk.link_type,
+                    target_id=lk.target_id,
+                    properties={**lk.properties, **scalars.get(lk.target_id, {})},
+                )
+                for lk in links
+            ]
 
     async def _resolve_entities(
         self,
@@ -189,6 +237,44 @@ class GraphRetriever:
             if len(results) >= limit:
                 break
         return results[:limit]
+
+
+_SCALAR_PRIORITY: tuple[str, ...] = (
+    "name",
+    "status",
+    "end_date",
+    "start_date",
+    "monthly_rent",
+    "market_rent",
+    "balance_owed",
+    "unit_number",
+    "address",
+    "email",
+)
+_MAX_SCALAR_FIELDS = 4
+
+
+def _extract_key_scalars(props: dict[str, Any]) -> dict[str, object]:
+    """Return the most informative scalar fields from an entity's properties.
+
+    Picks from a priority list first, then any remaining scalars up to
+    ``_MAX_SCALAR_FIELDS``. Non-scalar values (lists, dicts) are skipped.
+    """
+    result: dict[str, object] = {}
+    for key in _SCALAR_PRIORITY:
+        val = props.get(key)
+        if val is not None and isinstance(val, (str, int, float, bool)):
+            result[key] = val
+            if len(result) >= _MAX_SCALAR_FIELDS:
+                return result
+    for key, val in props.items():
+        if key in result or key == "id":
+            continue
+        if isinstance(val, (str, int, float, bool)) and val is not None:
+            result[key] = val
+            if len(result) >= _MAX_SCALAR_FIELDS:
+                break
+    return result
 
 
 def _extract_name_candidates(question: str) -> list[str]:

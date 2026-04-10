@@ -39,6 +39,7 @@ export interface ToolCall {
   result_schema?: string;
   status: "calling" | "done" | "error";
   duration?: number;
+  elapsed_s?: number;
 }
 
 export interface ResearchArtifact {

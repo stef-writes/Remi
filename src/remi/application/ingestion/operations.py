@@ -922,6 +922,7 @@ async def persist_tenant(row: dict[str, Any], ctx: IngestionCtx) -> None:
         ),
         balance_0_30=to_decimal(row.get("balance_0_30")),
         balance_30_plus=to_decimal(row.get("balance_30_plus")),
+        subsidy_balance=to_decimal(row.get("_delinquent_subsidy")),
         last_payment_date=to_date(row.get("last_payment_date")),
         source_document_id=ctx.doc_id,
     )
@@ -994,6 +995,9 @@ async def persist_lease(row: dict[str, Any], ctx: IngestionCtx) -> None:
     unum = str(row.get("unit_number") or "main").strip()
     uid = _unit_id(prop_id, unum)
     tname = str(row.get("tenant_name") or row.get("name") or "").strip()
+    if not tname:
+        _log.debug("persist_lease_skipped_no_tenant", prop_id=prop_id, unum=unum)
+        return
     tid = _tenant_id(tname, prop_id)
     lid = _lease_id(tname, prop_id, unum)
     rent = to_decimal(row.get("monthly_rent"))
@@ -1083,7 +1087,9 @@ async def persist_maintenance(row: dict[str, Any], ctx: IngestionCtx) -> None:
     title = str(row.get("title") or "").strip()
     rid = _maintenance_id(prop_id, unum, title)
     cat = str(row.get("category") or "general").strip().lower()
-    st = str(row.get("status") or "open").strip().lower()
+    # Vocab maps "Status" → "tenant_status" generically; work-order reports
+    # land here so check both keys.
+    st = str(row.get("status") or row.get("tenant_status") or "open").strip().lower()
     pri = str(row.get("priority") or "medium").strip().lower()
     tname = str(row.get("tenant_name") or row.get("tenant_id") or "").strip()
     tid = _tenant_id(tname, prop_id) if tname else None

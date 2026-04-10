@@ -86,6 +86,7 @@ class AgentRuntime:
         self._context_builder = context_builder
         self._usage_ledger = usage_ledger
         self._recall_service = recall_service
+        self._result_schema_fn: Any = None
 
         self.sessions = AgentSessions(chat_session_store)
 
@@ -96,6 +97,19 @@ class AgentRuntime:
         includes a domain-specific world model, profile fields, etc.
         """
         self._context_builder = builder
+
+    def set_result_schema_fn(self, fn: Any) -> None:
+        """Inject a domain-specific result-schema inference function.
+
+        The callable receives ``(tool_name, arguments)`` and returns a
+        schema label string or ``None``. It is forwarded to the agent loop
+        so tool results can be tagged with the right frontend card schema
+        without embedding domain knowledge in the kernel.
+
+        Products (e.g. the REMI container) call this after construction to
+        wire in their application-layer implementation.
+        """
+        self._result_schema_fn = fn
 
     def get_runtime_config(self, agent_name: str) -> RuntimeConfig:
         """Return the ``RuntimeConfig`` for a registered agent manifest."""
@@ -169,8 +183,10 @@ class AgentRuntime:
         log = logger.bind(run_id=run_id, agent=agent_name, mode=mode)
         log.info("agent_run_start", thread_length=len(thread), provider=provider, model=model)
 
-        sid = sandbox_session_id or f"chat-{run_id}"
-        await self._ensure_sandbox_session(sid)
+        needs_sandbox = _agent_needs_sandbox(config_dict)
+        sid: str | None = (sandbox_session_id or f"chat-{run_id}") if needs_sandbox else None
+        if sid:
+            await self._ensure_sandbox_session(sid)
 
         params = RunParams(
             mode=mode,
@@ -223,16 +239,22 @@ class AgentRuntime:
         log = logger.bind(run_id=run_id, agent=agent_name)
         log.info("ask_start", question_length=len(question))
 
-        sandbox_sid = f"ask-{run_id}"
-        await self._ensure_sandbox_session(sandbox_sid)
+        config_dict, _runtime_cfg = self._load_agent_config(agent_name)
+        config_dict["name"] = agent_name
+
+        # Only create a sandbox session when the agent actually declares sandbox
+        # tools (bash/python). Agents that rely solely on in-process tools skip
+        # session creation, workspace loading, and the destroy call entirely.
+        needs_sandbox = _agent_needs_sandbox(config_dict)
+        sandbox_sid: str | None = f"ask-{run_id}" if needs_sandbox else None
+        if sandbox_sid:
+            await self._ensure_sandbox_session(sandbox_sid)
 
         params = RunParams(mode=mode, sandbox_session_id=sandbox_sid, on_event=on_event)
         extra = {"task_id": task_id} if task_id else None
         ctx = self._build_context(run_id=run_id, params=params, scope=scope, extra=extra)
 
         try:
-            config_dict, _runtime_cfg = self._load_agent_config(agent_name)
-            config_dict["name"] = agent_name
             node = AgentNode(config=config_dict)
             output = await self._retry.execute(node.run, {"input": question}, ctx)
 
@@ -245,7 +267,8 @@ class AgentRuntime:
             )
             return (answer, run_id)
         finally:
-            await self._sandbox.destroy_session(sandbox_sid)
+            if sandbox_sid:
+                await self._sandbox.destroy_session(sandbox_sid)
 
     async def _ask_session(
         self,
@@ -323,7 +346,9 @@ class AgentRuntime:
             default_provider=self._default_provider,
             default_model=self._default_model,
         )
-        merged_extras = {"sandbox": self._sandbox}
+        merged_extras: dict[str, Any] = {"sandbox": self._sandbox}
+        if self._result_schema_fn is not None:
+            merged_extras["infer_result_schema"] = self._result_schema_fn
         if extra:
             merged_extras.update(extra)
 
@@ -348,6 +373,18 @@ class AgentRuntime:
         session = await self._sandbox.get_session(session_id)
         if session is None:
             await self._sandbox.create_session(session_id)
+
+
+_SANDBOX_TOOL_NAMES: frozenset[str] = frozenset({"bash", "python", "sandbox_exec_shell", "sandbox_exec_python"})
+
+
+def _agent_needs_sandbox(config_dict: dict[str, Any]) -> bool:
+    """Return True if any declared tool requires a sandbox subprocess."""
+    for tool in config_dict.get("tools", []):
+        name = tool if isinstance(tool, str) else (tool.get("name", "") if isinstance(tool, dict) else "")
+        if name in _SANDBOX_TOOL_NAMES:
+            return True
+    return False
 
 
 async def _noop_event(_type: str, _data: dict[str, Any]) -> None:

@@ -93,6 +93,7 @@ class AgentConfig(BaseModel):
     model: str | None = None
     tool_routing_provider: str | None = None
     tool_routing_model: str | None = None
+    compaction_model: str | None = None
     temperature: float = 0.7
     max_tokens: int = 1024
     response_format: str = "text"
@@ -153,6 +154,7 @@ class AgentConfig(BaseModel):
             model=data.get("model"),
             tool_routing_provider=data.get("tool_routing_provider"),
             tool_routing_model=data.get("tool_routing_model"),
+            compaction_model=data.get("compaction_model"),
             temperature=data.get("temperature", 0.7),
             max_tokens=data.get("max_tokens", 1024),
             response_format=data.get("response_format", "text"),

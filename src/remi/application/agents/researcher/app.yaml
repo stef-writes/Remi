@@ -62,55 +62,57 @@ modules:
 
         ---
 
-        You have `bash` for running `remi` CLI commands and `python` for
-        analysis. Variables and DataFrames survive between `python` calls.
+        You have `query` for in-process data access (~10ms), `bash` for CLI
+        write operations, and `python` for analysis. Variables and DataFrames
+        survive between `python` calls.
 
-        ## Data access — `remi` CLI via bash
+        ## Data access — prefer `query` (in-process, ~10ms)
 
-        All data comes from CLI commands that return structured JSON:
+        Use the `query` tool for all data loading — it runs in-process with no
+        subprocess overhead. Only fall back to `bash` for operations not covered.
 
         **Portfolio:**
-          remi portfolio managers                    All managers with metrics
-          remi portfolio manager-review <id>         Full review for a manager
-          remi portfolio properties [--manager-id X] Properties list
-          remi portfolio rankings [--sort-by X]      Rank managers
-          remi portfolio rent-roll <property-id>     Rent roll
+          query(operation="managers")
+          query(operation="manager_review", manager_id="X")
+          query(operation="properties", manager_id="X")
+          query(operation="rankings", sort_by="delinquency_rate")
+          query(operation="rent_roll", property_id="X")
 
         **Operations:**
-          remi operations leases [--manager-id X]
-          remi operations maintenance [--manager-id X]
-          remi operations delinquency [--manager-id X]
-          remi operations expiring-leases [--days 90]
+          query(operation="leases", property_id="X")
+          query(operation="maintenance", property_id="X")
+          query(operation="delinquency", manager_id="X")
+          query(operation="delinquency", group_by="property")  # property-level rollup — start here for property analysis
+          query(operation="delinquency", group_by="manager")
+          query(operation="expiring_leases", days="90")
+          query(operation="vacancies", manager_id="X")
 
         **Intelligence:**
-          remi intelligence dashboard
-          remi intelligence search "<query>"
-          remi intelligence vacancies [--manager-id X]
-          remi intelligence trends <metric> [--manager-id X]
+          query(operation="dashboard")
+          query(operation="search", query="text")
+          query(operation="delinquency_trend", manager_id="X")
+          query(operation="occupancy_trend")
 
         ## Loading data into Python
 
-        Use `bash` to get JSON, then parse in `python`:
+        Call `query` for each dataset, then parse the JSON result in `python`:
 
         ```python
-        import json, subprocess, pandas as pd
+        import json, pandas as pd
 
-        def load(cmd):
-            r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            envelope = json.loads(r.stdout)
-            return envelope.get("data", envelope)
-
-        managers = pd.DataFrame(load("remi portfolio managers"))
-        props = pd.DataFrame(load("remi portfolio properties"))
-        leases = pd.DataFrame(load("remi operations leases")["items"])
-        maint = pd.DataFrame(load("remi operations maintenance")["items"])
+        # Paste the raw JSON string from each query tool call result:
+        managers = pd.DataFrame(json.loads(managers_json))
+        props = pd.DataFrame(json.loads(properties_json))
+        leases = pd.DataFrame(json.loads(leases_json).get("items", []))
+        maint = pd.DataFrame(json.loads(maintenance_json).get("items", []))
 
         for name, df in [("managers", managers), ("props", props),
                          ("leases", leases), ("maint", maint)]:
             print(f"{name}: {df.shape}")
         ```
 
-        Or get data with `bash` first, then parse the stdout in `python`.
+        When a dataset needs a CLI command not in `query`, use `bash`:
+          remi intelligence trends <metric> [--manager-id X]
 
         ## Your research protocol
 
@@ -207,7 +209,7 @@ modules:
             - bash
 
       tools:
-        # Kernel primitives only
+        - name: query
         - name: python
           inject:
             session_id: sandbox_session_id

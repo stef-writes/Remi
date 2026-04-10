@@ -121,6 +121,9 @@ class AgentNode(BaseModule):
                 routing_provider = _resolve_provider(routing_name, context)
             else:
                 routing_provider = provider
+        compaction_provider: LLMProvider | None = None
+        if cfg.compaction_model and cfg.provider:
+            compaction_provider = _resolve_provider(cfg.provider, context)
         bindings = resolve_agent_tools(cfg, context, mode=mode)
         memory = context.deps.memory_store or context.extras.get("memory_store")
         _raw_emit = context.params.on_event or context.extras.get("on_event") or _noop_event
@@ -266,6 +269,8 @@ class AgentNode(BaseModule):
             except Exception:
                 context_budget = 0
 
+            infer_result_schema = context.extras.get("infer_result_schema")
+
             thread, run_usage = await run_agent_loop(
                 cfg=cfg,
                 thread=thread,
@@ -277,10 +282,12 @@ class AgentNode(BaseModule):
                 max_tool_rounds=max_tool_rounds,
                 max_tokens=token_budget,
                 routing_provider=routing_provider,
+                compaction_provider=compaction_provider,
                 usage_ledger=usage_ledger,
                 memory=memory,
                 memory_namespace=cfg.memory.namespace,
                 context_budget=context_budget,
+                infer_result_schema=infer_result_schema,
             )
 
             final = format_output(thread, cfg)

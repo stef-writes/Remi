@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { fmt$, pct, fmtDate } from "@/lib/format";
 import type { ToolCall } from "@/lib/types";
+import { TimeSeriesChart } from "@/components/ui/TimeSeriesChart";
 
 function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
   const w = max > 0 ? Math.min((value / max) * 100, 100) : 0;
@@ -406,6 +407,117 @@ function DashboardCard({ data }: { data: unknown }) {
   );
 }
 
+function TrendsCard({ data }: { data: unknown }) {
+  const d = data as Record<string, unknown>;
+  const direction = String(d.direction ?? "stable");
+  const periods = Array.isArray(d.periods) ? (d.periods as Record<string, unknown>[]) : [];
+  if (!periods.length) return null;
+
+  const sample = periods[0];
+
+  type SeriesCfg = { dataKey: string; color: string; label: string; type?: "area" | "line" };
+  let chartData: Record<string, unknown>[];
+  let series: SeriesCfg[];
+  let title: string;
+  let yTickFormatter: ((v: number) => string) | undefined;
+
+  if ("total_balance" in sample) {
+    title = "Delinquency Trend";
+    chartData = periods.map((p) => ({ period: String(p.period), balance: Number(p.total_balance) }));
+    series = [{ dataKey: "balance", color: "var(--color-error)", label: "Balance" }];
+    yTickFormatter = (v) => `$${(v / 1000).toFixed(0)}k`;
+  } else if ("occupancy_rate" in sample) {
+    title = "Occupancy Trend";
+    chartData = periods.map((p) => ({ period: String(p.period), rate: Number(p.occupancy_rate) * 100 }));
+    series = [{ dataKey: "rate", color: "var(--color-ok)", label: "Occupancy %" }];
+    yTickFormatter = (v) => `${v.toFixed(0)}%`;
+  } else if ("avg_rent" in sample) {
+    title = "Rent Trend";
+    chartData = periods.map((p) => ({ period: String(p.period), avg: Number(p.avg_rent) }));
+    series = [{ dataKey: "avg", color: "var(--color-accent)", label: "Avg Rent" }];
+    yTickFormatter = (v) => `$${v.toFixed(0)}`;
+  } else if ("opened" in sample) {
+    title = "Maintenance Trend";
+    chartData = periods.map((p) => ({ period: String(p.period), opened: Number(p.opened), completed: Number(p.completed) }));
+    series = [
+      { dataKey: "opened", color: "var(--color-warn)", label: "Opened" },
+      { dataKey: "completed", color: "var(--color-ok)", label: "Completed", type: "line" },
+    ];
+  } else {
+    return null;
+  }
+
+  const dirColor =
+    direction === "improving" ? "var(--color-ok)"
+    : direction === "worsening" ? "var(--color-error)"
+    : "var(--color-fg-faint)";
+
+  return (
+    <div className="mt-2">
+      <TimeSeriesChart
+        data={chartData}
+        series={series}
+        xKey="period"
+        height={140}
+        title={title}
+        heroValue={direction}
+        heroColor={dirColor}
+        yTickFormatter={yTickFormatter}
+        xTickFormatter={(v) => (v.length > 7 ? v.slice(0, 7) : v)}
+      />
+    </div>
+  );
+}
+
+function LeasesListCard({ data }: { data: unknown }) {
+  const d = (data as Record<string, unknown>) ?? {};
+  const items = Array.isArray(d.leases)
+    ? d.leases
+    : Array.isArray(d.items)
+      ? d.items
+      : Array.isArray(data)
+        ? data
+        : [];
+  const total = Number(d.total ?? items.length);
+  const rows = (items as Record<string, unknown>[]).slice(0, 6);
+  if (!rows.length) return null;
+
+  return (
+    <div className="mt-2 rounded-xl border border-border bg-surface-raised overflow-hidden">
+      <div className="px-3 py-2 border-b border-border-subtle flex items-center justify-between">
+        <p className="text-[10px] font-semibold text-fg-muted uppercase tracking-widest">Leases</p>
+        <span className="text-[10px] text-fg-faint">{total} total</span>
+      </div>
+      <div className="divide-y divide-border-subtle">
+        {rows.map((l, i) => (
+          <div key={i} className="flex items-center gap-2 px-3 py-1.5">
+            <StatusDot status={String(l.status ?? "active")} />
+            <span className="text-[11px] text-fg-secondary truncate flex-1">
+              {String(l.tenant_name ?? l.tenant ?? "—")}
+            </span>
+            <span className="text-[10px] text-fg-faint truncate max-w-[120px]">
+              {String(l.property_name ?? l.unit_number ?? "")}
+            </span>
+            <span className="text-[10px] font-mono text-fg-muted shrink-0">
+              {fmt$(Number(l.monthly_rent ?? l.rent ?? 0))}
+            </span>
+            {l.end_date && (
+              <span className="text-[10px] font-mono text-fg-ghost shrink-0">
+                {fmtDate(String(l.end_date))}
+              </span>
+            )}
+          </div>
+        ))}
+        {total > rows.length && (
+          <div className="px-3 py-1.5 text-center">
+            <span className="text-[10px] text-fg-faint">+{total - rows.length} more</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GenericResultPreview({ result }: { result: unknown }) {
   if (typeof result !== "string") return null;
   let parsed: Record<string, unknown> | null = null;
@@ -445,6 +557,8 @@ const SCHEMA_COMPONENTS: Record<string, React.ComponentType<{ data: unknown }>> 
   expiring_leases: ExpiringLeasesCard,
   vacancies: VacanciesCard,
   maintenance_list: MaintenanceCard,
+  leases_list: LeasesListCard,
+  trends: TrendsCard,
 };
 
 export function ToolResultCard({ tc }: { tc: ToolCall }) {

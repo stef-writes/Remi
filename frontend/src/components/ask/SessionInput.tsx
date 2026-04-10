@@ -14,6 +14,7 @@ export function SessionInput({
   managers,
   managerId,
   onManagerChange,
+  mode = "ask",
 }: {
   onSend: (text: string) => void;
   streaming: boolean;
@@ -25,6 +26,7 @@ export function SessionInput({
   managers?: ManagerListItem[];
   managerId?: string;
   onManagerChange?: (id: string) => void;
+  mode?: "ask" | "research";
 }) {
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -51,8 +53,29 @@ export function SessionInput({
   const selectedManager = managers?.find((m) => m.id === managerId);
   const placeholders = connected
     ? selectedManager
-      ? [`How is ${selectedManager.name} doing?`, `Any issues with ${selectedManager.name}'s properties?`, "What's their occupancy looking like?"]
-      : ["How's my portfolio looking today?", "Anything I should worry about?", "Which managers are crushing it?", "Are any managers actually doing a good job?"]
+      ? mode === "research"
+        ? [
+            `Write a full performance review for ${selectedManager.name}`,
+            `Analyze delinquency trends across ${selectedManager.name}'s portfolio`,
+            `Generate a lease expiry risk report for ${selectedManager.name}`,
+          ]
+        : [
+            `How is ${selectedManager.name} doing?`,
+            `Any issues with ${selectedManager.name}'s properties?`,
+            "What's their occupancy looking like?",
+          ]
+      : mode === "research"
+        ? [
+            "Write a full delinquency analysis across all managers",
+            "Compare manager performance over the last 90 days",
+            "Which properties carry the highest vacancy risk?",
+          ]
+        : [
+            "How's my portfolio looking today?",
+            "Anything I should worry about?",
+            "Which managers are crushing it?",
+            "Are any managers actually doing a good job?",
+          ]
     : ["Connecting..."];
 
   const [placeholderIdx] = useState(() => Math.floor(Math.random() * placeholders.length));

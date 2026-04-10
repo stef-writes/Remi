@@ -11,11 +11,17 @@ function msgId(): string {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export interface LivePhase {
+  name: string;
+  description: string;
+}
+
 export interface SessionState {
   messages: ChatMessage[];
   liveContent: string;
   liveTools: ToolCall[];
   liveArtifacts: ResearchArtifact[];
+  livePhase: LivePhase | null;
   streaming: boolean;
   error: string | null;
   loaded: boolean;
@@ -27,6 +33,7 @@ function emptySessionState(): SessionState {
     liveContent: "",
     liveTools: [],
     liveArtifacts: [],
+    livePhase: null,
     streaming: false,
     error: null,
     loaded: false,
@@ -308,6 +315,27 @@ export function useSessions(agent: string) {
         updateState(sid, (s) => ({ ...s, liveTools: [...s.liveTools, tc] }));
         break;
       }
+      case "tool_running": {
+        const callId = evt.data.call_id as string;
+        const elapsedS = evt.data.elapsed_s as number;
+        updateState(sid, (s) => ({
+          ...s,
+          liveTools: s.liveTools.map((t) =>
+            t.id === callId ? { ...t, elapsed_s: elapsedS } : t,
+          ),
+        }));
+        break;
+      }
+      case "phase": {
+        updateState(sid, (s) => ({
+          ...s,
+          livePhase: {
+            name: evt.data.phase as string,
+            description: (evt.data.description as string) || "",
+          },
+        }));
+        break;
+      }
       case "tool_result": {
         const callId = evt.data.call_id as string;
         const start = toolTimers.current.get(callId);
@@ -374,6 +402,7 @@ export function useSessions(agent: string) {
             liveTools: [],
             liveContent: "",
             liveArtifacts: [],
+            livePhase: null,
             streaming: false,
           };
         });
@@ -428,10 +457,11 @@ export function useSessions(agent: string) {
             liveContent: "",
             liveTools: [],
             liveArtifacts: [],
+            livePhase: null,
             streaming: false,
           });
         } else {
-          next.set(sid, { ...state, streaming: false, liveContent: "", liveTools: [], liveArtifacts: [] });
+          next.set(sid, { ...state, streaming: false, liveContent: "", liveTools: [], liveArtifacts: [], livePhase: null });
         }
         return next;
       }
@@ -459,6 +489,7 @@ export function useSessions(agent: string) {
       streaming: false,
       liveContent: "",
       liveTools: [],
+      livePhase: null,
     }));
     setSessions((prev) =>
       prev.map((ss) => (ss.id === sid ? { ...ss, streaming: false } : ss)),

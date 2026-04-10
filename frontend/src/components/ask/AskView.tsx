@@ -191,6 +191,7 @@ export function AskView() {
               messages={session!.messages}
               liveContent={session!.liveContent}
               liveTools={session!.liveTools}
+              livePhase={session!.livePhase}
               liveArtifacts={liveArtifacts}
               streaming={session!.streaming}
               showWorkDetails={showWorkDetails}
@@ -220,6 +221,7 @@ export function AskView() {
         managers={managers}
         managerId={managerId}
         onManagerChange={setManagerId}
+        mode={agentMode === "researcher" ? "research" : "ask"}
       />
 
       <SessionSidebar
