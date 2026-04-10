@@ -22,6 +22,7 @@ function toolLabel(name: string): string {
   return TOOL_LABELS[name] || name.replace(/_/g, " ");
 }
 
+// Compact work-log pill shown when "show work" is on — no card here.
 function ToolCallRow({ tc, showDetails }: { tc: ToolCall; showDetails: boolean }) {
   const [open, setOpen] = useState(false);
 
@@ -49,9 +50,6 @@ function ToolCallRow({ tc, showDetails }: { tc: ToolCall; showDetails: boolean }
         )}
       </button>
 
-      {/* Inline result card for recognized schemas */}
-      <ToolResultCard tc={tc} />
-
       {/* Raw JSON toggle — only in work-details mode */}
       {showDetails && open && (
         <div className="ml-5 mt-1 mb-2 rounded-lg bg-surface-raised border border-border p-2.5 space-y-2">
@@ -67,6 +65,21 @@ function ToolCallRow({ tc, showDetails }: { tc: ToolCall; showDetails: boolean }
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Full-width data cards rendered after the prose — these are the primary visual.
+function DataCards({ tools }: { tools: ToolCall[] }) {
+  const cards = tools.filter(
+    (tc) => tc.status === "done" && tc.result_schema && tc.result,
+  );
+  if (!cards.length) return null;
+  return (
+    <div className="mt-3 space-y-3">
+      {cards.map((tc) => (
+        <ToolResultCard key={tc.id} tc={tc} />
+      ))}
     </div>
   );
 }
@@ -191,7 +204,7 @@ export function SessionThread({
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <AnimatePresence initial={false}>
           {messages.map((msg, i) => {
             if (msg.error) {
@@ -241,18 +254,37 @@ export function SessionThread({
                 animate={{ opacity: 1, y: 0 }}
                 className="flex justify-start"
               >
-                <div className="max-w-[90%] space-y-2">
-                  {msg.tools && msg.tools.length > 0 && (
+                <div className="w-full max-w-[90%] space-y-2">
+                  {/* Work log — compact, only when showWorkDetails or while streaming */}
+                  {showWorkDetails && msg.tools && msg.tools.length > 0 && (
                     <div className="pl-0.5 space-y-0">
                       {msg.tools.map((tc) => (
                         <ToolCallRow key={tc.id} tc={tc} showDetails={showWorkDetails} />
                       ))}
                     </div>
                   )}
+                  {!showWorkDetails && msg.tools && msg.tools.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {msg.tools.filter((tc) => tc.status === "done").map((tc) => (
+                        <span key={tc.id} className="inline-flex items-center gap-1 text-[10px] text-fg-ghost">
+                          <svg className="w-2.5 h-2.5 text-ok" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                          {toolLabel(tc.tool)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
-                  <div className="text-sm leading-relaxed text-fg-secondary">
-                    <Markdown content={msg.content} />
-                  </div>
+                  {/* Narrative */}
+                  {msg.content && (
+                    <div className="text-sm leading-relaxed text-fg-secondary">
+                      <Markdown content={msg.content} />
+                    </div>
+                  )}
+
+                  {/* Data cards — primary visual, full-width, after the prose */}
+                  {msg.tools && <DataCards tools={msg.tools} />}
 
                   <div className="flex items-center gap-3 pt-0.5">
                     {msg.usage && msg.usage.total_tokens > 0 && (
@@ -279,9 +311,9 @@ export function SessionThread({
                 </div>
               )}
               <div className="flex items-center gap-2 py-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-warn animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-warn animate-pulse shrink-0" />
                 <span className="text-[13px] text-fg-faint">
-                  {toolLabel(liveTools[liveTools.length - 1].tool)}...
+                  {toolLabel(liveTools[liveTools.length - 1].tool)}
                 </span>
                 {liveTools[liveTools.length - 1].elapsed_s != null && (
                   <span className="text-[10px] text-fg-ghost tabular-nums">
@@ -302,7 +334,7 @@ export function SessionThread({
 
         {streaming && liveContent && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-            <div className="max-w-[90%] space-y-2">
+            <div className="w-full max-w-[90%] space-y-2">
               {showWorkDetails && liveTools.length > 0 && (
                 <div className="pl-0.5 space-y-0">
                   {liveTools.map((tc) => (
@@ -310,10 +342,11 @@ export function SessionThread({
                   ))}
                 </div>
               )}
-              <div className="text-sm leading-relaxed text-fg-secondary">
+              <div className="text-sm leading-relaxed text-fg-secondary streaming-content">
                 <Markdown content={liveContent} />
-                <span className="inline-block w-[2px] h-[16px] bg-fg-faint animate-pulse ml-0.5 align-text-bottom rounded-full" />
               </div>
+              {/* Data cards visible as they arrive during streaming */}
+              <DataCards tools={liveTools} />
             </div>
           </motion.div>
         )}

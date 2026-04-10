@@ -43,7 +43,7 @@ export function PropertiesListView() {
     )
     .sort((a, b) => {
       switch (sort) {
-        case "occupancy": return a.occupancy_rate - b.occupancy_rate;
+        case "occupancy": return b.occupancy_rate - a.occupancy_rate;
         case "revenue": return b.monthly_actual - a.monthly_actual;
         case "name": return a.name.localeCompare(b.name);
         case "ltl": return (b.loss_to_lease ?? 0) - (a.loss_to_lease ?? 0);

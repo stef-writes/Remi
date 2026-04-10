@@ -55,8 +55,8 @@ export function HealthRing({
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold text-fg tracking-tight">{pct(rate)}</span>
-        <span className="text-[9px] text-fg-faint uppercase tracking-widest">{label}</span>
+        <span className="font-bold text-fg tracking-tight" style={{ fontSize: Math.round(size * 0.21) }}>{pct(rate)}</span>
+        <span className="text-fg-faint uppercase tracking-widest" style={{ fontSize: Math.max(7, Math.round(size * 0.085)) }}>{label}</span>
       </div>
     </div>
   );

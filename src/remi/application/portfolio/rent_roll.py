@@ -6,14 +6,13 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from remi.application.core.models import LeaseStatus
+from remi.application.core.models import LeaseStatus, OccupancyStatus, Unit
 from remi.application.core.protocols import PropertyStore
 from remi.application.core.rules import (
     active_lease,
     is_below_market,
     is_maintenance_open,
     is_occupied,
-    is_vacant,
     loss_to_lease,
     pct_below_market,
 )
@@ -25,6 +24,16 @@ from .views import (
     RentRollRow,
     TenantInRentRoll,
 )
+
+
+def _is_unit_occupied(u: Unit, unit_leases: list) -> bool:
+    if is_occupied(unit_leases):
+        return True
+    return u.occupancy_status in (
+        OccupancyStatus.OCCUPIED,
+        OccupancyStatus.NOTICE_RENTED,
+        OccupancyStatus.NOTICE_UNRENTED,
+    )
 
 
 class RentRollResolver:
@@ -80,8 +89,10 @@ class RentRollResolver:
             if current_lease:
                 days_to_expiry = (current_lease.end_date - today).days
 
+            occupied_unit = _is_unit_occupied(unit, unit_leases)
+
             issues: list[str] = []
-            if is_vacant(unit_leases):
+            if not occupied_unit:
                 issues.append("vacant")
             if is_below_market(unit.market_rent, lease_rent):
                 issues.append("below_market")
@@ -95,7 +106,7 @@ class RentRollResolver:
             total_market += unit.market_rent
             total_actual += lease_rent
             total_ltl += loss_to_lease(unit.market_rent, lease_rent)
-            if is_vacant(unit_leases):
+            if not occupied_unit:
                 total_vacancy_loss += unit.market_rent
 
             rows.append(
@@ -106,7 +117,7 @@ class RentRollResolver:
                     bedrooms=unit.bedrooms,
                     bathrooms=unit.bathrooms,
                     sqft=unit.sqft,
-                    status="occupied" if act else "vacant",
+                    status="occupied" if occupied_unit else "vacant",
                     market_rent=float(unit.market_rent),
                     current_rent=float(lease_rent),
                     rent_gap=rent_gap,
@@ -148,12 +159,15 @@ class RentRollResolver:
 
         rows.sort(key=lambda r: len(r.issues), reverse=True)
 
+        occ_count = sum(
+            1 for u in units if _is_unit_occupied(u, leases_by_unit.get(u.id, []))
+        )
         return RentRollResult(
             property_id=property_id,
             property_name=prop.name,
             total_units=len(units),
-            occupied=sum(1 for u in units if is_occupied(leases_by_unit.get(u.id, []))),
-            vacant=sum(1 for u in units if is_vacant(leases_by_unit.get(u.id, []))),
+            occupied=occ_count,
+            vacant=len(units) - occ_count,
             total_market_rent=float(total_market),
             total_actual_rent=float(total_actual),
             total_loss_to_lease=float(total_ltl),

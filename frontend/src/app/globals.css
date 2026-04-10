@@ -484,3 +484,20 @@ body {
   animation: countUp 0.4s ease-out both;
 }
 
+/* ---- Streaming cursor — attaches tight to last character ---- */
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.streaming-content > *:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  background: var(--color-fg-faint);
+  border-radius: 1px;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: cursorBlink 1s step-end infinite;
+}
+

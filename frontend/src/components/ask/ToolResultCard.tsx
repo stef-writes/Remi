@@ -567,14 +567,14 @@ export function ToolResultCard({ tc }: { tc: ToolCall }) {
   const Component = SCHEMA_COMPONENTS[tc.result_schema];
   if (Component) {
     return (
-      <div className="ml-5 anim-fade-up" style={{ animationDelay: "100ms" }}>
+      <div className="anim-fade-up" style={{ animationDelay: "100ms" }}>
         <Component data={tc.result} />
       </div>
     );
   }
 
   return (
-    <div className="ml-5 anim-fade-up" style={{ animationDelay: "100ms" }}>
+    <div className="anim-fade-up" style={{ animationDelay: "100ms" }}>
       <GenericResultPreview result={tc.result} />
     </div>
   );

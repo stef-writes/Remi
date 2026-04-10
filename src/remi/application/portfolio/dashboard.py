@@ -6,8 +6,9 @@ import asyncio
 from datetime import date, timedelta
 from decimal import Decimal
 
+from remi.application.core.models import OccupancyStatus, Unit
 from remi.application.core.protocols import PropertyStore
-from remi.application.core.rules import active_lease, is_occupied, is_vacant, loss_to_lease
+from remi.application.core.rules import active_lease, is_occupied, loss_to_lease
 
 from .properties import property_ids_for_manager
 from .views import (
@@ -25,6 +26,21 @@ def _group_by_unit(leases: list) -> dict[str, list]:
     for le in leases:
         result.setdefault(le.unit_id, []).append(le)
     return result
+
+
+def _is_unit_occupied(u: Unit, unit_leases: list) -> bool:
+    """True when the unit has an active lease OR the rent roll flagged it occupied.
+
+    Matches the logic in managers.py — lease evidence is primary,
+    Unit.occupancy_status from the rent roll is the fallback.
+    """
+    if is_occupied(unit_leases):
+        return True
+    return u.occupancy_status in (
+        OccupancyStatus.OCCUPIED,
+        OccupancyStatus.NOTICE_RENTED,
+        OccupancyStatus.NOTICE_UNRENTED,
+    )
 
 
 class DashboardBuilder:
@@ -70,18 +86,24 @@ class DashboardBuilder:
                 properties=[],
             )
 
-        all_unit_lists, all_lease_lists, all_maint_lists = await asyncio.gather(
-            asyncio.gather(*[self._ps.list_units(property_id=p.id) for p in all_properties]),
-            asyncio.gather(*[self._ps.list_leases(property_id=p.id) for p in all_properties]),
-            asyncio.gather(
-                *[self._ps.list_maintenance_requests(property_id=p.id) for p in all_properties]
-            ),
+        all_unit_lists, all_lease_lists, all_maint_lists, all_obs_lists = (
+            await asyncio.gather(
+                asyncio.gather(*[self._ps.list_units(property_id=p.id) for p in all_properties]),
+                asyncio.gather(*[self._ps.list_leases(property_id=p.id) for p in all_properties]),
+                asyncio.gather(
+                    *[self._ps.list_maintenance_requests(property_id=p.id) for p in all_properties]
+                ),
+                asyncio.gather(
+                    *[self._ps.list_balance_observations(property_id=p.id) for p in all_properties]
+                ),
+            )
         )
 
         managers_list = await self._ps.list_managers()
         mgr_map = {m.id: m for m in managers_list}
 
         prop_overviews: list[PropertyOverview] = []
+        prop_source_idx: list[int] = []  # maps prop_overviews index → all_properties index
         grand_units = 0
         grand_occ = 0
         grand_vac = 0
@@ -94,11 +116,25 @@ class DashboardBuilder:
             unit_list = all_unit_lists[i]
             lease_list = all_lease_lists[i]
             maint_list = all_maint_lists[i]
+            obs_list = all_obs_lists[i]
+
+            known_units = len(unit_list)
+            if known_units == 0:
+                continue
 
             leases_by_unit = _group_by_unit(lease_list)
-            p_units = len(unit_list)
-            p_occ = 0
-            p_vac = 0
+
+            # Confirmed occupants: tenants with an active lease OR a balance observation.
+            lease_tenant_ids: set[str] = {
+                le.tenant_id
+                for le in lease_list
+                if le.tenant_id and active_lease([le]) is not None
+            }
+            balance_tenant_ids: set[str] = {obs.tenant_id for obs in obs_list}
+            confirmed_count = len(lease_tenant_ids | balance_tenant_ids)
+
+            p_units = max(known_units, prop.unit_count or 0, confirmed_count)
+            p_occ_from_units = 0
             p_rent = Decimal("0")
             p_market = Decimal("0")
             p_ltl = Decimal("0")
@@ -110,15 +146,17 @@ class DashboardBuilder:
                 unit_leases = leases_by_unit.get(u.id, [])
                 act = active_lease(unit_leases)
                 lease_rent = act.monthly_rent if act else Decimal("0")
-                if is_occupied(unit_leases):
-                    p_occ += 1
-                elif is_vacant(unit_leases):
-                    p_vac += 1
+                if _is_unit_occupied(u, unit_leases):
+                    p_occ_from_units += 1
                 p_rent += lease_rent
                 p_market += u.market_rent
                 p_ltl += loss_to_lease(u.market_rent, lease_rent)
 
+            p_occ = min(max(p_occ_from_units, confirmed_count), p_units)
+            p_vac = p_units - p_occ
+
             mgr = mgr_map.get(prop.manager_id) if prop.manager_id else None
+            ov_idx = len(prop_overviews)
             prop_overviews.append(
                 PropertyOverview(
                     property_id=prop.id,
@@ -136,6 +174,7 @@ class DashboardBuilder:
                     open_maintenance=p_open_maint,
                 )
             )
+            prop_source_idx.append(i)
 
             grand_units += p_units
             grand_occ += p_occ
@@ -143,7 +182,7 @@ class DashboardBuilder:
             grand_rent += p_rent
             grand_market += p_market
             grand_ltl += p_ltl
-            mgr_accum.setdefault(prop.manager_id, []).append(i)
+            mgr_accum.setdefault(prop.manager_id, []).append(ov_idx)
 
         mgr_overviews: list[ManagerOverview] = []
         for mgr_id_key, indices in mgr_accum.items():
@@ -162,7 +201,8 @@ class DashboardBuilder:
             m_open_maint = sum(p.open_maintenance for p in po)
             m_expiring = 0
             for idx in indices:
-                for le in all_lease_lists[idx]:
+                src = prop_source_idx[idx]
+                for le in all_lease_lists[src]:
                     if le.status.value == "active" and le.end_date <= deadline_90:
                         m_expiring += 1
 
@@ -191,7 +231,7 @@ class DashboardBuilder:
         mgr_overviews.sort(key=lambda m: m.metrics.total_units, reverse=True)
 
         return DashboardOverview(
-            total_properties=len(all_properties),
+            total_properties=len(prop_overviews),
             total_units=grand_units,
             occupied=grand_occ,
             vacant=grand_vac,

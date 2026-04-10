@@ -1011,9 +1011,28 @@ def _split_address(raw: str) -> tuple[str, str, str, str]:
     return (addr, "", "", "")
 
 
+_HOUSE_NUMBER_ONLY_RE = re.compile(r"^[\d\-/]+$")
+
+
 def property_name(address: str) -> str:
-    street, _city, _state, _zipcode = _split_address(address)
-    return street if street else address.strip()
+    street, city, _state, _zipcode = _split_address(address)
+    if not street:
+        return address.strip()
+    clean = street.rstrip(",").strip()
+    # When the address parser splits "1307, Mississippi Pittsburgh, PA 15216",
+    # the street becomes just "1307" and "Mississippi" lands in the city field.
+    # Recombine so the property gets a usable name like "1307 Mississippi".
+    if _HOUSE_NUMBER_ONLY_RE.match(clean) and city:
+        city_words = city.split()
+        # Take words until we hit a likely city name (capitalized, not a
+        # direction abbreviation like "S" or "E").
+        street_parts = [clean]
+        for w in city_words:
+            street_parts.append(w)
+            if len(w) > 2:
+                break
+        return " ".join(street_parts)
+    return street
 
 
 def parse_address(raw: str) -> Address:
