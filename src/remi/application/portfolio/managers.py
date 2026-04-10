@@ -7,6 +7,7 @@ from datetime import date
 from decimal import Decimal
 
 from remi.application.core.models import (
+    BalanceObservation,
     Lease,
     LeaseStatus,
     MaintenanceRequest,
@@ -183,32 +184,50 @@ class ManagerResolver:
 
         async def _load_prop(
             prop_id: str,
-        ) -> tuple[list[Unit], list[Lease], list[MaintenanceRequest]]:
-            u, le, m = await asyncio.gather(
+        ) -> tuple[list[Unit], list[Lease], list[MaintenanceRequest], list[BalanceObservation]]:
+            u, le, m, obs = await asyncio.gather(
                 self._ps.list_units(property_id=prop_id),
                 self._ps.list_leases(property_id=prop_id),
                 self._ps.list_maintenance_requests(property_id=prop_id),
+                self._ps.list_balance_observations(property_id=prop_id),
             )
-            return u, le, m
+            return u, le, m, obs
 
         prop_data = await asyncio.gather(*[_load_prop(prop.id) for prop in all_properties])
 
-        for prop, (units, leases, maint) in zip(all_properties, prop_data, strict=True):
+        for prop, (units, leases, maint, obs_list) in zip(all_properties, prop_data, strict=True):
             property_count += 1
             leases_by_unit = _group_by_unit(leases)
 
-            # Use the declared unit_count from the property directory as the
-            # authoritative denominator when available. For multi-family
-            # properties we may have fewer Unit records than actual units
-            # (the directory lists "8 units" but only 3 appear in reports).
-            # The gap is real vacancy we know exists — count it as vacant.
-            known_units = len(units)
-            p_units = max(known_units, prop.unit_count or 0)
+            # Confirmed occupants from delinquency and lease records.
+            # Each distinct tenant with a BalanceObservation or active lease is
+            # a known occupant. Union the two sets to avoid double-counting.
+            lease_tenant_ids: set[str] = {
+                le.tenant_id
+                for le in leases
+                if le.tenant_id and active_lease([le]) is not None
+            }
+            balance_tenant_ids: set[str] = {obs.tenant_id for obs in obs_list}
+            confirmed_tenant_ids = lease_tenant_ids | balance_tenant_ids
+            confirmed_count = len(confirmed_tenant_ids)
 
-            p_occ = sum(
+            # Unit denominator: declared count beats known records beats confirmed
+            # occupants. When we have no unit records and no declared count but we
+            # DO have confirmed tenants (delinquency-only data), the tenant count
+            # is the best available lower bound for total units at this property.
+            known_units = len(units)
+            p_units = max(known_units, prop.unit_count or 0, confirmed_count)
+
+            # Unit-level occupancy from lease records and rent-roll status.
+            p_occ_from_units = sum(
                 1 for u in units
                 if _is_unit_occupied(u, leases_by_unit.get(u.id, []))
             )
+
+            # Use whichever signal gives the higher confirmed-occupied count,
+            # capped at p_units so occupied never exceeds total.
+            p_occ = min(max(p_occ_from_units, confirmed_count), p_units)
+
             # Vacant = declared total minus what we know is occupied.
             # Includes both known-vacant Unit records AND declared-but-unseen
             # units (directory count > record count = real vacancy gap).
@@ -339,25 +358,27 @@ class ManagerResolver:
         property_summaries.sort(key=lambda p: p.issue_count, reverse=True)
         top_issues.sort(key=lambda i: len(i.issues), reverse=True)
 
-        all_property_ids = {p.property_id for p in property_summaries}
+        # Flatten per-property data already in memory — no extra I/O needed.
+        pairs = zip(all_properties, prop_data, strict=True)
+        all_mgr_units: list[Unit] = []
+        all_mgr_leases: list[Lease] = []
+        all_mgr_maint: list[MaintenanceRequest] = []
+        all_mgr_obs: list[BalanceObservation] = []
+        for _, (units, leases, maint, obs_list) in pairs:
+            all_mgr_units.extend(units)
+            all_mgr_leases.extend(leases)
+            all_mgr_maint.extend(maint)
+            all_mgr_obs.extend(obs_list)
 
-        all_obs = await self._ps.list_balance_observations()
-        latest_obs = _latest_obs_by_tenant(all_obs)
+        latest_obs = _latest_obs_by_tenant(all_mgr_obs)
         delinquent_count = 0
         delinquent_balance = Decimal("0")
         mgr_obs: list[object] = []
         for obs in latest_obs.values():
-            if obs.property_id in all_property_ids:  # type: ignore[union-attr]
-                mgr_obs.append(obs)
-                if obs.balance_total > 0:  # type: ignore[union-attr]
-                    delinquent_count += 1
-                    delinquent_balance += obs.balance_total  # type: ignore[union-attr]
-
-        # Flatten all units, leases, and maintenance across all properties for
-        # coverage inference. prop_data is already in memory from the gather above.
-        all_mgr_units = [u for _, (units, _, _) in zip(all_properties, prop_data) for u in units]
-        all_mgr_leases = [le for _, (_, leases, _) in zip(all_properties, prop_data) for le in leases]
-        all_mgr_maint  = [m for _, (_, _, maint) in zip(all_properties, prop_data) for m in maint]
+            mgr_obs.append(obs)
+            if obs.balance_total > 0:  # type: ignore[union-attr]
+                delinquent_count += 1
+                delinquent_balance += obs.balance_total  # type: ignore[union-attr]
 
         coverage = _compute_coverage(
             all_units=all_mgr_units,
